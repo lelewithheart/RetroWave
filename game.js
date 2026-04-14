@@ -128,6 +128,18 @@ const COLOR = {
     exploder:    "#ff8800",
 };
 
+const BIOMES = [
+    { name: "Neon District", bg: "#101226", grid: "#1a2448", border: "#33ccff" },
+    { name: "Acid Grid", bg: "#131b17", grid: "#1d3a2c", border: "#66ff99" },
+    { name: "Crimson Core", bg: "#1d1016", grid: "#3a1d28", border: "#ff6688" },
+];
+
+const CHALLENGE_MODES = [
+    { id: "none", label: "No Challenge", desc: "Standard run" },
+    { id: "rush", label: "Rush", desc: "Faster enemies, more shards" },
+    { id: "glass", label: "Glass Cannon", desc: "Low HP, high damage" },
+];
+
 // ─────────────────────────────────────────────
 // §2  CANVAS & CONTEXT SETUP
 // ─────────────────────────────────────────────
@@ -195,6 +207,36 @@ function formatTime(totalSeconds) {
     const mins = Math.floor(totalSeconds / 60);
     const secs = Math.floor(totalSeconds % 60);
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function dateKeyLocal(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
+
+function dateFromKey(key) {
+    if (!key || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+    const [y, m, d] = key.split("-").map(Number);
+    return new Date(y, m - 1, d);
+}
+
+function isYesterdayKey(key, currentKey) {
+    const a = dateFromKey(key);
+    const b = dateFromKey(currentKey);
+    if (!a || !b) return false;
+    const ms = b.getTime() - a.getTime();
+    return ms > 0 && ms <= 24 * 60 * 60 * 1000 + 2000;
+}
+
+function hashString(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return Math.abs(h >>> 0);
 }
 
 /** True when a mobile device is held in portrait orientation */
@@ -670,6 +712,233 @@ const HighScores = (() => {
 })();
 
 // ─────────────────────────────────────────────
+// §3d  PERSISTENT PROGRESSION (meta, skins, daily)
+// ─────────────────────────────────────────────
+
+const Progression = (() => {
+    const STORAGE_KEY = "roguewave_profile_v2";
+    const META_MAX = 8;
+    const SKINS = {
+        default: { id: "default", name: "Classic Cyan", player: "#33ccff", glow: "rgba(51,204,255,0.25)", cost: 0 },
+        surge:   { id: "surge",   name: "Lime Surge",  player: "#66ff99", glow: "rgba(102,255,153,0.25)", cost: 140 },
+        ember:   { id: "ember",   name: "Ember Pulse", player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140 },
+    };
+
+    let data = {
+        shards: 0,
+        meta: { hp: 0, dmg: 0, xp: 0 },
+        skins: { unlocked: ["default"], selected: "default" },
+        daily: {
+            key: "",
+            missionId: "",
+            target: 0,
+            progress: 0,
+            completed: false,
+            rewardClaimed: false,
+            streak: 0,
+            lastCompletedKey: "",
+        },
+    };
+
+    const dailyMissionPool = [
+        { id: "kill_120", label: "Eliminate 120 enemies", type: "kills", target: 120 },
+        { id: "wave_8",   label: "Reach Wave 8",          type: "wave",  target: 8 },
+        { id: "survive_8",label: "Survive 8 minutes",      type: "time",  target: 8 * 60 },
+    ];
+
+    function cloneData() {
+        return JSON.parse(JSON.stringify(data));
+    }
+
+    function currentMission() {
+        return dailyMissionPool.find(m => m.id === data.daily.missionId) || dailyMissionPool[0];
+    }
+
+    function ensureDaily() {
+        const today = dateKeyLocal();
+        if (data.daily.key === today && data.daily.missionId) return;
+
+        const seed = hashString(today);
+        const mission = dailyMissionPool[seed % dailyMissionPool.length];
+
+        data.daily.key = today;
+        data.daily.missionId = mission.id;
+        data.daily.target = mission.target;
+        data.daily.progress = 0;
+        data.daily.completed = false;
+        data.daily.rewardClaimed = false;
+    }
+
+    function normalize(loaded) {
+        const base = cloneData();
+        if (!loaded || typeof loaded !== "object") return base;
+        base.shards = Number.isFinite(loaded.shards) ? Math.max(0, Math.floor(loaded.shards)) : 0;
+
+        const lm = loaded.meta || {};
+        base.meta.hp = clamp(Math.floor(lm.hp || 0), 0, META_MAX);
+        base.meta.dmg = clamp(Math.floor(lm.dmg || 0), 0, META_MAX);
+        base.meta.xp = clamp(Math.floor(lm.xp || 0), 0, META_MAX);
+
+        const ls = loaded.skins || {};
+        const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
+        if (!unlocked.includes("default")) unlocked.push("default");
+        base.skins.unlocked = unlocked;
+        base.skins.selected = unlocked.includes(ls.selected) ? ls.selected : "default";
+
+        const ld = loaded.daily || {};
+        base.daily.key = typeof ld.key === "string" ? ld.key : "";
+        base.daily.missionId = typeof ld.missionId === "string" ? ld.missionId : "";
+        base.daily.target = Number.isFinite(ld.target) ? Math.max(1, Math.floor(ld.target)) : 0;
+        base.daily.progress = Number.isFinite(ld.progress) ? Math.max(0, Math.floor(ld.progress)) : 0;
+        base.daily.completed = !!ld.completed;
+        base.daily.rewardClaimed = !!ld.rewardClaimed;
+        base.daily.streak = Number.isFinite(ld.streak) ? Math.max(0, Math.floor(ld.streak)) : 0;
+        base.daily.lastCompletedKey = typeof ld.lastCompletedKey === "string" ? ld.lastCompletedKey : "";
+
+        return base;
+    }
+
+    async function init() {
+        const raw = await CrazyGamesSDK.loadData(STORAGE_KEY);
+        if (raw) {
+            try { data = normalize(JSON.parse(raw)); } catch (e) { data = normalize(null); }
+        }
+        ensureDaily();
+        save();
+    }
+
+    function save() {
+        void CrazyGamesSDK.saveData(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    function get() {
+        ensureDaily();
+        return cloneData();
+    }
+
+    function getDailyView() {
+        ensureDaily();
+        const mission = currentMission();
+        return {
+            label: mission.label,
+            progress: Math.min(data.daily.progress, data.daily.target),
+            target: data.daily.target,
+            completed: data.daily.completed,
+            streak: data.daily.streak,
+        };
+    }
+
+    function addShards(amount) {
+        if (!Number.isFinite(amount) || amount <= 0) return;
+        data.shards += Math.floor(amount);
+        save();
+    }
+
+    function buyMeta(type) {
+        if (!(type in data.meta)) return { ok: false, reason: "unknown" };
+        const level = data.meta[type];
+        if (level >= META_MAX) return { ok: false, reason: "max" };
+        const cost = 25 + level * 25;
+        if (data.shards < cost) return { ok: false, reason: "shards" };
+        data.shards -= cost;
+        data.meta[type]++;
+        save();
+        return { ok: true };
+    }
+
+    function skinInfo(id) {
+        return SKINS[id] || SKINS.default;
+    }
+
+    function unlockOrSelectSkin(id) {
+        const skin = SKINS[id];
+        if (!skin) return { ok: false, reason: "unknown" };
+        if (!data.skins.unlocked.includes(id)) {
+            if (data.shards < skin.cost) return { ok: false, reason: "shards" };
+            data.shards -= skin.cost;
+            data.skins.unlocked.push(id);
+        }
+        data.skins.selected = id;
+        save();
+        return { ok: true };
+    }
+
+    function getSkinCatalog() {
+        const unlocked = new Set(data.skins.unlocked);
+        return Object.values(SKINS).map(s => ({ ...s, unlocked: unlocked.has(s.id), selected: data.skins.selected === s.id }));
+    }
+
+    function getSelectedSkin() {
+        return skinInfo(data.skins.selected);
+    }
+
+    function applyMetaToPlayer(player) {
+        player.maxHp += data.meta.hp * 10;
+        player.hp = player.maxHp;
+        player.damage += data.meta.dmg * 2;
+        player.xpGainMult *= 1 + data.meta.xp * 0.10;
+    }
+
+    function registerRun(kills, wave, timePlayedSec) {
+        ensureDaily();
+        const mission = currentMission();
+        if (!data.daily.completed) {
+            if (mission.type === "kills") {
+                data.daily.progress += Math.max(0, Math.floor(kills));
+            } else if (mission.type === "wave") {
+                data.daily.progress = Math.max(data.daily.progress, Math.floor(wave));
+            } else {
+                data.daily.progress += Math.max(0, Math.floor(timePlayedSec));
+            }
+            if (data.daily.progress >= data.daily.target) {
+                data.daily.completed = true;
+            }
+        }
+
+        let dailyReward = 0;
+        if (data.daily.completed && !data.daily.rewardClaimed) {
+            const today = data.daily.key;
+            if (isYesterdayKey(data.daily.lastCompletedKey, today)) {
+                data.daily.streak += 1;
+            } else {
+                data.daily.streak = 1;
+            }
+            data.daily.lastCompletedKey = today;
+            data.daily.rewardClaimed = true;
+            dailyReward = 30 + Math.min(20, data.daily.streak * 2);
+            data.shards += dailyReward;
+        }
+
+        save();
+        return { dailyReward };
+    }
+
+    function metaLevel(type) {
+        return data.meta[type] || 0;
+    }
+
+    function metaCost(type) {
+        const lvl = metaLevel(type);
+        return lvl >= META_MAX ? null : 25 + lvl * 25;
+    }
+
+    return {
+        init,
+        get,
+        getDailyView,
+        addShards,
+        buyMeta,
+        metaLevel,
+        metaCost,
+        getSkinCatalog,
+        getSelectedSkin,
+        unlockOrSelectSkin,
+        applyMetaToPlayer,
+        registerRun,
+    };
+})();
+
+// ─────────────────────────────────────────────
 // §4  INPUT MANAGER  (event.code based)
 // ─────────────────────────────────────────────
 
@@ -1088,6 +1357,11 @@ class Player extends Entity {
             frostNova:    { level: 0, timer: 0 },
             flameTrail:   { level: 0, timer: 0, lastX: 0, lastY: 0 },
         };
+
+        const skin = Progression.getSelectedSkin();
+        this.skinColor = skin.player;
+        this.skinGlow = skin.glow;
+        Progression.applyMetaToPlayer(this);
     }
 
     update(dt) {
@@ -1277,14 +1551,14 @@ class Player extends Entity {
         // Glow
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
-        ctx.fillStyle = COLOR.playerGlow;
+        ctx.fillStyle = this.skinGlow;
         ctx.fill();
 
         // Body
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         const flash = this.invTimer > 0 && Math.floor(this.invTimer * 20) % 2;
-        ctx.fillStyle = flash ? "#ffffff" : COLOR.player;
+        ctx.fillStyle = flash ? "#ffffff" : this.skinColor;
         ctx.fill();
         ctx.lineWidth = 2;
         ctx.strokeStyle = "#ffffff";
@@ -2105,6 +2379,7 @@ const Settings = {
     musicEnabled:  true,
     shakeEnabled:  true,
     gameMode:      "normal",    // "normal" | "easy" | "hard"
+    challengeMode: "none",      // "none" | "rush" | "glass"
 };
 
 // ─────────────────────────────────────────────
@@ -2181,6 +2456,12 @@ const game = {
     killCount: 0,
     timePlayed: 0,
     lastHighScoreRank: 0,  // rank achieved on last game over (0 = not a high score)
+    lastRunShardGain: 0,
+    lastDailyReward: 0,
+
+    // Run modifiers
+    enemySpeedMult: 1,
+    shardRewardMult: 1,
 
     // ────── INITIALISE ──────
 
@@ -2220,6 +2501,26 @@ const game = {
         this.killCount = 0;
         this.timePlayed = 0;
         this.lastHighScoreRank = 0;
+        this.lastRunShardGain = 0;
+        this.lastDailyReward = 0;
+        this.enemySpeedMult = 1;
+        this.shardRewardMult = 1;
+
+        if (Settings.challengeMode === "rush") {
+            this.enemySpeedMult = 1.18;
+            this.shardRewardMult = 1.45;
+        } else if (Settings.challengeMode === "glass") {
+            this.shardRewardMult = 1.55;
+            this.player.maxHp = Math.floor(this.player.maxHp * 0.62);
+            this.player.hp = this.player.maxHp;
+            this.player.damage = Math.floor(this.player.damage * 1.45);
+        }
+    },
+
+    currentBiome() {
+        if (this.wave >= 15) return BIOMES[2];
+        if (this.wave >= 8) return BIOMES[1];
+        return BIOMES[0];
     },
 
     // ────── GAME LOOP ──────
@@ -2238,7 +2539,9 @@ const game = {
 
     draw() {
         // Clear
-        ctx.fillStyle = COLOR.bg;
+        ctx.fillStyle = (this.state === STATE.GAMEPLAY || this.state === STATE.UPGRADE_SCREEN || this.state === STATE.GAME_OVER)
+            ? this.currentBiome().bg
+            : COLOR.bg;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
         switch (this.state) {
@@ -2265,11 +2568,20 @@ const game = {
         if (Input.just("Enter") || Input.just("Space")) {
             this.startGame();
         }
+
+        const catalog = Progression.getSkinCatalog();
+        for (const skin of catalog) {
+            if (Input.just(`Digit${catalog.indexOf(skin) + 1}`)) {
+                Progression.unlockOrSelectSkin(skin.id);
+            }
+        }
     },
 
     drawStartMenu() {
         const portrait = isPortraitMobile();
         const compactMobile = portrait;
+        const profile = Progression.get();
+        const daily = Progression.getDailyView();
 
         // Title
         ctx.fillStyle = COLOR.accent;
@@ -2335,16 +2647,48 @@ const game = {
             }
         }
 
+        // Challenge selector
+        const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 14 : my + 60;
+        ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.textAlign = "center";
+        ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 8);
+        const cW = compactMobile ? 260 : 150;
+        const cH = compactMobile ? 34 : 38;
+        const cGap = 8;
+        const cTotal = compactMobile ? cW : CHALLENGE_MODES.length * cW + (CHALLENGE_MODES.length - 1) * cGap;
+        const cStartX = CANVAS_W / 2 - cTotal / 2;
+        for (let i = 0; i < CHALLENGE_MODES.length; i++) {
+            const cm = CHALLENGE_MODES[i];
+            const cx = compactMobile ? cStartX : cStartX + i * (cW + cGap);
+            const cy = compactMobile ? cY + i * (cH + 7) : cY;
+            const selected = Settings.challengeMode === cm.id;
+            const hov = Mouse.inRect(cx, cy, cW, cH);
+            drawRoundRect(cx, cy, cW, cH, 8);
+            ctx.fillStyle = selected ? "rgba(102,255,153,0.85)" : (hov ? "rgba(102,255,153,0.2)" : "rgba(255,255,255,0.06)");
+            ctx.fill();
+            ctx.strokeStyle = selected ? "#66ff99" : "#355";
+            ctx.lineWidth = selected ? 2 : 1.2;
+            ctx.stroke();
+            ctx.fillStyle = selected ? "#000" : COLOR.text;
+            ctx.font = compactMobile ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 13px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(cm.label, cx + cW / 2, cy + cH / 2 - 5);
+            ctx.fillStyle = selected ? "#001b10" : COLOR.textDim;
+            ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(cm.desc, cx + cW / 2, cy + cH / 2 + 8);
+            if (hov && Mouse.clicked) Settings.challengeMode = cm.id;
+        }
+
         // Play button
         const bw = compactMobile ? 260 : 220, bh = compactMobile ? 46 : 50;
-        const bx = CANVAS_W / 2 - bw / 2, by = compactMobile ? CANVAS_H / 2 + 120 : CANVAS_H / 2 + 50;
+        const bx = CANVAS_W / 2 - bw / 2, by = compactMobile ? CANVAS_H / 2 + 188 : CANVAS_H / 2 + 115;
         const hovered = Mouse.inRect(bx, by, bw, bh);
         if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
             this.startGame();
         }
 
         // Settings button
-        const sy = compactMobile ? CANVAS_H / 2 + 176 : CANVAS_H / 2 + 114;
+        const sy = compactMobile ? CANVAS_H / 2 + 244 : CANVAS_H / 2 + 179;
         const sHover = Mouse.inRect(bx, sy, bw, bh);
         if (drawButton("⚙  SETTINGS", bx, sy, bw, bh, sHover)) {
             this.state = STATE.SETTINGS;
@@ -2359,6 +2703,113 @@ const game = {
         if (drawButton("📜  CHANGELOGS", logBtnX, logBtnY, logBtnW, logBtnH, logBtnHover)) {
             this.state = STATE.CHANGELOGS;
         }
+
+        // Meta progression panel
+        const mpX = 24;
+        const mpY = compactMobile ? 42 : 90;
+        const mpW = compactMobile ? 270 : 290;
+        const mpH = compactMobile ? 206 : 232;
+        drawRoundRect(mpX, mpY, mpW, mpH, 10);
+        ctx.fillStyle = "rgba(8, 10, 22, 0.92)";
+        ctx.fill();
+        ctx.strokeStyle = "#66ff99";
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.fillStyle = "#66ff99";
+        ctx.font = "bold 15px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`◆ SHARDS: ${profile.shards}`, mpX + 12, mpY + 20);
+
+        const metaRows = [
+            { key: "hp", label: "Vital Core", bonus: "+10 max HP" },
+            { key: "dmg", label: "Pulse Cannon", bonus: "+2 base damage" },
+            { key: "xp", label: "Data Magnet", bonus: "+10% XP gain" },
+        ];
+        for (let i = 0; i < metaRows.length; i++) {
+            const row = metaRows[i];
+            const ry = mpY + 34 + i * 52;
+            const level = Progression.metaLevel(row.key);
+            const cost = Progression.metaCost(row.key);
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(`${row.label}  Lv.${level}/8`, mpX + 12, ry);
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(row.bonus, mpX + 12, ry + 16);
+
+            const ubW = 108, ubH = 28;
+            const ubX = mpX + mpW - ubW - 10, ubY = ry - 16;
+            const hov = Mouse.inRect(ubX, ubY, ubW, ubH);
+            drawRoundRect(ubX, ubY, ubW, ubH, 6);
+            const locked = cost == null;
+            ctx.fillStyle = locked ? "rgba(120,120,120,0.28)" : (hov ? "rgba(102,255,153,0.25)" : "rgba(255,255,255,0.08)");
+            ctx.fill();
+            ctx.strokeStyle = locked ? "#666" : "#66ff99";
+            ctx.lineWidth = 1.1;
+            ctx.stroke();
+            ctx.fillStyle = locked ? "#aaa" : COLOR.text;
+            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(locked ? "MAX" : `UPGRADE ${cost}`, ubX + ubW / 2, ubY + ubH / 2 + 1);
+            if (!locked && hov && Mouse.clicked) {
+                Progression.buyMeta(row.key);
+            }
+        }
+
+        // Skin bar
+        const skins = Progression.getSkinCatalog();
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("SKINS", mpX + 12, mpY + mpH - 64);
+        const sw = 84, sh = 48, sGap = 8;
+        for (let i = 0; i < skins.length; i++) {
+            const s = skins[i];
+            const sx = mpX + 12 + i * (sw + sGap);
+            const sy = mpY + mpH - 56;
+            const hov = Mouse.inRect(sx, sy, sw, sh);
+            drawRoundRect(sx, sy, sw, sh, 7);
+            ctx.fillStyle = s.selected ? "rgba(51,204,255,0.28)" : (hov ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.06)");
+            ctx.fill();
+            ctx.strokeStyle = s.selected ? COLOR.accent : "#556";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.fillStyle = s.player;
+            ctx.beginPath();
+            ctx.arc(sx + 16, sy + 16, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText(s.name.split(" ")[0], sx + 28, sy + 14);
+            ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
+            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Select") : `${s.cost} shards`, sx + 28, sy + 28);
+            if (hov && Mouse.clicked) {
+                Progression.unlockOrSelectSkin(s.id);
+            }
+        }
+
+        // Daily panel
+        const dpW = compactMobile ? 260 : 250;
+        const dpH = compactMobile ? 90 : 102;
+        const dpX = CANVAS_W - dpW - 16;
+        const dpY = compactMobile ? CANVAS_H - dpH - 14 : 58;
+        drawRoundRect(dpX, dpY, dpW, dpH, 9);
+        ctx.fillStyle = "rgba(16,8,24,0.92)";
+        ctx.fill();
+        ctx.strokeStyle = "#ffcc66";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = "#ffcc66";
+        ctx.textAlign = "left";
+        ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`Daily: ${daily.label}`, dpX + 10, dpY + 20);
+        ctx.fillStyle = daily.completed ? "#66ff99" : COLOR.text;
+        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`${daily.progress} / ${daily.target}${daily.completed ? "  COMPLETED" : ""}`, dpX + 10, dpY + 42);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.fillText(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"}`, dpX + 10, dpY + 62);
+        ctx.fillText("Complete to earn bonus shards", dpX + 10, dpY + 80);
 
         // High Scores panel (right side) – per-mode
         const scores = HighScores.getAll();
@@ -2621,6 +3072,7 @@ const game = {
             Audio.stopMusic();
             Audio.sfxGameOver();
             this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed);
+            this.finalizeRun(false);
             if (this.lastHighScoreRank === 1) {
                 Audio.sfxNewHighScore();
                 CrazyGamesSDK.happyTime();
@@ -2644,7 +3096,7 @@ const game = {
         this.drawGrid();
 
         // World border
-        ctx.strokeStyle = COLOR.accent;
+        ctx.strokeStyle = this.currentBiome().border;
         ctx.lineWidth = 3;
         ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
 
@@ -2729,10 +3181,11 @@ const game = {
     },
 
     drawGrid() {
+        const biome = this.currentBiome();
         const gs = 80;
         const sx = Math.floor(this.camera.x / gs) * gs;
         const sy = Math.floor(this.camera.y / gs) * gs;
-        ctx.strokeStyle = COLOR.grid;
+        ctx.strokeStyle = biome.grid;
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let x = sx; x < this.camera.x + CANVAS_W + gs; x += gs) {
@@ -2968,7 +3421,7 @@ const game = {
             const by = clamp(this.camera.y - 120, 100, WORLD_H - 100);
             const boss = new Enemy(bx, by,
                 Math.floor(ENEMY_BASE_HP * hpMult),
-                ENEMY_BASE_SPEED * spdMult,
+                ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult,
                 undefined, bossType);
             boss.contactDamage = Math.floor(boss.contactDamage * dmgMult);
             this.enemies.push(boss);
@@ -3018,7 +3471,7 @@ const game = {
         ey = clamp(ey, 0, WORLD_H);
 
         const hp = Math.floor(ENEMY_BASE_HP * hpMult);
-        const spd = ENEMY_BASE_SPEED * spdMult;
+        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult;
 
         // Choose type
         let type = "normal";
@@ -3046,6 +3499,15 @@ const game = {
             this.pendingBonusUpgrade = true;
             this.pendingBossType = enemy.type;
         }
+    },
+
+    finalizeRun(won) {
+        const baseShards = Math.floor(this.killCount * 0.45 + this.wave * 3 + (won ? 35 : 0));
+        const gained = Math.max(5, Math.floor(baseShards * this.shardRewardMult));
+        Progression.addShards(gained);
+        const dailyResult = Progression.registerRun(this.killCount, this.wave, this.timePlayed);
+        this.lastRunShardGain = gained;
+        this.lastDailyReward = dailyResult.dailyReward;
     },
 
     // ────── SPAWNERS ──────
@@ -3361,13 +3823,15 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "16px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`Time survived: ${formatTime(this.timePlayed)}`, CANVAS_W / 2, CANVAS_H / 2 - 18);
+        ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
+            CANVAS_W / 2, CANVAS_H / 2 + 6);
 
         // Best score comparison
         const best = HighScores.getBest();
         if (best && this.lastHighScoreRank !== 1) {
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(`Best: Wave ${best.wave}  •  ☠${best.kills}  •  ${formatTime(best.time)}`, CANVAS_W / 2, CANVAS_H / 2 + 2);
+            ctx.fillText(`Best: Wave ${best.wave}  •  ☠${best.kills}  •  ${formatTime(best.time)}`, CANVAS_W / 2, CANVAS_H / 2 + 26);
         }
 
         const bw = 220, bh = 48;
@@ -3427,6 +3891,7 @@ const game = {
         CrazyGamesSDK.happyTime();
         CrazyGamesSDK.gameplayStop();
         this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, true);
+        this.finalizeRun(true);
         CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, true);
     },
 
@@ -3471,6 +3936,8 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "15px 'Segoe UI', Arial, sans-serif";
         ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, CANVAS_H / 2 + 2);
+        ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
+            CANVAS_W / 2, CANVAS_H / 2 + 24);
 
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
@@ -3547,6 +4014,7 @@ function mainLoop(timestamp) {
 // ────── BOOT ──────
 async function bootGame() {
     await loadChangelogs();
+    await Progression.init();
     game.init();
     lastTime = performance.now();
     requestAnimationFrame(mainLoop);
