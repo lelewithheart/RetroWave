@@ -79,9 +79,6 @@ const DAMAGE_NUMBER_RISE_SPEED = 60;
 // Kill combo
 const COMBO_TIMEOUT = 1.5;            // seconds until combo resets
 
-// Damage number thresholds
-const CRIT_DMG_HIGHLIGHT_RATIO = 0.2; // highlight as crit if damage > this fraction of max HP
-
 // ── Performance caps ──
 const MAX_PARTICLES = 150;
 const MAX_ENEMIES = 80;
@@ -2023,11 +2020,10 @@ class Enemy extends Entity {
         }
     }
 
-    takeDamage(amount) {
+    takeDamage(amount, isCrit) {
         this.hp -= amount;
         this.hitFlash = 0.1;
         // Spawn damage number
-        const isCrit = amount > (this.maxHp * CRIT_DMG_HIGHLIGHT_RATIO);
         const color = isCrit ? "#ff4444" : "#ffffff";
         game.spawnDamageNumber(this.x, this.y - this.radius, amount, color, isCrit);
         if (this.hp <= 0) {
@@ -3055,7 +3051,7 @@ const game = {
         const my = uiTop;
 
         if (!compactMobile) {
-            drawRoundRect(centerX, 166, centerW, 240, 12);
+            drawRoundRect(centerX, 166, centerW, 290, 12);
             ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
             ctx.fill();
             ctx.strokeStyle = "rgba(102,204,255,0.35)";
@@ -3135,16 +3131,15 @@ const game = {
         }
 
         // Play button
-        const bw = compactMobile ? 260 : Math.min(240, centerW - 26), bh = compactMobile ? 46 : 48;
+        const bw = compactMobile ? 260 : Math.min(240, centerW - 26), bh = compactMobile ? 38 : 48;
         const bx = compactMobile ? (CANVAS_W / 2 - bw / 2) : (centerX + (centerW - bw) / 2);
-        const by = compactMobile ? CANVAS_H / 2 + 188 : 430;
-        const hovered = Mouse.inRect(bx, by, bw, bh);
-        if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
-            this.startGame();
-        }
+        const challengeEnd = compactMobile
+            ? cY + CHALLENGE_MODES.length * (cH + 7) - 7
+            : cY + cH;
+        const btnGap = compactMobile ? 6 : 12;
 
         // Optional rewarded pre-run booster
-        const boosterY = compactMobile ? by - 56 : by - 56;
+        const boosterY = challengeEnd + btnGap + 4;
         const boosterHover = Mouse.inRect(bx, boosterY, bw, bh);
         const boosterLabel = this.adBoosterPending
             ? "✅ BOOSTER ARMED"
@@ -3154,8 +3149,14 @@ const game = {
             void this.requestMenuAdBooster();
         }
 
+        const by = boosterY + bh + btnGap;
+        const hovered = Mouse.inRect(bx, by, bw, bh);
+        if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
+            this.startGame();
+        }
+
         // Settings button
-        const settingsY = compactMobile ? CANVAS_H / 2 + 244 : 488;
+        const settingsY = by + bh + btnGap;
         const sHover = Mouse.inRect(bx, settingsY, bw, bh);
         if (drawButton("⚙  SETTINGS", bx, settingsY, bw, bh, sHover)) {
             this.state = STATE.SETTINGS;
@@ -3165,7 +3166,7 @@ const game = {
         const logBtnW = bw;
         const logBtnH = bh;
         const logBtnX = bx;
-        const logBtnY = compactMobile ? settingsY + 56 : 546;
+        const logBtnY = settingsY + bh + btnGap;
         const logBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
         if (drawButton("📜  CHANGELOGS", logBtnX, logBtnY, logBtnW, logBtnH, logBtnHover)) {
             this.state = STATE.CHANGELOGS;
@@ -3487,7 +3488,7 @@ const game = {
                     const e = nearby[i];
                     if (!e.alive) continue;
                     if (b.collidesWith(e)) {
-                        e.takeDamage(b.damage);
+                        e.takeDamage(b.damage, b.isCrit);
                         this.spawnParticles(e.x, e.y, COLOR.enemyA, isMobile ? 2 : 5);
                         Audio.sfxHit();
 
@@ -4368,14 +4369,20 @@ const game = {
 
         const isPausedMidRun = !!(this.player && this.player.alive && this.wave > 0);
 
+        // Use tighter spacing when paused to fit all elements on screen
+        const btnSpacing = isPausedMidRun ? 50 : 60;
+        const sectionGap = isPausedMidRun ? 40 : 80;
+        const lineGap = isPausedMidRun ? 20 : 24;
+        const preBackGap = isPausedMidRun ? 30 : 50;
+
         ctx.fillStyle = COLOR.accent;
         ctx.font = "bold 36px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("⚙  SETTINGS", CANVAS_W / 2, 80);
+        ctx.fillText("⚙  SETTINGS", CANVAS_W / 2, isPausedMidRun ? 60 : 80);
 
         if (isPausedMidRun) {
             const statsX = CANVAS_W - 280;
-            const statsY = 140;
+            const statsY = 100;
             const statsW = 240;
             const statsH = 170;
 
@@ -4403,7 +4410,7 @@ const game = {
         }
 
         const bw = 280, bh = 44, bx = CANVAS_W / 2 - bw / 2;
-        let y = 140;
+        let y = isPausedMidRun ? 100 : 140;
 
         // Sound toggle
         const soundHover = Mouse.inRect(bx, y, bw, bh);
@@ -4415,7 +4422,7 @@ const game = {
             Audio.setSfxEnabled(Settings.soundEnabled);
         }
 
-        y += 60;
+        y += btnSpacing;
         // Music toggle
         const musicHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
@@ -4426,7 +4433,7 @@ const game = {
             Audio.setMusicEnabled(Settings.musicEnabled);
         }
 
-        y += 60;
+        y += btnSpacing;
         // Screen shake toggle
         const shakeHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
@@ -4438,7 +4445,7 @@ const game = {
 
         // Optional rewarded shard cache once per run
         if (isPausedMidRun) {
-            y += 60;
+            y += btnSpacing;
             const cacheHover = Mouse.inRect(bx, y, bw, bh);
             const cacheLabel = this.shardCacheClaimedThisRun
                 ? "✅ SHARD CACHE CLAIMED"
@@ -4449,60 +4456,62 @@ const game = {
             }
 
             ctx.fillStyle = COLOR.textDim;
-            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText("+20 base shards, scales with wave. Optional and once per run.", CANVAS_W / 2, y + 58);
+            ctx.fillText("+20 base shards, scales with wave. Once per run.", CANVAS_W / 2, y + bh + 14);
+            y += bh + 28; // advance past button and hint text
         }
 
-        y += 80;
+        y += isPausedMidRun ? 16 : sectionGap;
         // Key layout info
         ctx.fillStyle = COLOR.text;
-        ctx.font = "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.font = isPausedMidRun ? "bold 15px 'Segoe UI', Arial, sans-serif" : "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "center";
         if (isMobile) {
             ctx.fillText("Controls (Touch)", CANVAS_W / 2, y);
 
-            ctx.font = "15px 'Segoe UI', Arial, sans-serif";
+            ctx.font = isPausedMidRun ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = COLOR.textDim;
-            y += 30;
+            y += lineGap + 6;
             ctx.fillText("Left side — Virtual joystick to move", CANVAS_W / 2, y);
-            y += 24;
+            y += lineGap;
             ctx.fillText("Auto-aim — Targets nearest enemy", CANVAS_W / 2, y);
-            y += 24;
+            y += lineGap;
             ctx.fillText("Tap upgrade cards to select", CANVAS_W / 2, y);
-            y += 24;
+            y += lineGap;
             ctx.fillText("⏸ Pause button — Settings", CANVAS_W / 2, y);
         } else {
             ctx.fillText("Controls (Layout-agnostic)", CANVAS_W / 2, y);
 
-            ctx.font = "15px 'Segoe UI', Arial, sans-serif";
+            ctx.font = isPausedMidRun ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = COLOR.textDim;
-            y += 30;
+            y += lineGap + 6;
             ctx.fillText("WASD / ZQSD / Arrow Keys — Move", CANVAS_W / 2, y);
-            y += 24;
+            y += lineGap;
             ctx.fillText(Settings.gameMode === "hard"
                 ? "Manual aim — Move mouse to aim"
                 : "Auto-aim — Targets nearest enemy", CANVAS_W / 2, y);
-            y += 24;
+            y += lineGap;
             ctx.fillText("1 / 2 / 3 — Select upgrade", CANVAS_W / 2, y);
-            y += 24;
+            y += lineGap;
             ctx.fillText("ESC — Settings / Back", CANVAS_W / 2, y);
         }
 
-        y += 50;
-        ctx.font = "13px 'Segoe UI', Arial, sans-serif";
+        y += preBackGap;
+        ctx.font = isPausedMidRun ? "11px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         if (!isMobile) {
             ctx.fillText("Uses event.code: works on QWERTY, AZERTY, QWERTZ, etc.", CANVAS_W / 2, y);
         }
 
-        y += 24;
+        y += lineGap;
         ctx.font = "12px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         const exp = Experiments.all();
         ctx.fillText(`A/B: pacing=${exp.earlyPacing}, gameOver=${exp.gameOverFlow}, adCopy=${exp.rewardedCopy}`, CANVAS_W / 2, y);
 
         // Back button
-        y += 50;
+        y += preBackGap;
         const backHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton("← BACK", bx, y, bw, bh, backHover)) {
             this.state = this.player && this.player.alive && this.wave > 0
@@ -4511,7 +4520,7 @@ const game = {
 
         // Abandon current run and return to main menu
         if (isPausedMidRun) {
-            y += 52;
+            y += 50;
             const abandonHover = Mouse.inRect(bx, y, bw, bh);
             if (drawButton("⏹  ABANDON RUN", bx, y, bw, bh, abandonHover)) {
                 this.abandonRun();
