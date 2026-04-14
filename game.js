@@ -2520,7 +2520,7 @@ const game = {
         Mouse.init();
         TouchControls.init();
         // Initialise CrazyGames SDK
-        CrazyGamesSDK.init();
+        void CrazyGamesSDK.init().catch(() => {});
         this.resetGame();
     },
 
@@ -4210,18 +4210,45 @@ function mainLoop(timestamp) {
 
 // ────── BOOT ──────
 async function bootGame() {
-    await CrazyGamesSDK.init();
-    CrazyGamesSDK.loadingStart();
     try {
-        await loadChangelogs();
-        await Progression.init();
+        await CrazyGamesSDK.init();
+    } catch (e) {
+        console.warn("[Boot] CrazyGames init failed, continuing in standalone mode", e);
+    }
+
+    try { CrazyGamesSDK.loadingStart(); } catch (e) { /* ignore */ }
+
+    try {
+        try {
+            await loadChangelogs();
+        } catch (e) {
+            console.warn("[Boot] Failed loading changelogs, continuing", e);
+            GAME_VERSION = "unknown";
+        }
+
+        try {
+            await Progression.init();
+        } catch (e) {
+            console.warn("[Boot] Failed loading progression, continuing", e);
+        }
+
         game.init();
     } finally {
-        CrazyGamesSDK.loadingStop();
+        try { CrazyGamesSDK.loadingStop(); } catch (e) { /* ignore */ }
     }
+
     lastTime = performance.now();
     requestAnimationFrame(mainLoop);
 }
 
-bootGame();
+bootGame().catch((e) => {
+    console.error("[Boot] Unhandled boot error, falling back", e);
+    try {
+        if (!game.player) game.init();
+    } catch (inner) {
+        console.error("[Boot] Fallback init failed", inner);
+    }
+    lastTime = performance.now();
+    requestAnimationFrame(mainLoop);
+});
 
