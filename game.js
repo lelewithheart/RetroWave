@@ -230,6 +230,41 @@ function formatTime(totalSeconds) {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+function modeModifiers() {
+    switch (Settings.gameMode) {
+        case "easy":
+            return {
+                waveKillsMult: 0.85,
+                spawnCdMult: 1.2,
+                enemyHpMult: 0.82,
+                enemySpdMult: 0.88,
+                enemyDmgMult: 0.82,
+                xpGainMult: 1.8,
+                xpNeedGrowth: 1.32,
+            };
+        case "hard":
+            return {
+                waveKillsMult: 1.25,
+                spawnCdMult: 0.82,
+                enemyHpMult: 1.22,
+                enemySpdMult: 1.18,
+                enemyDmgMult: 1.25,
+                xpGainMult: 0.78,
+                xpNeedGrowth: 1.48,
+            };
+        default:
+            return {
+                waveKillsMult: 1,
+                spawnCdMult: 1,
+                enemyHpMult: 1,
+                enemySpdMult: 1,
+                enemyDmgMult: 1,
+                xpGainMult: 1,
+                xpNeedGrowth: 1.4,
+            };
+    }
+}
+
 function dateKeyLocal(date = new Date()) {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -1720,10 +1755,11 @@ class Player extends Entity {
     addXP(amount) {
         this.xp += amount;
         Audio.sfxXPPickup();
+        const mods = modeModifiers();
         while (this.xp >= this.xpToNext) {
             this.xp -= this.xpToNext;
             this.level++;
-            this.xpToNext = Math.floor(this.xpToNext * 1.4);
+            this.xpToNext = Math.floor(this.xpToNext * mods.xpNeedGrowth);
             game.triggerUpgrade();
         }
     }
@@ -4040,10 +4076,11 @@ const game = {
     },
 
     startNextWave() {
+        const mods = modeModifiers();
         this.wave++;
         this.waveKills = 0;
-        this.waveKillsRequired = WAVE_BASE_KILLS + (this.wave - 1) * WAVE_KILLS_GROWTH;
-        this.spawnCooldown = Math.max(WAVE_SPAWN_CD_MIN, WAVE_BASE_SPAWN_CD * Math.pow(WAVE_SPAWN_CD_DECAY, this.wave - 1));
+        this.waveKillsRequired = Math.max(5, Math.floor((WAVE_BASE_KILLS + (this.wave - 1) * WAVE_KILLS_GROWTH) * mods.waveKillsMult));
+        this.spawnCooldown = Math.max(WAVE_SPAWN_CD_MIN, WAVE_BASE_SPAWN_CD * Math.pow(WAVE_SPAWN_CD_DECAY, this.wave - 1) * mods.spawnCdMult);
         if (this.expEarlyPacing === "softstart" && this.timePlayed < 60) {
             this.spawnCooldown *= 1.16;
         }
@@ -4061,6 +4098,7 @@ const game = {
         // Spawn boss on milestone waves
         if (this.isBossWave(this.wave)) {
             const bossType = (this.wave === 10 || this.wave === 20) ? "bigboss" : "miniboss";
+            const mods = modeModifiers();
             const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
             const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
             const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
@@ -4068,10 +4106,10 @@ const game = {
             const bx = clamp(this.player.x + randRange(-200, 200), 100, WORLD_W - 100);
             const by = clamp(this.camera.y - 120, 100, WORLD_H - 100);
             const boss = new Enemy(bx, by,
-                Math.floor(ENEMY_BASE_HP * hpMult),
-                ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult,
+                Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult),
+                ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * mods.enemySpdMult,
                 undefined, bossType);
-            boss.contactDamage = Math.floor(boss.contactDamage * dmgMult);
+            boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
             this.enemies.push(boss);
             this.activeBoss = boss;
         }
@@ -4080,6 +4118,7 @@ const game = {
     spawnWaveEnemy() {
         // Cap total enemy count to prevent frame drops on mobile
         if (this.enemies.length >= dynamicCap(MAX_ENEMIES)) return;
+        const mods = modeModifiers();
         const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
         const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
         const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
@@ -4118,8 +4157,8 @@ const game = {
         ex = clamp(ex, 0, WORLD_W);
         ey = clamp(ey, 0, WORLD_H);
 
-        const hp = Math.floor(ENEMY_BASE_HP * hpMult);
-        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * this.earlyPacingMultiplier();
+        const hp = Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult);
+        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * this.earlyPacingMultiplier() * mods.enemySpdMult;
 
         // Choose type
         let type = "normal";
@@ -4128,7 +4167,7 @@ const game = {
         }
 
         const enemy = new Enemy(ex, ey, hp, spd, undefined, type);
-        enemy.contactDamage = Math.floor(enemy.contactDamage * dmgMult);
+        enemy.contactDamage = Math.floor(enemy.contactDamage * dmgMult * mods.enemyDmgMult);
         this.enemies.push(enemy);
     },
 
@@ -4152,9 +4191,9 @@ const game = {
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
         }
 
-        const easyBonus = Settings.gameMode === "easy" ? (1 + this.wave * 0.15) : 1;
+        const mods = modeModifiers();
         if (this.xpOrbs.length < dynamicCap(MAX_XP_ORBS)) {
-            const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * (enemy.xpMult || 1) * easyBonus * this.player.xpGainMult);
+            const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * (enemy.xpMult || 1) * mods.xpGainMult * this.player.xpGainMult);
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
         Audio.sfxEnemyDeath();
