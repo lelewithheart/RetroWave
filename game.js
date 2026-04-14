@@ -78,6 +78,10 @@ const MAX_ENEMIES = 80;
 const MAX_XP_ORBS = 150;
 const MAX_FLAME_PATCHES = 50;
 const MAX_LIGHTNING_BOLTS = 20;
+const PERF_LOW_THRESHOLD = 52;
+const PERF_RECOVER_THRESHOLD = 57;
+const PERF_SAMPLE_WINDOW = 1.2;
+const TUTORIAL_HINT_DURATION = 8;
 
 // Camera
 const CAMERA_LERP_SPEED = 5;             // Higher = snappier follow
@@ -181,6 +185,11 @@ function randInt(lo, hi) { return Math.floor(randRange(lo, hi + 1)); }
 
 /** Pick random element from array */
 function randPick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function dynamicCap(base) {
+    const lowPerf = (typeof game !== "undefined" && game && game.lowPerf);
+    return Math.max(4, Math.floor(base * (lowPerf ? 0.65 : 1)));
+}
 
 /** Human-readable label for the current game mode */
 function gameModeLabel() {
@@ -1493,7 +1502,7 @@ class Player extends Entity {
                 for (let i = 0; i < nearest.length; i++) {
                     const e = nearest[i].e;
                     e.takeDamage(dmg);
-                    if (game.lightningBolts.length < MAX_LIGHTNING_BOLTS) {
+                    if (game.lightningBolts.length < dynamicCap(MAX_LIGHTNING_BOLTS)) {
                         game.lightningBolts.push({ x1: this.x, y1: this.y, x2: e.x, y2: e.y, life: 0.15 });
                     }
                     game.spawnParticles(e.x, e.y, "#88ddff", isMobile ? 2 : 4);
@@ -1526,7 +1535,7 @@ class Player extends Entity {
             w.flameTrail.timer -= dt;
             const interval = 0.08;
             if (w.flameTrail.timer <= 0 &&
-                game.flamePatches.length < MAX_FLAME_PATCHES &&
+                game.flamePatches.length < dynamicCap(MAX_FLAME_PATCHES) &&
                 (Math.abs(this.x - w.flameTrail.lastX) > 6 || Math.abs(this.y - w.flameTrail.lastY) > 6)) {
                 w.flameTrail.timer = interval;
                 w.flameTrail.lastX = this.x;
@@ -1540,13 +1549,15 @@ class Player extends Entity {
 
     draw() {
         // Range indicator circle
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.range, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(51,204,255,0.12)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([6, 6]);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        if (!game.lowPerf) {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.range, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(51,204,255,0.12)";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([6, 6]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
 
         // Glow
         ctx.beginPath();
@@ -2209,6 +2220,20 @@ const CrazyGamesSDK = (() => {
         }
     }
 
+    function loadingStart() {
+        const s = sdk();
+        if (sdkAvailable && s && typeof s.game.loadingStart === "function") {
+            try { s.game.loadingStart(); } catch (e) { /* ignore */ }
+        }
+    }
+
+    function loadingStop() {
+        const s = sdk();
+        if (sdkAvailable && s && typeof s.game.loadingStop === "function") {
+            try { s.game.loadingStop(); } catch (e) { /* ignore */ }
+        }
+    }
+
     // ── Ads ──
 
     /** Request a midgame ad (between waves). Mutes audio during ad. */
@@ -2217,14 +2242,20 @@ const CrazyGamesSDK = (() => {
         if (!sdkAvailable || !s) return;
         try {
             s.ad.requestAd("midgame", {
-                adStarted()  { Audio.setSfxEnabled(false); Audio.setMusicEnabled(false); },
+                adStarted()  {
+                    gameplayStop();
+                    Audio.setSfxEnabled(false);
+                    Audio.setMusicEnabled(false);
+                },
                 adFinished() {
                     if (Settings.soundEnabled) Audio.setSfxEnabled(true);
                     if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                    gameplayStart();
                 },
                 adError() {
                     if (Settings.soundEnabled) Audio.setSfxEnabled(true);
                     if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                    gameplayStart();
                 },
             });
         } catch (e) {
@@ -2239,15 +2270,21 @@ const CrazyGamesSDK = (() => {
             if (!sdkAvailable || !s) { resolve(false); return; }
             try {
                 s.ad.requestAd("rewarded", {
-                    adStarted()  { Audio.setSfxEnabled(false); Audio.setMusicEnabled(false); },
+                    adStarted()  {
+                        gameplayStop();
+                        Audio.setSfxEnabled(false);
+                        Audio.setMusicEnabled(false);
+                    },
                     adFinished() {
                         if (Settings.soundEnabled) Audio.setSfxEnabled(true);
                         if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                        gameplayStart();
                         resolve(true);
                     },
                     adError() {
                         if (Settings.soundEnabled) Audio.setSfxEnabled(true);
                         if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                        gameplayStart();
                         resolve(false);
                     },
                 });
@@ -2360,6 +2397,8 @@ const CrazyGamesSDK = (() => {
         gameplayStart,
         gameplayStop,
         happyTime,
+        loadingStart,
+        loadingStop,
         requestMidroll,
         requestRewarded,
         getUser,
@@ -2463,6 +2502,17 @@ const game = {
     enemySpeedMult: 1,
     shardRewardMult: 1,
 
+    // Runtime quality state
+    fpsEma: TARGET_FPS,
+    perfSampleTimer: 0,
+    lowPerf: false,
+
+    // UX flow state
+    tutorialDismissed: false,
+    revivedThisRun: false,
+    reviveInProgress: false,
+    runFinalized: false,
+
     // ────── INITIALISE ──────
 
     init() {
@@ -2505,6 +2555,13 @@ const game = {
         this.lastDailyReward = 0;
         this.enemySpeedMult = 1;
         this.shardRewardMult = 1;
+        this.fpsEma = TARGET_FPS;
+        this.perfSampleTimer = 0;
+        this.lowPerf = false;
+        this.tutorialDismissed = false;
+        this.revivedThisRun = false;
+        this.reviveInProgress = false;
+        this.runFinalized = false;
 
         if (Settings.challengeMode === "rush") {
             this.enemySpeedMult = 1.18;
@@ -2521,6 +2578,48 @@ const game = {
         if (this.wave >= 15) return BIOMES[2];
         if (this.wave >= 8) return BIOMES[1];
         return BIOMES[0];
+    },
+
+    trackPerformance(dt) {
+        const fps = dt > 0 ? 1 / dt : TARGET_FPS;
+        this.fpsEma = lerp(this.fpsEma, fps, 0.08);
+        this.perfSampleTimer += dt;
+        if (this.perfSampleTimer < PERF_SAMPLE_WINDOW) return;
+        this.perfSampleTimer = 0;
+
+        if (!this.lowPerf && this.fpsEma < PERF_LOW_THRESHOLD) {
+            this.lowPerf = true;
+        } else if (this.lowPerf && this.fpsEma > PERF_RECOVER_THRESHOLD) {
+            this.lowPerf = false;
+        }
+    },
+
+    async tryRewardedRevive() {
+        if (this.revivedThisRun || this.reviveInProgress) return;
+        this.reviveInProgress = true;
+        const ok = await CrazyGamesSDK.requestRewarded();
+        if (ok && this.state === STATE.GAME_OVER) {
+            this.player.alive = true;
+            this.player.hp = Math.max(1, Math.floor(this.player.maxHp * 0.45));
+            this.player.invTimer = 1.2;
+            this.state = STATE.GAMEPLAY;
+            this.revivedThisRun = true;
+            CrazyGamesSDK.gameplayStart();
+            Audio.startMusic();
+        }
+        this.reviveInProgress = false;
+    },
+
+    commitLossIfNeeded() {
+        if (this.runFinalized) return;
+        this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed);
+        this.finalizeRun(false);
+        if (this.lastHighScoreRank === 1) {
+            Audio.sfxNewHighScore();
+            CrazyGamesSDK.happyTime();
+        }
+        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed);
+        this.runFinalized = true;
     },
 
     // ────── GAME LOOP ──────
@@ -3004,6 +3103,14 @@ const game = {
 
     updateGameplay(dt) {
         this.timePlayed += dt;
+        this.trackPerformance(dt);
+
+        if (!this.tutorialDismissed) {
+            const mv = Input.moveVector();
+            if (this.timePlayed > TUTORIAL_HINT_DURATION || mv.x !== 0 || mv.y !== 0 || Mouse.clicked || Input.just("Escape")) {
+                this.tutorialDismissed = true;
+            }
+        }
 
         // Player
         this.player.update(dt);
@@ -3115,16 +3222,10 @@ const game = {
             this.state = STATE.GAME_OVER;
             Audio.stopMusic();
             Audio.sfxGameOver();
-            this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed);
-            this.finalizeRun(false);
-            if (this.lastHighScoreRank === 1) {
-                Audio.sfxNewHighScore();
-                CrazyGamesSDK.happyTime();
+            if (this.revivedThisRun) {
+                this.commitLossIfNeeded();
             }
             CrazyGamesSDK.gameplayStop();
-
-            // Submit encrypted score to CrazyGames leaderboard
-            CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed);
         }
 
         // Settings shortcut
@@ -3337,6 +3438,36 @@ const game = {
             ctx.globalAlpha = 1;
         }
 
+        // ── Quick onboarding tutorial (first seconds of run) ──
+        if (!this.tutorialDismissed) {
+            const tw = portrait ? 320 : 460;
+            const th = portrait ? 72 : 64;
+            const tx = CANVAS_W / 2 - tw / 2;
+            const ty = portrait ? CANVAS_H - 190 : CANVAS_H - 120;
+            drawRoundRect(tx, ty, tw, th, 8);
+            ctx.fillStyle = "rgba(8, 10, 24, 0.9)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(102,204,255,0.5)";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+            const aim = Settings.gameMode === "hard" ? (isMobile ? "Right touch aims" : "Mouse aims") : "Auto-aim enabled";
+            ctx.fillText(`Move: WASD/Arrows  •  ${aim}`, CANVAS_W / 2, ty + 24);
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Collect green XP, level up, pick upgrades. Press ESC for pause/settings.", CANVAS_W / 2, ty + 44);
+        }
+
+        // ── Perf status badge (debug-friendly, player-safe) ──
+        if (this.lowPerf) {
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#ffcc66";
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Performance mode: ON", pad, CANVAS_H - 12);
+        }
+
         // ── Boss HP bar (bottom-center) ──
         if (this.activeBoss && this.activeBoss.alive) {
             const isBig = this.activeBoss.type === "bigboss";
@@ -3475,7 +3606,7 @@ const game = {
 
     spawnWaveEnemy() {
         // Cap total enemy count to prevent frame drops on mobile
-        if (this.enemies.length >= MAX_ENEMIES) return;
+        if (this.enemies.length >= dynamicCap(MAX_ENEMIES)) return;
         const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
         const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
         const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
@@ -3533,7 +3664,7 @@ const game = {
         this.waveKills++;
         this.spawnParticles(enemy.x, enemy.y, COLOR.enemyA, isMobile ? 4 : 12);
         const easyBonus = Settings.gameMode === "easy" ? (1 + this.wave * 0.15) : 1;
-        if (this.xpOrbs.length < MAX_XP_ORBS) {
+        if (this.xpOrbs.length < dynamicCap(MAX_XP_ORBS)) {
             const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * (enemy.xpMult || 1) * easyBonus * this.player.xpGainMult);
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
@@ -3562,7 +3693,7 @@ const game = {
     },
 
     spawnParticles(x, y, color, count) {
-        const room = MAX_PARTICLES - this.particles.length;
+        const room = dynamicCap(MAX_PARTICLES) - this.particles.length;
         const n = Math.min(count, room);
         for (let i = 0; i < n; i++) {
             this.particles.push(new Particle(x, y, color));
@@ -3833,6 +3964,7 @@ const game = {
 
     updateGameOver() {
         if (Input.just("Enter")) {
+            this.commitLossIfNeeded();
             this.startGame();
         }
     },
@@ -3881,10 +4013,24 @@ const game = {
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
 
+        // Rewarded revive (one-time)
+        if (!this.revivedThisRun) {
+            const reviveY = CANVAS_H / 2 + 26;
+            const reviveHover = Mouse.inRect(bx, reviveY, bw, bh);
+            const reviveLabel = this.reviveInProgress ? "⏳  LOADING AD..." : "🎁  REVIVE (AD)";
+            if (drawButton(reviveLabel, bx, reviveY, bw, bh, reviveHover) && !this.reviveInProgress) {
+                void this.tryRewardedRevive();
+            }
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("One revive per run", CANVAS_W / 2, reviveY + 64);
+        }
+
         // Restart
-        const restartY = CANVAS_H / 2 + 26;
+        const restartY = this.revivedThisRun ? CANVAS_H / 2 + 26 : CANVAS_H / 2 + 100;
         const restartHover = Mouse.inRect(bx, restartY, bw, bh);
         if (drawButton("↻  RESTART", bx, restartY, bw, bh, restartHover)) {
+            this.commitLossIfNeeded();
             this.startGame();
         }
 
@@ -3892,6 +4038,7 @@ const game = {
         const menuY = restartY + 58;
         const menuHover = Mouse.inRect(bx, menuY, bw, bh);
         if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
+            this.commitLossIfNeeded();
             this.state = STATE.START_MENU;
         }
 
@@ -3937,6 +4084,7 @@ const game = {
         this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, true);
         this.finalizeRun(true);
         CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, true);
+        this.runFinalized = true;
     },
 
     updateVictory() {
@@ -4038,6 +4186,11 @@ let lastTime = 0;
 function mainLoop(timestamp) {
     requestAnimationFrame(mainLoop);
 
+    if (document.hidden) {
+        lastTime = timestamp;
+        return;
+    }
+
     // Cache performance.now() for use by all entities this frame
     frameNow = timestamp;
 
@@ -4057,9 +4210,15 @@ function mainLoop(timestamp) {
 
 // ────── BOOT ──────
 async function bootGame() {
-    await loadChangelogs();
-    await Progression.init();
-    game.init();
+    await CrazyGamesSDK.init();
+    CrazyGamesSDK.loadingStart();
+    try {
+        await loadChangelogs();
+        await Progression.init();
+        game.init();
+    } finally {
+        CrazyGamesSDK.loadingStop();
+    }
     lastTime = performance.now();
     requestAnimationFrame(mainLoop);
 }

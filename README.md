@@ -21,6 +21,9 @@ Open `index.html` in any modern browser — no build step required.
 | **HUD** | HP bar, XP bar, wave counter, kill count, timer |
 | **Settings** | Sound/Music toggles, controls reference |
 | **CrazyGames SDK** | Full v3 integration: midgame/rewarded ads, per-difficulty leaderboards, user auth, platform mute settings |
+| **Rewarded Revive** | One-time revive per run via rewarded ad flow on Game Over |
+| **Adaptive Performance** | Auto quality scaling on low FPS devices (effect/entity cap reduction) |
+| **Quick Tutorial** | In-run onboarding hints during first seconds of gameplay |
 
 ## 🕹️ Controls
 
@@ -35,7 +38,7 @@ Open `index.html` in any modern browser — no build step required.
 
 ## 🏗️ Architecture
 
-All code lives in a **single `index.html`** file for rapid prototyping, but is logically separated into clearly commented sections:
+Main logic lives in **`game.js`** (loaded from `index.html`) and is logically separated into clearly commented sections:
 
 | Section | Description |
 |---|---|
@@ -65,7 +68,7 @@ The `CrazyGamesSDK` module provides full CrazyGames SDK v3 integration:
 | Feature | Details |
 |---|---|
 | **Ads** | `requestMidroll()` (midgame ads between waves), `requestRewarded()` (rewarded ads, returns promise) — audio is automatically muted during ads |
-| **Lifecycle** | `gameplayStart()` / `gameplayStop()` / `happyTime()` — notifies the platform of game state changes |
+| **Lifecycle** | `loadingStart()` / `loadingStop()` + `gameplayStart()` / `gameplayStop()` / `happyTime()` |
 | **Leaderboards** | Per-difficulty leaderboards (`roguewave-easy`, `roguewave-normal`, `roguewave-hard`) — scores submitted automatically on game over for logged-in users |
 | **User** | `getUser()` / `promptLogin()` — user authentication and sign-in prompt |
 | **Settings** | Listens for platform `muteAudio` changes and syncs with in-game sound/music toggles |
@@ -81,3 +84,33 @@ Create three leaderboards in the [CrazyGames Developer Portal](https://developer
 Score formula: `wave × 100000 + kills × 100 + seconds_survived`
 
 The SDK gracefully degrades — when running outside CrazyGames (standalone), all SDK calls are no-ops and the game uses local high scores only.
+
+## 🚀 CrazyGames Readiness Checklist (Phase 3)
+
+### SDK correctness
+- [x] `loadingStart`/`loadingStop` around async boot.
+- [x] `gameplayStart` on run start and after ad callbacks.
+- [x] `gameplayStop` on game over/victory and during ads.
+- [x] Rewarded ad flow integrated with revive outcome handling.
+
+### Performance
+- [x] Fixed-step-safe delta capping (`MAX_DT`).
+- [x] Adaptive low-performance mode for weak devices.
+- [x] Reduced expensive effects in low-performance mode.
+- [x] Visibility handling to avoid resume spikes.
+
+### Platform fit
+- [x] Fast onboarding hint shown in first gameplay seconds.
+- [x] Short, clear browser metadata title + description.
+- [ ] Final CrazyGames thumbnails prepared (see below).
+
+## 🖼️ Suggested CrazyGames Listing Assets
+
+- Title: `RogueWave: Neon Survival Arena`
+- Description (short): `Fight endless neon waves, build overpowered upgrades, and chase your highest survival score.`
+- Description (long): `RogueWave is a fast browser survivor arena where every run builds into a unique overpowered setup. Dodge enemy swarms, pick upgrades, defeat bosses, and push for leaderboard highscores. Includes one-time rewarded revive and smooth mobile controls.`
+- Thumbnail concept:
+	- Player centered with cyan glow.
+	- Two distinct enemy types visible (tank + ranged).
+	- Big text: `SURVIVE THE NEON WAVES`.
+	- Strong contrast (cyan + orange + deep navy).

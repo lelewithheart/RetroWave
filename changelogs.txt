@@ -3,6 +3,15 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 14.04:02
+- Started Phase 3 (CrazyGames-readiness)
+- Added CrazyGames loading lifecycle hooks (loadingStart/loadingStop)
+- Improved ad flow lifecycle handling around midgame/rewarded ads
+- Added one-time rewarded revive flow on game over
+- Added adaptive low-performance mode with dynamic effect/entity caps
+- Added quick in-run tutorial hints for first-time clarity
+- Updated browser title and metadata description for platform listing quality
+
 beta 14.04:01
 - Refined home screen with cleaner 3-zone layout (left progression, center actions, right daily/scores)
 - Increased spacing and reduced visual crowding on desktop
