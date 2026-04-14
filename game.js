@@ -2602,16 +2602,20 @@ const game = {
         ctx.font = compactMobile ? "bold 50px 'Segoe UI', Arial, sans-serif" : "bold 60px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 92 : 106);
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 92 : 92);
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = compactMobile ? "18px 'Segoe UI', Arial, sans-serif" : "20px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 126 : 146);
+        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 126 : 126);
 
         ctx.font = compactMobile ? "13px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 146 : 168);
+        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 146 : 148);
 
-        const uiTop = compactMobile ? 176 : 205;
+        const uiTop = compactMobile ? 176 : 182;
+        const leftX = compactMobile ? 16 : 22;
+        const leftW = compactMobile ? 270 : 248;
+        const rightW = compactMobile ? 260 : 248;
+        const rightX = compactMobile ? CANVAS_W - rightW - 16 : CANVAS_W - rightW - 22;
 
         // ── Mode selector ──
         const modes = [
@@ -2619,10 +2623,19 @@ const game = {
             { id: "normal",  label: "⚔️ NORMAL",   desc: "Auto-aim"              },
             { id: "hard",    label: "💀 HARD",    desc: isMobile ? "Manual aim (touch)" : "Manual aim (mouse)" },
         ];
-        const mw = compactMobile ? 260 : 152, mh = compactMobile ? 40 : 46, mgap = compactMobile ? 10 : 10;
+        const mw = compactMobile ? 260 : 118, mh = compactMobile ? 40 : 46, mgap = compactMobile ? 10 : 8;
         const totalMW = compactMobile ? mw : modes.length * mw + (modes.length - 1) * mgap;
         const mx0 = CANVAS_W / 2 - totalMW / 2;
         const my = uiTop;
+
+        if (!compactMobile) {
+            drawRoundRect(CANVAS_W / 2 - 220, 166, 440, 240, 12);
+            ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(102,204,255,0.35)";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
 
         ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
@@ -2664,14 +2677,14 @@ const game = {
         }
 
         // Challenge selector
-        const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 16 : my + 70;
+        const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 16 : my + 102;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
         ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 8);
-        const cW = compactMobile ? 260 : 154;
+        const cW = compactMobile ? 260 : 118;
         const cH = compactMobile ? 34 : 38;
-        const cGap = 8;
+        const cGap = compactMobile ? 8 : 8;
         const cTotal = compactMobile ? cW : CHALLENGE_MODES.length * cW + (CHALLENGE_MODES.length - 1) * cGap;
         const cStartX = CANVAS_W / 2 - cTotal / 2;
         for (let i = 0; i < CHALLENGE_MODES.length; i++) {
@@ -2696,7 +2709,7 @@ const game = {
         }
 
         // Play button
-        const bw = compactMobile ? 260 : 230, bh = compactMobile ? 46 : 50;
+        const bw = compactMobile ? 260 : 260, bh = compactMobile ? 46 : 48;
         const bx = CANVAS_W / 2 - bw / 2, by = compactMobile ? CANVAS_H / 2 + 188 : 430;
         const hovered = Mouse.inRect(bx, by, bw, bh);
         if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
@@ -2704,9 +2717,9 @@ const game = {
         }
 
         // Settings button
-        const sy = compactMobile ? CANVAS_H / 2 + 244 : 488;
-        const sHover = Mouse.inRect(bx, sy, bw, bh);
-        if (drawButton("⚙  SETTINGS", bx, sy, bw, bh, sHover)) {
+        const settingsY = compactMobile ? CANVAS_H / 2 + 244 : 488;
+        const sHover = Mouse.inRect(bx, settingsY, bw, bh);
+        if (drawButton("⚙  SETTINGS", bx, settingsY, bw, bh, sHover)) {
             this.state = STATE.SETTINGS;
         }
 
@@ -2714,17 +2727,17 @@ const game = {
         const logBtnW = bw;
         const logBtnH = bh;
         const logBtnX = bx;
-        const logBtnY = compactMobile ? sy + 56 : 546;
+        const logBtnY = compactMobile ? settingsY + 56 : 546;
         const logBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
         if (drawButton("📜  CHANGELOGS", logBtnX, logBtnY, logBtnW, logBtnH, logBtnHover)) {
             this.state = STATE.CHANGELOGS;
         }
 
         // Meta progression panel
-        const mpX = compactMobile ? 16 : 18;
-        const mpY = compactMobile ? 42 : 138;
-        const mpW = compactMobile ? 270 : 250;
-        const mpH = compactMobile ? 206 : 278;
+        const mpX = leftX;
+        const mpY = compactMobile ? 42 : 174;
+        const mpW = leftW;
+        const mpH = compactMobile ? 206 : 432;
         drawRoundRect(mpX, mpY, mpW, mpH, 10);
         ctx.fillStyle = "rgba(8, 10, 22, 0.92)";
         ctx.fill();
@@ -2743,7 +2756,7 @@ const game = {
         ];
         for (let i = 0; i < metaRows.length; i++) {
             const row = metaRows[i];
-            const ry = mpY + 38 + i * 56;
+            const ry = mpY + 44 + i * 66;
             const level = Progression.metaLevel(row.key);
             const cost = Progression.metaCost(row.key);
             ctx.textAlign = "left";
@@ -2754,7 +2767,7 @@ const game = {
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(row.bonus, mpX + 12, ry + 16);
 
-            const ubW = 98, ubH = 28;
+            const ubW = 104, ubH = 32;
             const ubX = mpX + mpW - ubW - 10, ubY = ry - 16;
             const hov = Mouse.inRect(ubX, ubY, ubW, ubH);
             drawRoundRect(ubX, ubY, ubW, ubH, 6);
@@ -2765,7 +2778,7 @@ const game = {
             ctx.lineWidth = 1.1;
             ctx.stroke();
             ctx.fillStyle = locked ? "#aaa" : COLOR.text;
-            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
             ctx.fillText(locked ? "MAX" : `UP ${cost}`, ubX + ubW / 2, ubY + ubH / 2 + 1);
             if (!locked && hov && Mouse.clicked) {
@@ -2778,14 +2791,16 @@ const game = {
         ctx.textAlign = "left";
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("SKINS", mpX + 12, mpY + mpH - 82);
-        const sw = 74, sh = 56, sGap = 6;
+        ctx.fillText("SKINS", mpX + 12, mpY + mpH - 136);
+        const sw = compactMobile ? 74 : 70;
+        const sh = compactMobile ? 56 : 66;
+        const sGap = compactMobile ? 6 : 5;
         for (let i = 0; i < skins.length; i++) {
             const s = skins[i];
             const sx = mpX + 12 + i * (sw + sGap);
-            const sy = mpY + mpH - 74;
-            const hov = Mouse.inRect(sx, sy, sw, sh);
-            drawRoundRect(sx, sy, sw, sh, 7);
+            const skinY = mpY + mpH - 124;
+            const hov = Mouse.inRect(sx, skinY, sw, sh);
+            drawRoundRect(sx, skinY, sw, sh, 7);
             ctx.fillStyle = s.selected ? "rgba(51,204,255,0.28)" : (hov ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.06)");
             ctx.fill();
             ctx.strokeStyle = s.selected ? COLOR.accent : "#556";
@@ -2793,24 +2808,24 @@ const game = {
             ctx.stroke();
             ctx.fillStyle = s.player;
             ctx.beginPath();
-            ctx.arc(sx + 14, sy + 16, 8, 0, Math.PI * 2);
+            ctx.arc(sx + 14, skinY + 16, 8, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = COLOR.text;
-            ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
-            ctx.fillText(s.name.split(" ")[0], sx + 26, sy + 14);
+            ctx.fillText(s.name.split(" ")[0], sx + 26, skinY + 14);
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
-            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Select") : `${s.cost}`, sx + 26, sy + 29);
+            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Unlock") : `${s.cost}`, sx + 26, skinY + 31);
             if (hov && Mouse.clicked) {
                 Progression.unlockOrSelectSkin(s.id);
             }
         }
 
         // Daily panel
-        const dpW = compactMobile ? 260 : 238;
-        const dpH = compactMobile ? 90 : 98;
-        const dpX = CANVAS_W - dpW - 18;
-        const dpY = compactMobile ? CANVAS_H - dpH - 14 : 138;
+        const dpW = rightW;
+        const dpH = compactMobile ? 90 : 132;
+        const dpX = rightX;
+        const dpY = compactMobile ? CANVAS_H - dpH - 14 : 174;
         drawRoundRect(dpX, dpY, dpW, dpH, 9);
         ctx.fillStyle = "rgba(16,8,24,0.92)";
         ctx.fill();
@@ -2819,22 +2834,30 @@ const game = {
         ctx.stroke();
         ctx.fillStyle = "#ffcc66";
         ctx.textAlign = "left";
-        ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`Daily: ${daily.label}`, dpX + 10, dpY + 20);
         ctx.fillStyle = daily.completed ? "#66ff99" : COLOR.text;
-        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`${daily.progress} / ${daily.target}${daily.completed ? "  COMPLETED" : ""}`, dpX + 10, dpY + 42);
         ctx.fillStyle = COLOR.textDim;
         ctx.fillText(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"}`, dpX + 10, dpY + 62);
-        ctx.fillText("Complete to earn bonus shards", dpX + 10, dpY + 80);
+        ctx.fillText("Complete to earn bonus shards", dpX + 10, dpY + 86);
+        drawRoundRect(dpX + 10, dpY + 100, dpW - 20, 10, 5);
+        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.fill();
+        const dailyPct = clamp(daily.target > 0 ? daily.progress / daily.target : 0, 0, 1);
+        drawRoundRect(dpX + 10, dpY + 100, (dpW - 20) * dailyPct, 10, 5);
+        ctx.fillStyle = daily.completed ? "#66ff99" : "#ffcc66";
+        ctx.fill();
 
         // High Scores panel (right side) – per-mode
         const scores = HighScores.getAll();
         if (scores.length > 0) {
-            const panelX = compactMobile ? CANVAS_W / 2 - 130 : CANVAS_W - 256;
-            const panelY = compactMobile ? logBtnY + logBtnH + 8 : 246;
-            const panelW = compactMobile ? 260 : 238;
-            const panelH = compactMobile ? 28 + Math.min(scores.length, 3) * 22 : 30 + scores.length * 28;
+            const panelX = compactMobile ? CANVAS_W / 2 - 130 : rightX;
+            const panelY = compactMobile ? logBtnY + logBtnH + 8 : dpY + dpH + 14;
+            const panelW = compactMobile ? 260 : rightW;
+            const shown = compactMobile ? Math.min(scores.length, 3) : Math.min(scores.length, 4);
+            const panelH = compactMobile ? 28 + shown * 22 : 34 + shown * 28;
             drawRoundRect(panelX, panelY, panelW, panelH, 8);
             ctx.fillStyle = COLOR.panel;
             ctx.fill();
@@ -2848,7 +2871,7 @@ const game = {
             ctx.fillText(`🏆 ${gameModeLabel()} SCORES`, panelX + panelW / 2, panelY + 18);
 
             ctx.font = compactMobile ? "11px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
-            for (let i = 0; i < scores.length && (!compactMobile || i < 3); i++) {
+            for (let i = 0; i < shown; i++) {
                 const s = scores[i];
                 const ty = panelY + (compactMobile ? 38 + i * 22 : 40 + i * 28);
                 ctx.fillStyle = i === 0 ? "#ffd700" : COLOR.text;
@@ -2875,7 +2898,7 @@ const game = {
 
         // Controls hint
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = compactMobile ? "12px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactMobile ? "12px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         if (isMobile) {
             const mobileAimHint = Settings.gameMode === "hard" ? "Touch right side to aim" : "Auto-aim & fire";
@@ -2883,8 +2906,8 @@ const game = {
             ctx.fillText("Tap PLAY to start", CANVAS_W / 2, compactMobile ? CANVAS_H - 52 : CANVAS_H - 38);
         } else {
             const aimHint = Settings.gameMode === "hard" ? "Mouse to aim" : "Auto-aim";
-            ctx.fillText(`WASD / Arrow Keys to move  •  ${aimHint} & fire`, CANVAS_W / 2, CANVAS_H - 34);
-            ctx.fillText("Press ENTER or click PLAY to start", CANVAS_W / 2, CANVAS_H - 16);
+            ctx.fillText(`WASD / Arrow Keys to move  •  ${aimHint}`, CANVAS_W / 2, CANVAS_H - 30);
+            ctx.fillText("Press ENTER or click PLAY", CANVAS_W / 2, CANVAS_H - 14);
         }
     },
 

@@ -3,6 +3,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 14.04:01
+- Refined home screen with cleaner 3-zone layout (left progression, center actions, right daily/scores)
+- Increased spacing and reduced visual crowding on desktop
+- Daily panel now includes a compact progress bar
+- Home screen score panel now shows top entries only for better readability
+
 beta 10.04:05-01
 - Hotfix for 10.04:05
 
