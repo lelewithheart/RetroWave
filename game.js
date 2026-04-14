@@ -2616,6 +2616,9 @@ const game = {
         const leftW = compactMobile ? 270 : 248;
         const rightW = compactMobile ? 260 : 248;
         const rightX = compactMobile ? CANVAS_W - rightW - 16 : CANVAS_W - rightW - 22;
+        const centerPad = compactMobile ? 0 : 24;
+        const centerX = compactMobile ? 0 : leftX + leftW + centerPad;
+        const centerW = compactMobile ? CANVAS_W : (rightX - centerPad - centerX);
 
         // ── Mode selector ──
         const modes = [
@@ -2623,13 +2626,13 @@ const game = {
             { id: "normal",  label: "⚔️ NORMAL",   desc: "Auto-aim"              },
             { id: "hard",    label: "💀 HARD",    desc: isMobile ? "Manual aim (touch)" : "Manual aim (mouse)" },
         ];
-        const mw = compactMobile ? 260 : 118, mh = compactMobile ? 40 : 46, mgap = compactMobile ? 10 : 8;
+        const mw = compactMobile ? 260 : 112, mh = compactMobile ? 40 : 46, mgap = compactMobile ? 10 : 8;
         const totalMW = compactMobile ? mw : modes.length * mw + (modes.length - 1) * mgap;
-        const mx0 = CANVAS_W / 2 - totalMW / 2;
+        const mx0 = compactMobile ? (CANVAS_W / 2 - totalMW / 2) : (centerX + (centerW - totalMW) / 2);
         const my = uiTop;
 
         if (!compactMobile) {
-            drawRoundRect(CANVAS_W / 2 - 220, 166, 440, 240, 12);
+            drawRoundRect(centerX, 166, centerW, 240, 12);
             ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
             ctx.fill();
             ctx.strokeStyle = "rgba(102,204,255,0.35)";
@@ -2682,7 +2685,7 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
         ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 8);
-        const cW = compactMobile ? 260 : 118;
+        const cW = compactMobile ? 260 : 112;
         const cH = compactMobile ? 34 : 38;
         const cGap = compactMobile ? 8 : 8;
         const cTotal = compactMobile ? cW : CHALLENGE_MODES.length * cW + (CHALLENGE_MODES.length - 1) * cGap;
@@ -2709,8 +2712,9 @@ const game = {
         }
 
         // Play button
-        const bw = compactMobile ? 260 : 260, bh = compactMobile ? 46 : 48;
-        const bx = CANVAS_W / 2 - bw / 2, by = compactMobile ? CANVAS_H / 2 + 188 : 430;
+        const bw = compactMobile ? 260 : Math.min(240, centerW - 26), bh = compactMobile ? 46 : 48;
+        const bx = compactMobile ? (CANVAS_W / 2 - bw / 2) : (centerX + (centerW - bw) / 2);
+        const by = compactMobile ? CANVAS_H / 2 + 188 : 430;
         const hovered = Mouse.inRect(bx, by, bw, bh);
         if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
             this.startGame();
@@ -2792,7 +2796,7 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.fillText("SKINS", mpX + 12, mpY + mpH - 136);
-        const sw = compactMobile ? 74 : 70;
+        const sw = compactMobile ? 74 : 68;
         const sh = compactMobile ? 56 : 66;
         const sGap = compactMobile ? 6 : 5;
         for (let i = 0; i < skins.length; i++) {
@@ -2852,7 +2856,7 @@ const game = {
 
         // High Scores panel (right side) – per-mode
         const scores = HighScores.getAll();
-        if (scores.length > 0) {
+        if (scores.length > 0 && !compactMobile) {
             const panelX = compactMobile ? CANVAS_W / 2 - 130 : rightX;
             const panelY = compactMobile ? logBtnY + logBtnH + 8 : dpY + dpH + 14;
             const panelW = compactMobile ? 260 : rightW;
