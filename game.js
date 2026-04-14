@@ -2664,14 +2664,14 @@ function drawRoundRect(x, y, w, h, r) {
 }
 
 /** Draw a stylised button, returns true if clicked */
-function drawButton(text, x, y, w, h, hovered) {
+function drawButton(text, x, y, w, h, hovered, fontSize) {
     drawRoundRect(x, y, w, h, 8);
     ctx.fillStyle = hovered ? COLOR.accentHover : COLOR.accent;
     ctx.globalAlpha = hovered ? 1 : 0.85;
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#000";
-    ctx.font = "bold 18px 'Segoe UI', Arial, sans-serif";
+    ctx.font = `bold ${fontSize || 18}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, x + w / 2, y + h / 2);
@@ -3021,16 +3021,16 @@ const game = {
         ctx.font = compactMobile ? "bold 50px 'Segoe UI', Arial, sans-serif" : "bold 60px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 92 : 92);
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 80 : 78);
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = compactMobile ? "18px 'Segoe UI', Arial, sans-serif" : "20px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 126 : 126);
+        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 108 : 108);
 
         ctx.font = compactMobile ? "13px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 146 : 148);
+        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 124 : 126);
 
-        const uiTop = compactMobile ? 176 : 182;
+        const uiTop = compactMobile ? 148 : 156;
         const leftX = compactMobile ? 16 : 22;
         const leftW = compactMobile ? 270 : 248;
         const rightW = compactMobile ? 260 : 248;
@@ -3045,13 +3045,13 @@ const game = {
             { id: "normal",  label: "⚔️ NORMAL",   desc: "Auto-aim"              },
             { id: "hard",    label: "💀 HARD",    desc: isMobile ? "Manual aim (touch)" : "Manual aim (mouse)" },
         ];
-        const mw = compactMobile ? 260 : 112, mh = compactMobile ? 40 : 46, mgap = compactMobile ? 10 : 8;
+        const mw = compactMobile ? 260 : 112, mh = compactMobile ? 36 : 46, mgap = compactMobile ? 7 : 8;
         const totalMW = compactMobile ? mw : modes.length * mw + (modes.length - 1) * mgap;
         const mx0 = compactMobile ? (CANVAS_W / 2 - totalMW / 2) : (centerX + (centerW - totalMW) / 2);
         const my = uiTop;
 
         if (!compactMobile) {
-            drawRoundRect(centerX, 166, centerW, 290, 12);
+            drawRoundRect(centerX, 142, centerW, 360, 12);
             ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
             ctx.fill();
             ctx.strokeStyle = "rgba(102,204,255,0.35)";
@@ -3099,20 +3099,20 @@ const game = {
         }
 
         // Challenge selector
-        const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 16 : my + 102;
+        const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 12 : my + 68;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
         ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 8);
         const cW = compactMobile ? 260 : 112;
-        const cH = compactMobile ? 34 : 38;
-        const cGap = compactMobile ? 8 : 8;
+        const cH = compactMobile ? 30 : 38;
+        const cGap = compactMobile ? 5 : 8;
         const cTotal = compactMobile ? cW : CHALLENGE_MODES.length * cW + (CHALLENGE_MODES.length - 1) * cGap;
         const cStartX = CANVAS_W / 2 - cTotal / 2;
         for (let i = 0; i < CHALLENGE_MODES.length; i++) {
             const cm = CHALLENGE_MODES[i];
             const cx = compactMobile ? cStartX : cStartX + i * (cW + cGap);
-            const cy = compactMobile ? cY + i * (cH + 7) : cY;
+            const cy = compactMobile ? cY + i * (cH + 5) : cY;
             const selected = Settings.challengeMode === cm.id;
             const hov = Mouse.inRect(cx, cy, cW, cH);
             drawRoundRect(cx, cy, cW, cH, 8);
@@ -3131,15 +3131,15 @@ const game = {
         }
 
         // Play button
-        const bw = compactMobile ? 260 : Math.min(240, centerW - 26), bh = compactMobile ? 38 : 48;
+        const bw = compactMobile ? 260 : Math.min(270, centerW - 20), bh = compactMobile ? 36 : 44, bhPlay = compactMobile ? 44 : 56;
         const bx = compactMobile ? (CANVAS_W / 2 - bw / 2) : (centerX + (centerW - bw) / 2);
         const challengeEnd = compactMobile
-            ? cY + CHALLENGE_MODES.length * (cH + 7) - 7
+            ? cY + CHALLENGE_MODES.length * (cH + 5) - 5
             : cY + cH;
-        const btnGap = compactMobile ? 6 : 12;
+        const btnGap = compactMobile ? 4 : 8;
 
         // Optional rewarded pre-run booster
-        const boosterY = challengeEnd + btnGap + 4;
+        const boosterY = challengeEnd + btnGap + 2;
         const boosterHover = Mouse.inRect(bx, boosterY, bw, bh);
         const boosterLabel = this.adBoosterPending
             ? "✅ BOOSTER ARMED"
@@ -3150,13 +3150,13 @@ const game = {
         }
 
         const by = boosterY + bh + btnGap;
-        const hovered = Mouse.inRect(bx, by, bw, bh);
-        if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
+        const hovered = Mouse.inRect(bx, by, bw, bhPlay);
+        if (drawButton("▶  PLAY", bx, by, bw, bhPlay, hovered, 22)) {
             this.startGame();
         }
 
         // Settings button
-        const settingsY = by + bh + btnGap;
+        const settingsY = by + bhPlay + btnGap;
         const sHover = Mouse.inRect(bx, settingsY, bw, bh);
         if (drawButton("⚙  SETTINGS", bx, settingsY, bw, bh, sHover)) {
             this.state = STATE.SETTINGS;
@@ -3174,7 +3174,7 @@ const game = {
 
         // Meta progression panel
         const mpX = leftX;
-        const mpY = compactMobile ? 42 : 174;
+        const mpY = compactMobile ? 42 : 148;
         const mpW = leftW;
         const mpH = compactMobile ? 206 : 432;
         drawRoundRect(mpX, mpY, mpW, mpH, 10);
@@ -3264,7 +3264,7 @@ const game = {
         const dpW = rightW;
         const dpH = compactMobile ? 90 : 132;
         const dpX = rightX;
-        const dpY = compactMobile ? CANVAS_H - dpH - 14 : 174;
+        const dpY = compactMobile ? CANVAS_H - dpH - 14 : 148;
         drawRoundRect(dpX, dpY, dpW, dpH, 9);
         ctx.fillStyle = "rgba(16,8,24,0.92)";
         ctx.fill();
