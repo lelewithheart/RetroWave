@@ -1,0 +1,27 @@
+name: Build and Deploy to Itch
+on:
+  push:
+    branches:
+      - main 
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # This step ensures your files are ready to be zipped
+      # If your index.html is in a subfolder, change './' to that folder name
+      - name: Zip Web Files
+        run: zip -r web-build.zip ./ -x "*.git*" ".github/*"
+
+      - name: Upload to Itch.io
+        uses: josephbstaton/upload-to-itch-action@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          itche-api-key: ${{ secrets.BUTLER_API_KEY }}
+          itch-user: LennyXD
+          itch-game: roguewave
+          package: web-build.zip
+          channel: html5
