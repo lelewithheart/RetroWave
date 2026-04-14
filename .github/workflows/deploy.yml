@@ -11,17 +11,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # This creates your zip file
+      # 1. Zip your web files (excludes git junk)
       - name: Zip Web Files
         run: zip -r web-build.zip ./ -x "*.git*" ".github/*"
 
-      # Using the ManleyJster action which is currently the most stable
+      # 2. Install the official itch.io "Butler" tool
+      - name: Install Butler
+        run: |
+          curl -L -o butler.zip https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default
+          unzip butler.zip
+          chmod +x butler
+          ./butler -V
+
+      # 3. Push to itch.io
       - name: Upload to Itch.io
-        uses: manleyjster/action-itch.io@v1.1.0
-        with:
-          # Note the slight name changes in these variables
-          butler_key: ${{ secrets.BUTLER_API_KEY }}
-          itch_user: LennyXD
-          itch_game: roguewave
-          package: web-build.zip
-          channel: html5
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          ./butler push web-build.zip LennyXD/roguewave:html5
