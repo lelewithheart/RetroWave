@@ -2350,60 +2350,13 @@ const game = {
             this.state = STATE.SETTINGS;
         }
 
-        // Changelog panel (left side, compact)
-        const changelogX = compactMobile ? CANVAS_W / 2 - 130 : 24;
-        const changelogY = compactMobile ? sy + 70 : 64;
-        const changelogW = compactMobile ? 260 : 255;
-        const changelogH = compactMobile ? 112 : 136;
-        drawRoundRect(changelogX, changelogY, changelogW, changelogH, 8);
-        ctx.fillStyle = COLOR.panel;
-        ctx.fill();
-        ctx.strokeStyle = COLOR.accent;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        ctx.fillStyle = COLOR.accent;
-        ctx.font = compactMobile ? "bold 13px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("📝 RECENT CHANGELOG", changelogX + changelogW / 2, changelogY + 17);
-
-        let changelogLineY = changelogY + 38;
-        if (CHANGELOG_ENTRIES.length === 0) {
-            ctx.fillStyle = COLOR.textDim;
-            ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
-            ctx.textAlign = "left";
-            ctx.fillText("No changelog entries loaded.", changelogX + 12, changelogLineY);
-            ctx.fillText("Check changelogs.txt", changelogX + 12, changelogLineY + 14);
-        } else {
-            for (let i = 0; i < CHANGELOG_ENTRIES.length; i++) {
-                const entry = CHANGELOG_ENTRIES[i];
-                ctx.fillStyle = COLOR.text;
-                ctx.font = compactMobile ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
-                ctx.textAlign = "left";
-                ctx.fillText(`• ${entry.version}`, changelogX + 12, changelogLineY);
-                changelogLineY += compactMobile ? 13 : 15;
-
-                ctx.fillStyle = COLOR.textDim;
-                ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
-                for (let j = 0; j < entry.changes.length; j++) {
-                    ctx.fillText(`  - ${entry.changes[j]}`, changelogX + 12, changelogLineY);
-                    changelogLineY += compactMobile ? 11 : 13;
-                }
-
-                changelogLineY += compactMobile ? 2 : 4;
-                if (changelogLineY > changelogY + changelogH - 20) {
-                    //ctx.fillStyle = COLOR.textDim;
-                    ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
-                    //ctx.fillText("...more updates coming", changelogX + 12, changelogY + changelogH - 12);
-                    break;
-                }
-            }
-        }
-
-        // Full changelog button
-        const logBtnY = changelogY + changelogH + 8;
-        const logBtnHover = Mouse.inRect(changelogX, logBtnY, changelogW, 36);
-        if (drawButton("📜  FULL CHANGELOG", changelogX, logBtnY, changelogW, 36, logBtnHover)) {
+        // Standalone full changelog button (recent-changelog panel removed)
+        const logBtnW = bw;
+        const logBtnH = bh;
+        const logBtnX = bx;
+        const logBtnY = compactMobile ? sy + 56 : sy + 64;
+        const logBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
+        if (drawButton("📜  CHANGELOGS", logBtnX, logBtnY, logBtnW, logBtnH, logBtnHover)) {
             this.state = STATE.CHANGELOGS;
         }
 
@@ -2411,7 +2364,7 @@ const game = {
         const scores = HighScores.getAll();
         if (scores.length > 0) {
             const panelX = compactMobile ? CANVAS_W / 2 - 130 : CANVAS_W - 260;
-            const panelY = compactMobile ? logBtnY + 52 : 60;
+            const panelY = compactMobile ? logBtnY + logBtnH + 8 : 60;
             const panelW = compactMobile ? 260 : 230;
             const panelH = compactMobile ? 28 + Math.min(scores.length, 3) * 22 : 30 + scores.length * 28;
             drawRoundRect(panelX, panelY, panelW, panelH, 8);
