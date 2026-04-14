@@ -79,6 +79,9 @@ const DAMAGE_NUMBER_RISE_SPEED = 60;
 // Kill combo
 const COMBO_TIMEOUT = 1.5;            // seconds until combo resets
 
+// Damage number thresholds
+const CRIT_DMG_HIGHLIGHT_RATIO = 0.2; // highlight as crit if damage > this fraction of max HP
+
 // ── Performance caps ──
 const MAX_PARTICLES = 150;
 const MAX_ENEMIES = 80;
@@ -201,6 +204,11 @@ function dynamicCap(base) {
 /** Human-readable label for the current game mode */
 function gameModeLabel() {
     return Settings.gameMode === "easy" ? "EASY" : Settings.gameMode === "hard" ? "HARD" : "NORMAL";
+}
+
+/** Replace the opacity value in an rgba(...) color string. */
+function withAlpha(rgbaStr, newAlpha) {
+    return rgbaStr.replace(/[\d.]+\)$/, newAlpha + ")");
 }
 
 /** Shuffle array in-place (Fisher-Yates) */
@@ -1627,7 +1635,7 @@ class Player extends Entity {
             if (this.level >= 5) {
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, glowSize * 1.5 * glowPulse, 0, Math.PI * 2);
-                ctx.fillStyle = this.skinGlow.replace("0.25)", "0.08)");
+                ctx.fillStyle = withAlpha(this.skinGlow, 0.08);
                 ctx.fill();
             }
         } else {
@@ -2019,7 +2027,7 @@ class Enemy extends Entity {
         this.hp -= amount;
         this.hitFlash = 0.1;
         // Spawn damage number
-        const isCrit = amount > (this.maxHp * 0.2);
+        const isCrit = amount > (this.maxHp * CRIT_DMG_HIGHLIGHT_RATIO);
         const color = isCrit ? "#ff4444" : "#ffffff";
         game.spawnDamageNumber(this.x, this.y - this.radius, amount, color, isCrit);
         if (this.hp <= 0) {
@@ -3522,7 +3530,7 @@ const game = {
             this.trailParticles.push(new TrailParticle(
                 this.player.x + randRange(-4, 4),
                 this.player.y + randRange(-4, 4),
-                this.player.skinGlow.replace("0.25)", "0.5)")
+                withAlpha(this.player.skinGlow, 0.5)
             ));
         }
 
@@ -4557,7 +4565,9 @@ const game = {
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "16px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Time survived: ${formatTime(this.timePlayed)}${this.bestCombo >= 3 ? `  •  Best combo: ${this.bestCombo}x` : ""}`, CANVAS_W / 2, CANVAS_H / 2 - 18);
+        const timeSurvivedText = `Time survived: ${formatTime(this.timePlayed)}`;
+        const comboSuffix = this.bestCombo >= 3 ? `  •  Best combo: ${this.bestCombo}x` : "";
+        ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, CANVAS_H / 2 - 18);
         ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
             CANVAS_W / 2, CANVAS_H / 2 + 6);
 
