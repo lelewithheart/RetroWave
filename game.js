@@ -197,6 +197,11 @@ function formatTime(totalSeconds) {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+/** True when a mobile device is held in portrait orientation */
+function isPortraitMobile() {
+    return isMobile && window.innerHeight > window.innerWidth;
+}
+
 /** Parse plain-text changelog into [{ version, changes[] }, ...] */
 function parseChangelogText(text) {
     const entries = [];
@@ -797,12 +802,14 @@ const TouchControls = {
     stickRadius: 24,
     maxDist: 50,          // max travel from center
 
-    // Pause button (top-right)
-    pauseBtnX: CANVAS_W - 52,
-    pauseBtnY: 8,
-    pauseBtnW: 44,
-    pauseBtnH: 36,
     pauseTapped: false,
+
+    getPauseButtonRect() {
+        if (isPortraitMobile()) {
+            return { x: CANVAS_W - 70, y: 10, w: 60, h: 40 };
+        }
+        return { x: CANVAS_W - 52, y: 8, w: 44, h: 36 };
+    },
 
     init() {
         if (!isMobile) return;
@@ -810,11 +817,12 @@ const TouchControls = {
         canvas.addEventListener("touchstart", (e) => {
             for (const t of e.changedTouches) {
                 const pos = this._toCanvas(t);
+                const pauseBtn = this.getPauseButtonRect();
 
                 // Check pause button tap during gameplay
                 if (game.state === STATE.GAMEPLAY &&
-                    pos.x >= this.pauseBtnX && pos.x <= this.pauseBtnX + this.pauseBtnW &&
-                    pos.y >= this.pauseBtnY && pos.y <= this.pauseBtnY + this.pauseBtnH) {
+                    pos.x >= pauseBtn.x && pos.x <= pauseBtn.x + pauseBtn.w &&
+                    pos.y >= pauseBtn.y && pos.y <= pauseBtn.y + pauseBtn.h) {
                     this.pauseTapped = true;
                     continue;
                 }
@@ -885,6 +893,7 @@ const TouchControls = {
     /** Draw the virtual joystick overlay (call from drawHUD) */
     draw() {
         if (!isMobile || game.state !== STATE.GAMEPLAY) return;
+        const portrait = isPortraitMobile();
 
         // Movement joystick
         if (this.moveActive) {
@@ -907,9 +916,9 @@ const TouchControls = {
             ctx.stroke();
         } else {
             // Hint: ghost joystick at bottom-left
-            const hx = 90, hy = CANVAS_H - 90;
+            const hx = 90, hy = portrait ? CANVAS_H - 104 : CANVAS_H - 90;
             ctx.beginPath();
-            ctx.arc(hx, hy, this.baseRadius, 0, Math.PI * 2);
+            ctx.arc(hx, hy, portrait ? 62 : this.baseRadius, 0, Math.PI * 2);
             ctx.fillStyle = "rgba(255,255,255,0.04)";
             ctx.fill();
             ctx.strokeStyle = "rgba(255,255,255,0.1)";
@@ -929,8 +938,9 @@ const TouchControls = {
 
     drawPauseButton() {
         if (game.state !== STATE.GAMEPLAY) return;
-        const x = this.pauseBtnX, y = this.pauseBtnY;
-        const w = this.pauseBtnW, h = this.pauseBtnH;
+        const btn = this.getPauseButtonRect();
+        const x = btn.x, y = btn.y;
+        const w = btn.w, h = btn.h;
         drawRoundRect(x, y, w, h, 6);
         ctx.fillStyle = "rgba(255,255,255,0.1)";
         ctx.fill();
@@ -2258,19 +2268,22 @@ const game = {
     },
 
     drawStartMenu() {
+        const portrait = isPortraitMobile();
+        const compactMobile = portrait;
+
         // Title
         ctx.fillStyle = COLOR.accent;
-        ctx.font = "bold 60px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactMobile ? "bold 50px 'Segoe UI', Arial, sans-serif" : "bold 60px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, CANVAS_H / 2 - 150);
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? CANVAS_H / 2 - 165 : CANVAS_H / 2 - 150);
 
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = "20px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, CANVAS_H / 2 - 102);
+        ctx.font = compactMobile ? "18px 'Segoe UI', Arial, sans-serif" : "20px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? CANVAS_H / 2 - 124 : CANVAS_H / 2 - 102);
 
-        ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, CANVAS_H / 2 - 78);
+        ctx.font = compactMobile ? "13px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? CANVAS_H / 2 - 102 : CANVAS_H / 2 - 78);
 
         // ── Mode selector ──
         const modes = [
@@ -2278,10 +2291,10 @@ const game = {
             { id: "normal",  label: "⚔️ NORMAL",   desc: "Auto-aim"              },
             { id: "hard",    label: "💀 HARD",    desc: isMobile ? "Manual aim (touch)" : "Manual aim (mouse)" },
         ];
-        const mw = 140, mh = 46, mgap = 8;
-        const totalMW = modes.length * mw + (modes.length - 1) * mgap;
+        const mw = compactMobile ? 260 : 140, mh = compactMobile ? 40 : 46, mgap = compactMobile ? 10 : 8;
+        const totalMW = compactMobile ? mw : modes.length * mw + (modes.length - 1) * mgap;
         const mx0 = CANVAS_W / 2 - totalMW / 2;
-        const my = CANVAS_H / 2 - 22;
+        const my = compactMobile ? CANVAS_H / 2 - 12 : CANVAS_H / 2 - 22;
 
         ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
@@ -2290,11 +2303,12 @@ const game = {
 
         for (let i = 0; i < modes.length; i++) {
             const m = modes[i];
-            const mbx = mx0 + i * (mw + mgap);
+            const mbx = compactMobile ? mx0 : mx0 + i * (mw + mgap);
+            const mby = compactMobile ? my + i * (mh + mgap) : my;
             const selected = Settings.gameMode === m.id;
-            const hov = Mouse.inRect(mbx, my, mw, mh);
+            const hov = Mouse.inRect(mbx, mby, mw, mh);
 
-            drawRoundRect(mbx, my, mw, mh, 8);
+            drawRoundRect(mbx, mby, mw, mh, 8);
             if (selected) {
                 ctx.fillStyle = COLOR.accent;
                 ctx.globalAlpha = 0.9;
@@ -2309,12 +2323,12 @@ const game = {
             ctx.stroke();
 
             ctx.fillStyle = selected ? "#000" : (hov ? COLOR.accentHover : COLOR.text);
-            ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactMobile ? "bold 13px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText(m.label, mbx + mw / 2, my + mh / 2 - 4);
-            ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(m.label, mbx + mw / 2, mby + mh / 2 - (compactMobile ? 2 : 4));
+            ctx.font = compactMobile ? "9px 'Segoe UI', Arial, sans-serif" : "10px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = selected ? "#000" : COLOR.textDim;
-            ctx.fillText(m.desc, mbx + mw / 2, my + mh / 2 + 11);
+            ctx.fillText(m.desc, mbx + mw / 2, mby + mh / 2 + (compactMobile ? 10 : 11));
 
             if (hov && Mouse.clicked) {
                 Settings.gameMode = m.id;
@@ -2322,25 +2336,25 @@ const game = {
         }
 
         // Play button
-        const bw = 220, bh = 50;
-        const bx = CANVAS_W / 2 - bw / 2, by = CANVAS_H / 2 + 50;
+        const bw = compactMobile ? 260 : 220, bh = compactMobile ? 46 : 50;
+        const bx = CANVAS_W / 2 - bw / 2, by = compactMobile ? CANVAS_H / 2 + 120 : CANVAS_H / 2 + 50;
         const hovered = Mouse.inRect(bx, by, bw, bh);
         if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
             this.startGame();
         }
 
         // Settings button
-        const sy = CANVAS_H / 2 + 114;
+        const sy = compactMobile ? CANVAS_H / 2 + 176 : CANVAS_H / 2 + 114;
         const sHover = Mouse.inRect(bx, sy, bw, bh);
         if (drawButton("⚙  SETTINGS", bx, sy, bw, bh, sHover)) {
             this.state = STATE.SETTINGS;
         }
 
         // Changelog panel (left side, compact)
-        const changelogX = 24;
-        const changelogY = 64;
-        const changelogW = 255;
-        const changelogH = 136;
+        const changelogX = compactMobile ? CANVAS_W / 2 - 130 : 24;
+        const changelogY = compactMobile ? sy + 70 : 64;
+        const changelogW = compactMobile ? 260 : 255;
+        const changelogH = compactMobile ? 112 : 136;
         drawRoundRect(changelogX, changelogY, changelogW, changelogH, 8);
         ctx.fillStyle = COLOR.panel;
         ctx.fill();
@@ -2349,14 +2363,14 @@ const game = {
         ctx.stroke();
 
         ctx.fillStyle = COLOR.accent;
-        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactMobile ? "bold 13px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText("📝 RECENT CHANGELOG", changelogX + changelogW / 2, changelogY + 17);
 
         let changelogLineY = changelogY + 38;
         if (CHANGELOG_ENTRIES.length === 0) {
             ctx.fillStyle = COLOR.textDim;
-            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
             ctx.fillText("No changelog entries loaded.", changelogX + 12, changelogLineY);
             ctx.fillText("Check changelogs.txt", changelogX + 12, changelogLineY + 14);
@@ -2364,22 +2378,22 @@ const game = {
             for (let i = 0; i < CHANGELOG_ENTRIES.length; i++) {
                 const entry = CHANGELOG_ENTRIES[i];
                 ctx.fillStyle = COLOR.text;
-                ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+                ctx.font = compactMobile ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
                 ctx.textAlign = "left";
                 ctx.fillText(`• ${entry.version}`, changelogX + 12, changelogLineY);
-                changelogLineY += 15;
+                changelogLineY += compactMobile ? 13 : 15;
 
                 ctx.fillStyle = COLOR.textDim;
-                ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+                ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
                 for (let j = 0; j < entry.changes.length; j++) {
                     ctx.fillText(`  - ${entry.changes[j]}`, changelogX + 12, changelogLineY);
-                    changelogLineY += 13;
+                    changelogLineY += compactMobile ? 11 : 13;
                 }
 
-                changelogLineY += 4;
-                if (changelogLineY > changelogY + changelogH - 26) {
+                changelogLineY += compactMobile ? 2 : 4;
+                if (changelogLineY > changelogY + changelogH - 20) {
                     //ctx.fillStyle = COLOR.textDim;
-                    //ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+                    ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
                     //ctx.fillText("...more updates coming", changelogX + 12, changelogY + changelogH - 12);
                     break;
                 }
@@ -2387,7 +2401,7 @@ const game = {
         }
 
         // Full changelog button
-        const logBtnY = changelogY + changelogH + 10;
+        const logBtnY = changelogY + changelogH + 8;
         const logBtnHover = Mouse.inRect(changelogX, logBtnY, changelogW, 36);
         if (drawButton("📜  FULL CHANGELOG", changelogX, logBtnY, changelogW, 36, logBtnHover)) {
             this.state = STATE.CHANGELOGS;
@@ -2396,8 +2410,10 @@ const game = {
         // High Scores panel (right side) – per-mode
         const scores = HighScores.getAll();
         if (scores.length > 0) {
-            const panelX = CANVAS_W - 260, panelY = 60;
-            const panelW = 230, panelH = 30 + scores.length * 28;
+            const panelX = compactMobile ? CANVAS_W / 2 - 130 : CANVAS_W - 260;
+            const panelY = compactMobile ? logBtnY + 52 : 60;
+            const panelW = compactMobile ? 260 : 230;
+            const panelH = compactMobile ? 28 + Math.min(scores.length, 3) * 22 : 30 + scores.length * 28;
             drawRoundRect(panelX, panelY, panelW, panelH, 8);
             ctx.fillStyle = COLOR.panel;
             ctx.fill();
@@ -2406,14 +2422,14 @@ const game = {
             ctx.stroke();
 
             ctx.fillStyle = COLOR.accent;
-            ctx.font = "bold 15px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactMobile ? "bold 14px 'Segoe UI', Arial, sans-serif" : "bold 15px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
             ctx.fillText(`🏆 ${gameModeLabel()} SCORES`, panelX + panelW / 2, panelY + 18);
 
-            ctx.font = "13px 'Segoe UI', Arial, sans-serif";
-            for (let i = 0; i < scores.length; i++) {
+            ctx.font = compactMobile ? "11px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
+            for (let i = 0; i < scores.length && (!compactMobile || i < 3); i++) {
                 const s = scores[i];
-                const ty = panelY + 40 + i * 28;
+                const ty = panelY + (compactMobile ? 38 + i * 22 : 40 + i * 28);
                 ctx.fillStyle = i === 0 ? "#ffd700" : COLOR.text;
                 ctx.textAlign = "left";
                 ctx.fillText(`${i + 1}.`, panelX + 12, ty);
@@ -2438,12 +2454,12 @@ const game = {
 
         // Controls hint
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = "14px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactMobile ? "12px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         if (isMobile) {
             const mobileAimHint = Settings.gameMode === "hard" ? "Touch right side to aim" : "Auto-aim & fire";
-            ctx.fillText(`Virtual joystick to move  •  ${mobileAimHint}`, CANVAS_W / 2, CANVAS_H - 60);
-            ctx.fillText("Tap PLAY to start", CANVAS_W / 2, CANVAS_H - 38);
+            ctx.fillText(`Virtual joystick to move  •  ${mobileAimHint}`, CANVAS_W / 2, compactMobile ? CANVAS_H - 74 : CANVAS_H - 60);
+            ctx.fillText("Tap PLAY to start", CANVAS_W / 2, compactMobile ? CANVAS_H - 52 : CANVAS_H - 38);
         } else {
             const aimHint = Settings.gameMode === "hard" ? "Mouse to aim" : "Auto-aim";
             ctx.fillText(`WASD / Arrow Keys to move  •  ${aimHint} & fire`, CANVAS_W / 2, CANVAS_H - 60);
@@ -2779,10 +2795,11 @@ const game = {
 
     drawHUD() {
         const p = this.player;
-        const pad = 16;
+        const portrait = isPortraitMobile();
+        const pad = portrait ? 12 : 16;
 
         // ── HP bar ──
-        const hpW = 220, hpH = 18;
+        const hpW = portrait ? 190 : 220, hpH = portrait ? 16 : 18;
         const hpX = pad, hpY = pad;
         drawRoundRect(hpX, hpY, hpW, hpH, 4);
         ctx.fillStyle = COLOR.hpBarBg;

@@ -1,5 +1,12 @@
 window.ROGUEWAVE_CHANGELOG_TEXT = `
+
 # Newest entry first. The first version line is used as current in-game version.
+# Version schema: {day}.{month}:{Number of update this day}
+
+beta 10.04:05
+- Improved mobile portrait play layout
+- Added bigger portrait-friendly pause button
+- Compact main menu layout for portrait screens
 
 beta 10.04:04
 - Added ABANDON RUN button in pause/settings screen
@@ -16,4 +23,5 @@ beta 10.04:02
 
 beta 10.04:01
 - Initial public beta release
+
 `;
