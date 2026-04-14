@@ -4,6 +4,9 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
 beta 10.04:05
+- Automatic Deployment to itch.io added
+
+beta 10.04:05
 - Improved mobile portrait play layout
 - Added bigger portrait-friendly pause button
 - Compact main menu layout for portrait screens
