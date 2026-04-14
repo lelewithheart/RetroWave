@@ -1,0 +1,19 @@
+        /* ─── Global Reset & Canvas Styling ─── */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a1a;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+            image-rendering: pixelated;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }

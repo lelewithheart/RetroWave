@@ -1,0 +1,19 @@
+window.ROGUEWAVE_CHANGELOG_TEXT = `
+# Newest entry first. The first version line is used as current in-game version.
+
+beta 10.04:04
+- Added ABANDON RUN button in pause/settings screen
+- Abandoning a run now returns directly to main menu
+
+beta 10.04:03
+- Changed some stylings to look good
+- Refined the changelogs
+
+beta 10.04:02
+- Added main menu changelog panel
+- Pause screen now shows run stats
+- Added full changelog screen/button
+
+beta 10.04:01
+- Initial public beta release
+`;
