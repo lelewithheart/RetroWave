@@ -72,6 +72,16 @@ const XP_MAGNET_RANGE = 100;
 // Particle
 const PARTICLE_LIFETIME = 0.5;
 
+// Damage numbers
+const DAMAGE_NUMBER_LIFETIME = 0.8;
+const DAMAGE_NUMBER_RISE_SPEED = 60;
+
+// Kill combo
+const COMBO_TIMEOUT = 1.5;            // seconds until combo resets
+
+// Damage number thresholds
+const CRIT_DMG_HIGHLIGHT_RATIO = 0.2; // highlight as crit if damage > this fraction of max HP
+
 // ── Performance caps ──
 const MAX_PARTICLES = 150;
 const MAX_ENEMIES = 80;
@@ -194,6 +204,11 @@ function dynamicCap(base) {
 /** Human-readable label for the current game mode */
 function gameModeLabel() {
     return Settings.gameMode === "easy" ? "EASY" : Settings.gameMode === "hard" ? "HARD" : "NORMAL";
+}
+
+/** Replace the opacity value in an rgba(...) color string. */
+function withAlpha(rgbaStr, newAlpha) {
+    return rgbaStr.replace(/[\d.]+\)$/, newAlpha + ")");
 }
 
 /** Shuffle array in-place (Fisher-Yates) */
@@ -1608,11 +1623,28 @@ class Player extends Entity {
             ctx.setLineDash([]);
         }
 
-        // Glow
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
-        ctx.fillStyle = this.skinGlow;
-        ctx.fill();
+        // Level-scaled power glow (grows with level)
+        if (!game.lowPerf) {
+            const glowSize = this.radius * (2.2 + Math.min(this.level * 0.08, 1.2));
+            const glowPulse = 1 + 0.08 * Math.sin(frameNow * 0.004);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, glowSize * glowPulse, 0, Math.PI * 2);
+            ctx.fillStyle = this.skinGlow;
+            ctx.fill();
+            // Second, larger glow ring for high levels
+            if (this.level >= 5) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, glowSize * 1.5 * glowPulse, 0, Math.PI * 2);
+                ctx.fillStyle = withAlpha(this.skinGlow, 0.08);
+                ctx.fill();
+            }
+        } else {
+            // Basic glow for low-perf
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
+            ctx.fillStyle = this.skinGlow;
+            ctx.fill();
+        }
 
         // Body
         ctx.beginPath();
@@ -1624,13 +1656,26 @@ class Player extends Entity {
         ctx.strokeStyle = "#ffffff";
         ctx.stroke();
 
-        // Direction indicator
+        // Inner highlight
+        ctx.beginPath();
+        ctx.arc(this.x - 3, this.y - 3, this.radius * 0.35, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255,255,255,0.2)";
+        ctx.fill();
+
+        // Direction indicator (gun barrel)
         const tipX = this.x + Math.cos(this.angle) * (this.radius + 8);
         const tipY = this.y + Math.sin(this.angle) * (this.radius + 8);
         ctx.beginPath();
         ctx.arc(tipX, tipY, 4, 0, Math.PI * 2);
         ctx.fillStyle = COLOR.bullet;
         ctx.fill();
+        // Barrel glow
+        if (!game.lowPerf) {
+            ctx.beginPath();
+            ctx.arc(tipX, tipY, 7, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255,238,85,0.15)";
+            ctx.fill();
+        }
 
         // Draw orbit shield orbs
         const w = this.weapons;
@@ -1650,6 +1695,13 @@ class Player extends Entity {
                 ctx.strokeStyle = "#ffffff";
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
+                // Orbit trail
+                if (!game.lowPerf) {
+                    ctx.beginPath();
+                    ctx.arc(ox, oy, 16, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(51,204,255,0.12)";
+                    ctx.fill();
+                }
             }
         }
     }
@@ -1974,6 +2026,10 @@ class Enemy extends Entity {
     takeDamage(amount) {
         this.hp -= amount;
         this.hitFlash = 0.1;
+        // Spawn damage number
+        const isCrit = amount > (this.maxHp * CRIT_DMG_HIGHLIGHT_RATIO);
+        const color = isCrit ? "#ff4444" : "#ffffff";
+        game.spawnDamageNumber(this.x, this.y - this.radius, amount, color, isCrit);
         if (this.hp <= 0) {
             this.alive = false;
             game.onEnemyKilled(this);
@@ -2044,10 +2100,22 @@ class XPOrb extends Entity {
 
     draw() {
         const pulse = 1 + 0.2 * Math.sin(frameNow * 0.008);
+        // Outer glow
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * pulse * 2, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(85,255,136,0.12)";
+        ctx.fill();
+        // Main orb
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius * pulse, 0, Math.PI * 2);
         ctx.fillStyle = COLOR.xpOrb;
-        ctx.globalAlpha = 0.8;
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        // Bright center
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * pulse * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.globalAlpha = 0.5;
         ctx.fill();
         ctx.globalAlpha = 1;
     }
@@ -2093,8 +2161,118 @@ class Particle {
 }
 
 // ─────────────────────────────────────────────
-// §13  UPGRADE DEFINITIONS
+// §12b  DAMAGE NUMBER CLASS
 // ─────────────────────────────────────────────
+
+class DamageNumber {
+    constructor(x, y, amount, color, isCrit) {
+        this.x = x + randRange(-8, 8);
+        this.y = y;
+        this.amount = amount;
+        this.color = color || "#ffffff";
+        this.isCrit = isCrit || false;
+        this.life = DAMAGE_NUMBER_LIFETIME;
+        this.maxLife = DAMAGE_NUMBER_LIFETIME;
+        this.alive = true;
+        this.scale = isCrit ? 1.4 : 1.0;
+    }
+
+    update(dt) {
+        this.y -= DAMAGE_NUMBER_RISE_SPEED * dt;
+        this.life -= dt;
+        if (this.life <= 0) this.alive = false;
+    }
+
+    draw() {
+        const alpha = clamp(this.life / this.maxLife, 0, 1);
+        const t = 1 - (this.life / this.maxLife);
+        const scale = this.scale * (1 + t * 0.3);
+        ctx.globalAlpha = alpha;
+        ctx.font = `bold ${Math.floor(14 * scale)}px 'Segoe UI', Arial, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        // Shadow for readability
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillText(this.amount, this.x + 1, this.y + 1);
+        ctx.fillStyle = this.color;
+        ctx.fillText(this.amount, this.x, this.y);
+        if (this.isCrit) {
+            ctx.font = `bold ${Math.floor(9 * scale)}px 'Segoe UI', Arial, sans-serif`;
+            ctx.fillStyle = "#ffcc00";
+            ctx.fillText("CRIT!", this.x, this.y - 12 * scale);
+        }
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ─────────────────────────────────────────────
+// §12c  PLAYER TRAIL
+// ─────────────────────────────────────────────
+
+class TrailParticle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.life = 0.3;
+        this.maxLife = 0.3;
+        this.radius = randRange(3, 6);
+        this.color = color;
+        this.alive = true;
+    }
+
+    update(dt) {
+        this.life -= dt;
+        if (this.life <= 0) this.alive = false;
+    }
+
+    draw() {
+        const alpha = clamp(this.life / this.maxLife, 0, 1) * 0.35;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * alpha, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.globalAlpha = alpha;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+}
+
+// ─────────────────────────────────────────────
+// §12d  BACKGROUND STARFIELD
+// ─────────────────────────────────────────────
+
+const Starfield = (() => {
+    const STAR_COUNT = 80;
+    const stars = [];
+    for (let i = 0; i < STAR_COUNT; i++) {
+        stars.push({
+            x: Math.random() * WORLD_W,
+            y: Math.random() * WORLD_H,
+            radius: randRange(0.5, 2),
+            brightness: randRange(0.15, 0.5),
+            twinkleSpeed: randRange(0.002, 0.006),
+            twinkleOffset: Math.random() * Math.PI * 2,
+        });
+    }
+
+    function draw(cameraX, cameraY) {
+        for (let i = 0; i < stars.length; i++) {
+            const s = stars[i];
+            // Parallax: stars move slower than the camera
+            const sx = s.x - cameraX * 0.3;
+            const sy = s.y - cameraY * 0.3;
+            // Wrap around
+            const wx = ((sx % CANVAS_W) + CANVAS_W) % CANVAS_W;
+            const wy = ((sy % CANVAS_H) + CANVAS_H) % CANVAS_H;
+            const twinkle = s.brightness + 0.15 * Math.sin(frameNow * s.twinkleSpeed + s.twinkleOffset);
+            ctx.beginPath();
+            ctx.arc(wx, wy, s.radius, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(180,200,255,${clamp(twinkle, 0, 0.6)})`;
+            ctx.fill();
+        }
+    }
+
+    return { draw };
+})();
 
 const UPGRADES = [
     // ── Stat upgrades ──
@@ -2518,6 +2696,8 @@ const game = {
     lightningBolts: [],   // visual lightning effects
     frostWaves: [],       // visual frost nova rings
     flamePatches: [],     // flame trail damage zones
+    damageNumbers: [],    // floating damage numbers
+    trailParticles: [],   // player movement trail
     camera: new Camera(),
 
     // Wave tracking
@@ -2546,6 +2726,18 @@ const game = {
     lastHighScoreRank: 0,  // rank achieved on last game over (0 = not a high score)
     lastRunShardGain: 0,
     lastDailyReward: 0,
+
+    // Kill combo
+    comboCount: 0,
+    comboTimer: 0,
+    bestCombo: 0,
+
+    // Level up flash
+    levelUpFlashTimer: 0,
+
+    // Wave banner animation
+    waveBannerTimer: 0,
+    waveBannerText: "",
 
     // Run modifiers
     enemySpeedMult: 1,
@@ -2594,6 +2786,8 @@ const game = {
         this.lightningBolts = [];
         this.frostWaves = [];
         this.flamePatches = [];
+        this.damageNumbers = [];
+        this.trailParticles = [];
         this.camera = new Camera();
         this.wave = 0;
         this.waveKills = 0;
@@ -2614,6 +2808,12 @@ const game = {
         this.lastHighScoreRank = 0;
         this.lastRunShardGain = 0;
         this.lastDailyReward = 0;
+        this.comboCount = 0;
+        this.comboTimer = 0;
+        this.bestCombo = 0;
+        this.levelUpFlashTimer = 0;
+        this.waveBannerTimer = 0;
+        this.waveBannerText = "";
         this.enemySpeedMult = 1;
         this.shardRewardMult = 1;
         this.adBoosterActive = false;
@@ -2738,7 +2938,7 @@ const game = {
             Audio.sfxNewHighScore();
             CrazyGamesSDK.happyTime();
         }
-        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed);
+        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, false);
         this.runFinalized = true;
     },
 
@@ -3316,6 +3516,38 @@ const game = {
         for (const p of this.particles) p.update(dt);
         compactInPlace(this.particles, p => p.alive);
 
+        // Damage numbers
+        for (const d of this.damageNumbers) d.update(dt);
+        compactInPlace(this.damageNumbers, d => d.alive);
+
+        // Trail particles
+        for (const t of this.trailParticles) t.update(dt);
+        compactInPlace(this.trailParticles, t => t.alive);
+
+        // Player trail spawning (only when moving)
+        const mv = Input.moveVector();
+        if ((mv.x !== 0 || mv.y !== 0) && !this.lowPerf && this.trailParticles.length < 40) {
+            this.trailParticles.push(new TrailParticle(
+                this.player.x + randRange(-4, 4),
+                this.player.y + randRange(-4, 4),
+                withAlpha(this.player.skinGlow, 0.5)
+            ));
+        }
+
+        // Kill combo timer
+        if (this.comboTimer > 0) {
+            this.comboTimer -= dt;
+            if (this.comboTimer <= 0) {
+                this.comboCount = 0;
+            }
+        }
+
+        // Level-up flash timer
+        if (this.levelUpFlashTimer > 0) this.levelUpFlashTimer -= dt;
+
+        // Wave banner timer
+        if (this.waveBannerTimer > 0) this.waveBannerTimer -= dt;
+
         // Lightning bolts (visual only)
         for (const l of this.lightningBolts) l.life -= dt;
         compactInPlace(this.lightningBolts, l => l.life > 0);
@@ -3370,15 +3602,24 @@ const game = {
     },
 
     drawGameplay() {
+        // Background starfield (screen-space, drawn before camera transform)
+        if (!this.lowPerf) {
+            Starfield.draw(this.camera.x, this.camera.y);
+        }
+
         this.camera.applyTransform();
 
         // Grid background
         this.drawGrid();
 
-        // World border
-        ctx.strokeStyle = this.currentBiome().border;
+        // World border with glow
+        const biome = this.currentBiome();
+        ctx.shadowColor = biome.border;
+        ctx.shadowBlur = this.lowPerf ? 0 : 8;
+        ctx.strokeStyle = biome.border;
         ctx.lineWidth = 3;
         ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+        ctx.shadowBlur = 0;
 
         // Flame patches
         for (const fp of this.flamePatches) {
@@ -3397,7 +3638,10 @@ const game = {
         }
         ctx.globalAlpha = 1;
 
-        // XP orbs
+        // Trail particles (behind player)
+        for (const t of this.trailParticles) t.draw();
+
+        // XP orbs (with improved glow)
         for (const o of this.xpOrbs) o.draw();
 
         // Enemies
@@ -3411,6 +3655,9 @@ const game = {
 
         // Particles (on top)
         for (const p of this.particles) p.draw();
+
+        // Damage numbers (world-space)
+        for (const d of this.damageNumbers) d.draw();
 
         // Lightning bolts
         for (const l of this.lightningBolts) {
@@ -3454,6 +3701,18 @@ const game = {
 
         this.camera.resetTransform();
 
+        // Vignette effect (screen-space)
+        if (!this.lowPerf) {
+            this.drawVignette();
+        }
+
+        // Level-up flash effect (screen-space)
+        if (this.levelUpFlashTimer > 0) {
+            const flashAlpha = clamp(this.levelUpFlashTimer / 0.3, 0, 0.25);
+            ctx.fillStyle = `rgba(51,204,255,${flashAlpha})`;
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        }
+
         // HUD (screen-space)
         if (this.state === STATE.GAMEPLAY) {
             this.drawHUD();
@@ -3477,6 +3736,16 @@ const game = {
         ctx.stroke();
     },
 
+    drawVignette() {
+        const cx = CANVAS_W / 2, cy = CANVAS_H / 2;
+        const outerR = Math.sqrt(cx * cx + cy * cy);
+        const grad = ctx.createRadialGradient(cx, cy, outerR * 0.55, cx, cy, outerR);
+        grad.addColorStop(0, "rgba(0,0,0,0)");
+        grad.addColorStop(1, "rgba(0,0,0,0.35)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    },
+
     // ────── HUD ──────
 
     drawHUD() {
@@ -3484,14 +3753,26 @@ const game = {
         const portrait = isPortraitMobile();
         const pad = portrait ? 12 : 16;
 
+        // ── Low HP danger vignette ──
+        const hpPct = p.hp / p.maxHp;
+        if (hpPct < 0.3 && !this.lowPerf) {
+            const dangerAlpha = (1 - hpPct / 0.3) * (0.1 + 0.06 * Math.sin(frameNow * 0.008));
+            const dangerGrad = ctx.createRadialGradient(CANVAS_W / 2, CANVAS_H / 2, CANVAS_W * 0.3, CANVAS_W / 2, CANVAS_H / 2, CANVAS_W * 0.7);
+            dangerGrad.addColorStop(0, "rgba(0,0,0,0)");
+            dangerGrad.addColorStop(1, `rgba(180,0,0,${dangerAlpha})`);
+            ctx.fillStyle = dangerGrad;
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        }
+
         // ── HP bar ──
         const hpW = portrait ? 190 : 220, hpH = portrait ? 16 : 18;
         const hpX = pad, hpY = pad;
         drawRoundRect(hpX, hpY, hpW, hpH, 4);
         ctx.fillStyle = COLOR.hpBarBg;
         ctx.fill();
-        drawRoundRect(hpX, hpY, hpW * clamp(p.hp / p.maxHp, 0, 1), hpH, 4);
-        ctx.fillStyle = COLOR.hpBar;
+        const hpBarColor = hpPct < 0.25 ? COLOR.danger : (hpPct < 0.5 ? "#dd8822" : COLOR.hpBar);
+        drawRoundRect(hpX, hpY, hpW * clamp(hpPct, 0, 1), hpH, 4);
+        ctx.fillStyle = hpBarColor;
         ctx.fill();
         ctx.fillStyle = COLOR.text;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
@@ -3570,6 +3851,43 @@ const game = {
             const nextLabel = (this.wave + 1 === WAVE_MAX) ? `⚠️ FINAL WAVE Incoming...`
                 : `Wave ${this.wave + 1} Incoming...`;
             ctx.fillText(nextLabel, CANVAS_W / 2, CANVAS_H / 2 - 40);
+            ctx.globalAlpha = 1;
+        }
+
+        // ── Animated wave banner ──
+        if (this.waveBannerTimer > 0) {
+            const bannerProgress = 1 - (this.waveBannerTimer / 2.0);
+            const slideIn = bannerProgress < 0.15 ? bannerProgress / 0.15 : 1;
+            const fadeOut = this.waveBannerTimer < 0.5 ? this.waveBannerTimer / 0.5 : 1;
+            const bannerW = 340;
+            const bannerH = 50;
+            const bannerX = CANVAS_W / 2 - bannerW / 2;
+            const bannerY = 70 + (1 - slideIn) * (-60);
+            ctx.globalAlpha = fadeOut * 0.9;
+            drawRoundRect(bannerX, bannerY, bannerW, bannerH, 10);
+            const isBoss = this.waveBannerText.includes("BOSS");
+            ctx.fillStyle = isBoss ? "rgba(180,20,60,0.85)" : "rgba(10,15,40,0.85)";
+            ctx.fill();
+            ctx.strokeStyle = isBoss ? "#ff4488" : COLOR.accent;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = isBoss ? "#ffd700" : COLOR.accent;
+            ctx.font = "bold 22px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(this.waveBannerText, CANVAS_W / 2, bannerY + bannerH / 2);
+            ctx.globalAlpha = 1;
+        }
+
+        // ── Kill combo counter ──
+        if (this.comboCount >= 3 && this.comboTimer > 0) {
+            const comboAlpha = clamp(this.comboTimer / 0.5, 0.4, 1);
+            const comboScale = 1 + Math.min(0.3, this.comboCount * 0.02);
+            ctx.globalAlpha = comboAlpha;
+            ctx.textAlign = "center";
+            ctx.fillStyle = this.comboCount >= 10 ? "#ffd700" : (this.comboCount >= 5 ? "#ff8844" : COLOR.accent);
+            ctx.font = `bold ${Math.floor(20 * comboScale)}px 'Segoe UI', Arial, sans-serif`;
+            ctx.fillText(`${this.comboCount}x COMBO!`, CANVAS_W / 2, pad + 68);
             ctx.globalAlpha = 1;
         }
 
@@ -3727,11 +4045,17 @@ const game = {
         }
         this.spawnTimer = 0; // spawn immediately
         this.waveActive = true;
+
+        // Animated wave banner
+        this.waveBannerTimer = 2.0;
+        this.waveBannerText = this.isBossWave(this.wave)
+            ? `⚠ BOSS WAVE ${this.wave} ⚠`
+            : `WAVE ${this.wave}`;
+
         Audio.sfxWaveStart();
 
         // Spawn boss on milestone waves
-        const isBossWave = this.wave === 5 || this.wave === 10 || this.wave === 15 || this.wave === 20;
-        if (isBossWave) {
+        if (this.isBossWave(this.wave)) {
             const bossType = (this.wave === 10 || this.wave === 20) ? "bigboss" : "miniboss";
             const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
             const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
@@ -3807,7 +4131,23 @@ const game = {
     onEnemyKilled(enemy) {
         this.killCount++;
         this.waveKills++;
-        this.spawnParticles(enemy.x, enemy.y, COLOR.enemyA, isMobile ? 4 : 12);
+
+        // Kill combo tracking
+        this.comboCount++;
+        this.comboTimer = COMBO_TIMEOUT;
+        if (this.comboCount > this.bestCombo) this.bestCombo = this.comboCount;
+
+        // Type-specific death effects
+        const particleCount = isMobile ? 4 : 12;
+        const deathColor = enemy.color || COLOR.enemyA;
+        this.spawnParticles(enemy.x, enemy.y, deathColor, particleCount);
+        if (enemy.type === "tank") {
+            this.spawnParticles(enemy.x, enemy.y, "#226622", isMobile ? 2 : 6);
+        } else if (enemy.type === "miniboss" || enemy.type === "bigboss") {
+            this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
+            this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
+        }
+
         const easyBonus = Settings.gameMode === "easy" ? (1 + this.wave * 0.15) : 1;
         if (this.xpOrbs.length < dynamicCap(MAX_XP_ORBS)) {
             const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * (enemy.xpMult || 1) * easyBonus * this.player.xpGainMult);
@@ -3845,6 +4185,12 @@ const game = {
         }
     },
 
+    spawnDamageNumber(x, y, amount, color, isCrit) {
+        if (this.damageNumbers.length < 60) {
+            this.damageNumbers.push(new DamageNumber(x, y, amount, color, isCrit));
+        }
+    },
+
     findNearestEnemy(x, y, maxRange) {
         let nearest = null;
         let bestDist = maxRange !== undefined ? maxRange : Infinity;
@@ -3867,6 +4213,7 @@ const game = {
         this.upgradeChoices = pool.slice(0, numChoices);
         this.upgradeIsBonusWave = isBonusWave;
         this.state = STATE.UPGRADE_SCREEN;
+        this.levelUpFlashTimer = 0.3;
         Audio.sfxLevelUp();
     },
 
@@ -3894,61 +4241,103 @@ const game = {
     },
 
     drawUpgradeOverlay() {
-        // Dim overlay
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        // Dim overlay with gradient
+        const overlayGrad = ctx.createRadialGradient(CANVAS_W / 2, 250, 100, CANVAS_W / 2, 250, CANVAS_W);
+        overlayGrad.addColorStop(0, "rgba(0,0,20,0.5)");
+        overlayGrad.addColorStop(1, "rgba(0,0,0,0.75)");
+        ctx.fillStyle = overlayGrad;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        ctx.fillStyle = this.upgradeIsBonusWave ? "#ffd700" : COLOR.accent;
-        ctx.font = "bold 32px 'Segoe UI', Arial, sans-serif";
+        // Title with glow
+        const titleText = this.upgradeIsBonusWave ? "🏆 BOSS DEFEATED! FREE UPGRADE!" : "LEVEL UP!";
+        const titleColor = this.upgradeIsBonusWave ? "#ffd700" : COLOR.accent;
+        ctx.fillStyle = titleColor;
+        ctx.font = "bold 34px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(this.upgradeIsBonusWave ? "🏆 BOSS DEFEATED! FREE UPGRADE!" : "LEVEL UP!", CANVAS_W / 2, 120);
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = titleColor;
+        ctx.shadowBlur = 12;
+        ctx.fillText(titleText, CANVAS_W / 2, 115);
+        ctx.shadowBlur = 0;
 
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = "16px 'Segoe UI', Arial, sans-serif";
+        ctx.font = "15px 'Segoe UI', Arial, sans-serif";
         const numKeys = this.upgradeChoices.length;
-        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, CANVAS_W / 2, 155);
+        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, CANVAS_W / 2, 150);
 
-        const cardW = 200, cardH = 140, gap = 30;
+        // Player level badge
+        ctx.fillStyle = "rgba(51,204,255,0.15)";
+        const badgeW = 100, badgeH = 30;
+        drawRoundRect(CANVAS_W / 2 - badgeW / 2, 160, badgeW, badgeH, 15);
+        ctx.fill();
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`LV ${this.player.level}`, CANVAS_W / 2, 175);
+
+        const cardW = 200, cardH = 160, gap = 24;
         const totalW = this.upgradeChoices.length * cardW + (this.upgradeChoices.length - 1) * gap;
         let startX = CANVAS_W / 2 - totalW / 2;
 
         for (let i = 0; i < this.upgradeChoices.length; i++) {
             const up = this.upgradeChoices[i];
             const cx = startX + i * (cardW + gap);
-            const cy = 200;
+            const cy = 210;
             const hovered = Mouse.inRect(cx, cy, cardW, cardH);
+            const isStat = up.cat === "stat";
+            const isWeapon = up.cat === "weapon";
 
-            // Card background
-            drawRoundRect(cx, cy, cardW, cardH, 10);
-            ctx.fillStyle = hovered ? "rgba(51,204,255,0.18)" : COLOR.panel;
+            // Card background with hover lift effect
+            drawRoundRect(cx, cy, cardW, cardH, 12);
+            if (hovered) {
+                ctx.fillStyle = isWeapon ? "rgba(255,204,0,0.15)" : "rgba(51,204,255,0.18)";
+            } else {
+                ctx.fillStyle = "rgba(8,10,30,0.92)";
+            }
             ctx.fill();
-            ctx.strokeStyle = hovered ? COLOR.accent : "#334";
-            ctx.lineWidth = 2;
+            // Card border
+            ctx.strokeStyle = hovered ? (isWeapon ? "#ffcc66" : COLOR.accent) : "rgba(60,70,100,0.6)";
+            ctx.lineWidth = hovered ? 2.5 : 1.5;
             ctx.stroke();
 
+            // Category tag
+            const tagY = cy + 12;
+            const tagLabel = isWeapon ? "WEAPON" : "STAT";
+            const tagColor = isWeapon ? "#ffcc66" : "#66ddff";
+            ctx.fillStyle = tagColor;
+            ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(tagLabel, cx + cardW / 2, tagY);
+
             // Icon
-            ctx.font = "36px 'Segoe UI', Arial, sans-serif";
+            ctx.font = "40px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
             ctx.fillStyle = COLOR.text;
-            ctx.fillText(up.icon, cx + cardW / 2, cy + 45);
+            ctx.fillText(up.icon, cx + cardW / 2, cy + 60);
 
             // Name
             ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.text;
-            ctx.fillText(up.name, cx + cardW / 2, cy + 80);
+            ctx.fillText(up.name, cx + cardW / 2, cy + 95);
 
             // Description (if available)
             if (up.desc) {
                 ctx.font = "11px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = COLOR.textDim;
                 const descText = typeof up.desc === "function" ? up.desc(this.player) : up.desc;
-                ctx.fillText(descText, cx + cardW / 2, cy + 98);
+                ctx.fillText(descText, cx + cardW / 2, cy + 114);
+            }
+
+            // Current count if already taken
+            const taken = this.player.upgradeCounts[up.id] || 0;
+            if (taken > 0) {
+                ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+                ctx.fillStyle = "#66ff99";
+                ctx.fillText(`(owned ×${taken})`, cx + cardW / 2, cy + 130);
             }
 
             // Number hint
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-            ctx.fillStyle = COLOR.textDim;
-            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, cx + cardW / 2, cy + 125);
+            ctx.fillStyle = hovered ? COLOR.accent : COLOR.textDim;
+            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, cx + cardW / 2, cy + 148);
 
             if (hovered && Mouse.clicked) {
                 this.applyUpgrade(i);
@@ -3967,6 +4356,7 @@ const game = {
     },
 
     abandonRun() {
+        this.commitLossIfNeeded();
         Audio.stopMusic();
         CrazyGamesSDK.gameplayStop();
         this.state = STATE.START_MENU;
@@ -4139,13 +4529,21 @@ const game = {
     },
 
     drawGameOverOverlay() {
-        ctx.fillStyle = "rgba(0,0,0,0.72)";
+        // Improved overlay gradient
+        const goGrad = ctx.createRadialGradient(CANVAS_W / 2, CANVAS_H / 2, 50, CANVAS_W / 2, CANVAS_H / 2, CANVAS_W);
+        goGrad.addColorStop(0, "rgba(30,0,0,0.65)");
+        goGrad.addColorStop(1, "rgba(0,0,0,0.82)");
+        ctx.fillStyle = goGrad;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+        // Title with glow
+        ctx.shadowColor = COLOR.danger;
+        ctx.shadowBlur = 16;
         ctx.fillStyle = COLOR.danger;
         ctx.font = "bold 48px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText("GAME OVER", CANVAS_W / 2, CANVAS_H / 2 - 110);
+        ctx.shadowBlur = 0;
 
         // New high score indicator
         if (this.lastHighScoreRank > 0) {
@@ -4167,7 +4565,9 @@ const game = {
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "16px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Time survived: ${formatTime(this.timePlayed)}`, CANVAS_W / 2, CANVAS_H / 2 - 18);
+        const timeSurvivedText = `Time survived: ${formatTime(this.timePlayed)}`;
+        const comboSuffix = this.bestCombo >= 3 ? `  •  Best combo: ${this.bestCombo}x` : "";
+        ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, CANVAS_H / 2 - 18);
         ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
             CANVAS_W / 2, CANVAS_H / 2 + 6);
 
