@@ -2,7 +2,11 @@ name: Build and Deploy to Itch
 on:
   push:
     branches:
-      - main 
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
@@ -11,21 +15,30 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 1. Zip your web files (excludes git junk)
-      - name: Zip Web Files
-        run: zip -r web-build.zip ./ -x "*.git*" ".github/*"
-
-      # 2. Install the official itch.io "Butler" tool
-      - name: Install Butler
+      - name: Validate required secret
         run: |
-          curl -L -o butler.zip https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default
-          unzip butler.zip
-          chmod +x butler
-          ./butler -V
+          if [ -z "${{ secrets.BUTLER_API_KEY }}" ]; then
+            echo "BUTLER_API_KEY is not set in repository secrets."
+            exit 1
+          fi
 
-      # 3. Push to itch.io
+      # Package only runtime web files to avoid shipping repo metadata.
+      - name: Zip Web Files
+        run: |
+          set -e
+          rm -rf dist web-build.zip
+          mkdir -p dist
+          cp index.html game.js styles.css dist/
+          if [ -d assets ]; then
+            cp -R assets dist/
+          fi
+          (cd dist && zip -r ../web-build.zip .)
+
+      - name: Install Butler
+        uses: remarkablegames/setup-butler@v2
+
       - name: Upload to Itch.io
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
-          ./butler push web-build.zip LennyXD/roguewave:html5
+          butler push web-build.zip LennyXD/roguewave:html5
