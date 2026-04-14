@@ -948,6 +948,55 @@ const Progression = (() => {
 })();
 
 // ─────────────────────────────────────────────
+// §3e  LAUNCH EXPERIMENTS (A/B variants)
+// ─────────────────────────────────────────────
+
+const Experiments = (() => {
+    const STORAGE_KEY = "roguewave_experiments_v1";
+    let variants = {
+        earlyPacing: "control",   // control | softstart
+        gameOverFlow: "reviveFirst", // reviveFirst | restartFirst
+        rewardedCopy: "neutral",  // neutral | urgency
+    };
+
+    function pick(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function load() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                variants.earlyPacing = (parsed.earlyPacing === "softstart") ? "softstart" : "control";
+                variants.gameOverFlow = (parsed.gameOverFlow === "restartFirst") ? "restartFirst" : "reviveFirst";
+                variants.rewardedCopy = (parsed.rewardedCopy === "urgency") ? "urgency" : "neutral";
+                return;
+            }
+        } catch (e) { /* ignore */ }
+
+        variants = {
+            earlyPacing: pick(["control", "softstart"]),
+            gameOverFlow: pick(["reviveFirst", "restartFirst"]),
+            rewardedCopy: pick(["neutral", "urgency"]),
+        };
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(variants));
+        } catch (e) { /* ignore */ }
+    }
+
+    function get(key) {
+        return variants[key];
+    }
+
+    function all() {
+        return { ...variants };
+    }
+
+    return { load, get, all };
+})();
+
+// ─────────────────────────────────────────────
 // §4  INPUT MANAGER  (event.code based)
 // ─────────────────────────────────────────────
 
@@ -2501,6 +2550,13 @@ const game = {
     // Run modifiers
     enemySpeedMult: 1,
     shardRewardMult: 1,
+    adBoosterActive: false,
+    adBoosterPending: false,
+    adBoosterLoading: false,
+    shardCacheClaimedThisRun: false,
+    shardCacheLoading: false,
+    lastMidrollAt: -999,
+    lastMidrollWave: 0,
 
     // Runtime quality state
     fpsEma: TARGET_FPS,
@@ -2512,6 +2568,11 @@ const game = {
     revivedThisRun: false,
     reviveInProgress: false,
     runFinalized: false,
+
+    // Launch experiment variants
+    expEarlyPacing: "control",
+    expGameOverFlow: "reviveFirst",
+    expRewardedCopy: "neutral",
 
     // ────── INITIALISE ──────
 
@@ -2555,6 +2616,11 @@ const game = {
         this.lastDailyReward = 0;
         this.enemySpeedMult = 1;
         this.shardRewardMult = 1;
+        this.adBoosterActive = false;
+        this.shardCacheClaimedThisRun = false;
+        this.shardCacheLoading = false;
+        this.lastMidrollAt = -999;
+        this.lastMidrollWave = 0;
         this.fpsEma = TARGET_FPS;
         this.perfSampleTimer = 0;
         this.lowPerf = false;
@@ -2562,6 +2628,9 @@ const game = {
         this.revivedThisRun = false;
         this.reviveInProgress = false;
         this.runFinalized = false;
+        this.expEarlyPacing = Experiments.get("earlyPacing");
+        this.expGameOverFlow = Experiments.get("gameOverFlow");
+        this.expRewardedCopy = Experiments.get("rewardedCopy");
 
         if (Settings.challengeMode === "rush") {
             this.enemySpeedMult = 1.18;
@@ -2571,6 +2640,14 @@ const game = {
             this.player.maxHp = Math.floor(this.player.maxHp * 0.62);
             this.player.hp = this.player.maxHp;
             this.player.damage = Math.floor(this.player.damage * 1.45);
+        }
+
+        if (this.adBoosterPending) {
+            this.adBoosterPending = false;
+            this.adBoosterActive = true;
+            this.player.damage = Math.floor(this.player.damage * 1.12);
+            this.player.fireRate *= 0.88;
+            this.player.speed *= 1.08;
         }
     },
 
@@ -2608,6 +2685,49 @@ const game = {
             Audio.startMusic();
         }
         this.reviveInProgress = false;
+    },
+
+    async requestMenuAdBooster() {
+        if (this.adBoosterLoading || this.adBoosterPending) return;
+        this.adBoosterLoading = true;
+        const ok = await CrazyGamesSDK.requestRewarded();
+        if (ok) this.adBoosterPending = true;
+        this.adBoosterLoading = false;
+    },
+
+    async claimRunShardCache() {
+        if (this.shardCacheLoading || this.shardCacheClaimedThisRun) return;
+        if (!(this.player && this.player.alive && this.wave > 0)) return;
+        this.shardCacheLoading = true;
+        const ok = await CrazyGamesSDK.requestRewarded();
+        if (ok) {
+            const bonus = 20 + Math.floor(this.wave * 2);
+            Progression.addShards(bonus);
+            this.shardCacheClaimedThisRun = true;
+        }
+        this.shardCacheLoading = false;
+    },
+
+    isBossWave(waveNum) {
+        return waveNum === 5 || waveNum === 10 || waveNum === 15 || waveNum === 20;
+    },
+
+    maybeRequestMidroll() {
+        if (this.wave < 2) return;
+        if (this.pendingVictory || this.wave >= WAVE_MAX) return;
+        if (this.isBossWave(this.wave)) return;
+        if (this.timePlayed - this.lastMidrollAt < 90) return;
+        if (this.wave - this.lastMidrollWave < 3) return;
+
+        this.lastMidrollAt = this.timePlayed;
+        this.lastMidrollWave = this.wave;
+        CrazyGamesSDK.requestMidroll();
+    },
+
+    earlyPacingMultiplier() {
+        if (this.expEarlyPacing !== "softstart") return 1;
+        if (this.timePlayed > 60) return 1;
+        return 0.88;
     },
 
     commitLossIfNeeded() {
@@ -2673,6 +2793,10 @@ const game = {
             if (Input.just(`Digit${catalog.indexOf(skin) + 1}`)) {
                 Progression.unlockOrSelectSkin(skin.id);
             }
+        }
+
+        if (Input.just("KeyB")) {
+            void this.requestMenuAdBooster();
         }
     },
 
@@ -2817,6 +2941,17 @@ const game = {
         const hovered = Mouse.inRect(bx, by, bw, bh);
         if (drawButton("▶  PLAY", bx, by, bw, bh, hovered)) {
             this.startGame();
+        }
+
+        // Optional rewarded pre-run booster
+        const boosterY = compactMobile ? by - 56 : by - 56;
+        const boosterHover = Mouse.inRect(bx, boosterY, bw, bh);
+        const boosterLabel = this.adBoosterPending
+            ? "✅ BOOSTER ARMED"
+            : (this.adBoosterLoading ? "⏳ LOADING AD..." : "⚡ WATCH AD: START BOOSTER");
+        if (drawButton(boosterLabel, bx, boosterY, bw, bh, boosterHover)
+            && !this.adBoosterPending && !this.adBoosterLoading) {
+            void this.requestMenuAdBooster();
         }
 
         // Settings button
@@ -3438,6 +3573,13 @@ const game = {
             ctx.globalAlpha = 1;
         }
 
+        if (this.adBoosterActive) {
+            ctx.textAlign = "left";
+            ctx.fillStyle = "#66ff99";
+            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Ad Booster Active", pad, CANVAS_H - (this.lowPerf ? 26 : 12));
+        }
+
         // ── Quick onboarding tutorial (first seconds of run) ──
         if (!this.tutorialDismissed) {
             const tw = portrait ? 320 : 460;
@@ -3548,7 +3690,7 @@ const game = {
                 if (this.wave === WAVE_MAX) {
                     this.pendingVictory = true;
                 }
-                CrazyGamesSDK.requestMidroll();
+                this.maybeRequestMidroll();
                 return;
             }
             // Continuously spawn enemies on a timer
@@ -3580,6 +3722,9 @@ const game = {
         this.waveKills = 0;
         this.waveKillsRequired = WAVE_BASE_KILLS + (this.wave - 1) * WAVE_KILLS_GROWTH;
         this.spawnCooldown = Math.max(WAVE_SPAWN_CD_MIN, WAVE_BASE_SPAWN_CD * Math.pow(WAVE_SPAWN_CD_DECAY, this.wave - 1));
+        if (this.expEarlyPacing === "softstart" && this.timePlayed < 60) {
+            this.spawnCooldown *= 1.16;
+        }
         this.spawnTimer = 0; // spawn immediately
         this.waveActive = true;
         Audio.sfxWaveStart();
@@ -3646,7 +3791,7 @@ const game = {
         ey = clamp(ey, 0, WORLD_H);
 
         const hp = Math.floor(ENEMY_BASE_HP * hpMult);
-        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult;
+        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * this.earlyPacingMultiplier();
 
         // Choose type
         let type = "normal";
@@ -3901,6 +4046,24 @@ const game = {
             Settings.shakeEnabled = !Settings.shakeEnabled;
         }
 
+        // Optional rewarded shard cache once per run
+        if (isPausedMidRun) {
+            y += 60;
+            const cacheHover = Mouse.inRect(bx, y, bw, bh);
+            const cacheLabel = this.shardCacheClaimedThisRun
+                ? "✅ SHARD CACHE CLAIMED"
+                : (this.shardCacheLoading ? "⏳ LOADING AD..." : "🎁 WATCH AD: SHARD CACHE");
+            if (drawButton(cacheLabel, bx, y, bw, bh, cacheHover)
+                && !this.shardCacheClaimedThisRun && !this.shardCacheLoading) {
+                void this.claimRunShardCache();
+            }
+
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("+20 base shards, scales with wave. Optional and once per run.", CANVAS_W / 2, y + 58);
+        }
+
         y += 80;
         // Key layout info
         ctx.fillStyle = COLOR.text;
@@ -3941,6 +4104,12 @@ const game = {
         if (!isMobile) {
             ctx.fillText("Uses event.code: works on QWERTY, AZERTY, QWERTZ, etc.", CANVAS_W / 2, y);
         }
+
+        y += 24;
+        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillStyle = COLOR.textDim;
+        const exp = Experiments.all();
+        ctx.fillText(`A/B: pacing=${exp.earlyPacing}, gameOver=${exp.gameOverFlow}, adCopy=${exp.rewardedCopy}`, CANVAS_W / 2, y);
 
         // Back button
         y += 50;
@@ -4012,30 +4181,37 @@ const game = {
 
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
+        const reviveLabel = this.reviveInProgress
+            ? "⏳  LOADING AD..."
+            : (this.expRewardedCopy === "urgency" ? "🎁  REVIVE NOW (AD)" : "🎁  REVIVE (AD)");
+        const reviveInfoLabel = this.expRewardedCopy === "urgency"
+            ? "One revive only - keep your run alive"
+            : "One revive per run";
+
+        const reviveY = this.expGameOverFlow === "restartFirst" ? CANVAS_H / 2 + 84 : CANVAS_H / 2 + 26;
+        const restartY = this.expGameOverFlow === "restartFirst" ? CANVAS_H / 2 + 26 : CANVAS_H / 2 + 100;
 
         // Rewarded revive (one-time)
         if (!this.revivedThisRun) {
-            const reviveY = CANVAS_H / 2 + 26;
             const reviveHover = Mouse.inRect(bx, reviveY, bw, bh);
-            const reviveLabel = this.reviveInProgress ? "⏳  LOADING AD..." : "🎁  REVIVE (AD)";
             if (drawButton(reviveLabel, bx, reviveY, bw, bh, reviveHover) && !this.reviveInProgress) {
                 void this.tryRewardedRevive();
             }
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText("One revive per run", CANVAS_W / 2, reviveY + 64);
+            ctx.fillText(reviveInfoLabel, CANVAS_W / 2, reviveY + 64);
         }
 
         // Restart
-        const restartY = this.revivedThisRun ? CANVAS_H / 2 + 26 : CANVAS_H / 2 + 100;
-        const restartHover = Mouse.inRect(bx, restartY, bw, bh);
-        if (drawButton("↻  RESTART", bx, restartY, bw, bh, restartHover)) {
+        const effectiveRestartY = this.revivedThisRun ? CANVAS_H / 2 + 26 : restartY;
+        const restartHover = Mouse.inRect(bx, effectiveRestartY, bw, bh);
+        if (drawButton("↻  RESTART", bx, effectiveRestartY, bw, bh, restartHover)) {
             this.commitLossIfNeeded();
             this.startGame();
         }
 
         // Menu
-        const menuY = restartY + 58;
+        const menuY = effectiveRestartY + 58;
         const menuHover = Mouse.inRect(bx, menuY, bw, bh);
         if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
             this.commitLossIfNeeded();
@@ -4210,6 +4386,7 @@ function mainLoop(timestamp) {
 
 // ────── BOOT ──────
 async function bootGame() {
+    Experiments.load();
     try {
         await CrazyGamesSDK.init();
     } catch (e) {

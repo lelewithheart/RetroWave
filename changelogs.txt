@@ -3,8 +3,20 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
-beta 14.04:02
-- Started Phase 3 (CrazyGames-readiness)
+beta 14.04:09
+- Started next phase (Phase 5 launch prep)
+- Added persistent A/B experiment variants for early pacing, game-over flow, and rewarded copy
+- Added softstart difficulty variant for first run minute (lower early pressure)
+- Added game-over UI flow variant testing (revive-first vs restart-first)
+- Added active A/B variant readout in settings for QA validation
+
+beta 14.04:08
+- Started Phase 4 monetization rollout
+- Added optional rewarded pre-run booster (watch ad to arm for next run)
+- Added optional one-time rewarded shard cache in pause/settings per run
+- Added defensive midroll frequency caps (no ad spam on every wave end)
+
+beta 14.04:07
 - Added CrazyGames loading lifecycle hooks (loadingStart/loadingStop)
 - Improved ad flow lifecycle handling around midgame/rewarded ads
 - Added one-time rewarded revive flow on game over
@@ -12,7 +24,7 @@ beta 14.04:02
 - Added quick in-run tutorial hints for first-time clarity
 - Updated browser title and metadata description for platform listing quality
 
-beta 14.04:01
+beta 14.04:06
 - Refined home screen with cleaner 3-zone layout (left progression, center actions, right daily/scores)
 - Increased spacing and reduced visual crowding on desktop
 - Daily panel now includes a compact progress bar
