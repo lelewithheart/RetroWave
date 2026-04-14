@@ -3088,10 +3088,10 @@ const game = {
             ctx.fillStyle = selected ? "#000" : (hov ? COLOR.accentHover : COLOR.text);
             ctx.font = compactMobile ? "bold 13px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText(m.label, mbx + mw / 2, mby + mh / 2 - (compactMobile ? 2 : 4));
+            ctx.fillText(m.label, mbx + mw / 2, mby + mh / 2 - (compactMobile ? 2 : 4), mw - 10);
             ctx.font = compactMobile ? "9px 'Segoe UI', Arial, sans-serif" : "10px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = selected ? "#000" : COLOR.textDim;
-            ctx.fillText(m.desc, mbx + mw / 2, mby + mh / 2 + (compactMobile ? 10 : 11));
+            ctx.fillText(m.desc, mbx + mw / 2, mby + mh / 2 + (compactMobile ? 10 : 11), mw - 10);
 
             if (hov && Mouse.clicked) {
                 Settings.gameMode = m.id;
@@ -3123,10 +3123,10 @@ const game = {
             ctx.stroke();
             ctx.fillStyle = selected ? "#000" : COLOR.text;
             ctx.font = compactMobile ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 13px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(cm.label, cx + cW / 2, cy + cH / 2 - 5);
+            ctx.fillText(cm.label, cx + cW / 2, cy + cH / 2 - 5, cW - 10);
             ctx.fillStyle = selected ? "#001b10" : COLOR.textDim;
             ctx.font = "10px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(cm.desc, cx + cW / 2, cy + cH / 2 + 8);
+            ctx.fillText(cm.desc, cx + cW / 2, cy + cH / 2 + 8, cW - 10);
             if (hov && Mouse.clicked) Settings.challengeMode = cm.id;
         }
 
@@ -3198,16 +3198,19 @@ const game = {
             const ry = mpY + 44 + i * 66;
             const level = Progression.metaLevel(row.key);
             const cost = Progression.metaCost(row.key);
-            ctx.textAlign = "left";
-            ctx.fillStyle = COLOR.text;
-            ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(`${row.label}  Lv.${level}/8`, mpX + 12, ry);
-            ctx.fillStyle = COLOR.textDim;
-            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(row.bonus, mpX + 12, ry + 16);
 
             const ubW = 104, ubH = 32;
             const ubX = mpX + mpW - ubW - 10, ubY = ry - 16;
+
+            ctx.textAlign = "left";
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+            const labelMaxW = ubX - (mpX + 12) - 4;
+            ctx.fillText(`${row.label}  Lv.${level}/8`, mpX + 12, ry, labelMaxW);
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(row.bonus, mpX + 12, ry + 16, labelMaxW);
+
             const hov = Mouse.inRect(ubX, ubY, ubW, ubH);
             drawRoundRect(ubX, ubY, ubW, ubH, 6);
             const locked = cost == null;
@@ -3252,9 +3255,9 @@ const game = {
             ctx.fillStyle = COLOR.text;
             ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
-            ctx.fillText(s.name.split(" ")[0], sx + 26, skinY + 14);
+            ctx.fillText(s.name.split(" ")[0], sx + 26, skinY + 14, sw - 30);
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
-            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Unlock") : `${s.cost}`, sx + 26, skinY + 31);
+            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Unlock") : `${s.cost}`, sx + 26, skinY + 31, sw - 30);
             if (hov && Mouse.clicked) {
                 Progression.unlockOrSelectSkin(s.id);
             }
