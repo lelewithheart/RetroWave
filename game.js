@@ -1441,13 +1441,13 @@ const Mouse = {
         // Touch support – map touches to mouse position & click
         canvas.addEventListener("touchstart", (e) => {
             e.preventDefault();
-            // During gameplay on mobile, only use right-half touches for aiming
-            // so joystick touches don't move the aim cursor.
+            // During gameplay on mobile, TouchControls handles all touches (move + aim joysticks).
+            // Don't update Mouse position from gameplay touches to avoid absolute-position aiming.
             const rect = canvas.getBoundingClientRect();
             for (const t of e.changedTouches) {
                 const cx = (t.clientX - rect.left) * (CANVAS_W / rect.width);
                 const cy = (t.clientY - rect.top)  * (CANVAS_H / rect.height);
-                if (isMobile && game.state === STATE.GAMEPLAY && cx < CANVAS_W / 2) continue;
+                if (isMobile && game.state === STATE.GAMEPLAY) continue;
                 this.x = cx;
                 this.y = cy;
                 this.clicked = true;
@@ -1472,7 +1472,7 @@ const Mouse = {
             for (const t of e.changedTouches) {
                 const cx = (t.clientX - rect.left) * (CANVAS_W / rect.width);
                 const cy = (t.clientY - rect.top)  * (CANVAS_H / rect.height);
-                if (isMobile && game.state === STATE.GAMEPLAY && cx < CANVAS_W / 2) continue;
+                if (isMobile && game.state === STATE.GAMEPLAY) continue;
                 this.x = cx;
                 this.y = cy;
 
@@ -1539,6 +1539,15 @@ const TouchControls = {
     moveDy: 0,
     moveRaw: { x: 0, y: 0 },  // current stick pos in canvas coords
 
+    // Aim joystick (right side – used in hard mode)
+    aimActive: false,
+    aimId: -1,
+    aimOriginX: 0,
+    aimOriginY: 0,
+    aimDx: 0,
+    aimDy: 0,
+    aimRaw: { x: 0, y: 0 },
+
     // Joystick visual config
     baseRadius: 56,
     stickRadius: 24,
@@ -1582,6 +1591,17 @@ const TouchControls = {
                     this.moveDx = 0;
                     this.moveDy = 0;
                 }
+
+                // Right half of screen → aim joystick (hard mode) or fire-direction
+                if (!this.aimActive && pos.x >= CANVAS_W / 2) {
+                    this.aimActive = true;
+                    this.aimId = t.identifier;
+                    this.aimOriginX = pos.x;
+                    this.aimOriginY = pos.y;
+                    this.aimRaw = { x: pos.x, y: pos.y };
+                    this.aimDx = 0;
+                    this.aimDy = 0;
+                }
             }
         }, { passive: false });
 
@@ -1606,6 +1626,24 @@ const TouchControls = {
                         this.moveDy = 0;
                     }
                 }
+                if (this.aimActive && t.identifier === this.aimId) {
+                    const pos = this._toCanvas(t);
+                    let dx = pos.x - this.aimOriginX;
+                    let dy = pos.y - this.aimOriginY;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d > this.maxDist) {
+                        dx = dx / d * this.maxDist;
+                        dy = dy / d * this.maxDist;
+                    }
+                    this.aimRaw = { x: this.aimOriginX + dx, y: this.aimOriginY + dy };
+                    if (d > 5) {  // dead zone
+                        this.aimDx = dx / d;
+                        this.aimDy = dy / d;
+                    } else {
+                        this.aimDx = 0;
+                        this.aimDy = 0;
+                    }
+                }
             }
         }, { passive: false });
 
@@ -1616,6 +1654,12 @@ const TouchControls = {
                     this.moveId = -1;
                     this.moveDx = 0;
                     this.moveDy = 0;
+                }
+                if (this.aimActive && t.identifier === this.aimId) {
+                    this.aimActive = false;
+                    this.aimId = -1;
+                    this.aimDx = 0;
+                    this.aimDy = 0;
                 }
             }
         };
@@ -1676,6 +1720,44 @@ const TouchControls = {
 
         // Pause button
         this.drawPauseButton();
+
+        // Aim joystick (right side) – always shown in hard mode
+        if (Settings.gameMode !== "hard") return;
+        if (this.aimActive) {
+            // Base circle
+            ctx.beginPath();
+            ctx.arc(this.aimOriginX, this.aimOriginY, this.baseRadius, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255,120,80,0.10)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,120,80,0.25)";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // Stick circle
+            ctx.beginPath();
+            ctx.arc(this.aimRaw.x, this.aimRaw.y, this.stickRadius, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255,120,80,0.30)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,120,80,0.50)";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        } else {
+            // Hint: ghost aim joystick at bottom-right
+            const hx = CANVAS_W - 90, hy = portrait ? CANVAS_H - 104 : CANVAS_H - 90;
+            ctx.beginPath();
+            ctx.arc(hx, hy, portrait ? 62 : this.baseRadius, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255,120,80,0.05)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,120,80,0.15)";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.fillStyle = "rgba(255,120,80,0.20)";
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("AIM", hx, hy);
+        }
     },
 
     drawPauseButton() {
@@ -1857,10 +1939,17 @@ class Player extends Entity {
         // Facing direction
         const nearest = game.findNearestEnemy(this.x, this.y, this.range);
         if (Settings.gameMode === "hard") {
-            // Hard mode: manual aim toward mouse cursor
-            const worldMouseX = Mouse.x + game.camera.x;
-            const worldMouseY = Mouse.y + game.camera.y;
-            this.angle = Math.atan2(worldMouseY - this.y, worldMouseX - this.x);
+            // Hard mode: manual aim
+            if (isMobile && TouchControls.aimActive && (TouchControls.aimDx !== 0 || TouchControls.aimDy !== 0)) {
+                // Mobile: use aim joystick direction
+                this.angle = Math.atan2(TouchControls.aimDy, TouchControls.aimDx);
+            } else if (!isMobile) {
+                // Desktop: aim toward mouse cursor
+                const worldMouseX = Mouse.x + game.camera.x;
+                const worldMouseY = Mouse.y + game.camera.y;
+                this.angle = Math.atan2(worldMouseY - this.y, worldMouseX - this.x);
+            }
+            // If mobile joystick is inactive, keep the last angle (finger lifted)
         } else if (nearest) {
             // Default / Easy: auto-aim toward nearest enemy
             this.angle = Math.atan2(nearest.y - this.y, nearest.x - this.x);
