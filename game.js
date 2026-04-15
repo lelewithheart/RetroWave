@@ -78,6 +78,7 @@ const ENEMY_TYPES = {
     exploder: { hpMult: 0.9, spdMult: 1.1,  radius: 15, contactDmg: 5,  color: "#ff8800", xpMult: 1.5 },
     miniboss: { hpMult: 12,  spdMult: 0.55, radius: 38, contactDmg: 30, color: "#dd2277", xpMult: 12  },
     bigboss:  { hpMult: 30,  spdMult: 0.35, radius: 56, contactDmg: 50, color: "#cc0000", xpMult: 30  },
+    endboss:  { hpMult: 80,  spdMult: 0.3,  radius: 72, contactDmg: 40, color: "#ff00ff", xpMult: 100 },
 };
 
 // XP
@@ -774,13 +775,13 @@ const Audio = (() => {
     }
 
     // ── Chiptune music loop ──
-    // A simple procedurally generated 8-bar retro melody that loops
+    // Three distinct biome soundtracks with unique vibes
 
     const MUSIC_BPM = 140;
     const BEAT = 60 / MUSIC_BPM;
 
-    // Melody pattern (note frequencies, 0 = rest)
-    const melodyBars = [
+    // ── Biome 0: Neon District (upbeat, driving synthwave) ──
+    const neonMelody = [
         [262, 330, 392, 330,  262, 330, 392, 523],
         [440, 392, 330, 262,  330, 392, 440, 392],
         [349, 440, 523, 440,  349, 330, 262, 330],
@@ -790,8 +791,7 @@ const Audio = (() => {
         [349, 330, 262, 330,  349, 440, 523, 440],
         [392, 330, 262, 220,  196, 220, 262,   0],
     ];
-    // Bass pattern
-    const bassBars = [
+    const neonBass = [
         [131, 0, 131, 0,  165, 0, 165, 0],
         [220, 0, 220, 0,  196, 0, 196, 0],
         [175, 0, 175, 0,  165, 0, 165, 0],
@@ -802,37 +802,126 @@ const Audio = (() => {
         [196, 0, 196, 0,  131, 0, 131, 0],
     ];
 
+    // ── Biome 1: Acid Grid (tense, minor key, faster pulse) ──
+    const acidMelody = [
+        [330, 311, 262, 311,  330, 392, 370, 330],
+        [294, 330, 370, 330,  294, 262, 247, 262],
+        [220, 262, 294, 330,  370, 330, 294, 262],
+        [247, 294, 330, 294,  247, 220, 196, 220],
+        [330, 370, 392, 440,  392, 370, 330, 370],
+        [294, 330, 370, 440,  494, 440, 370, 330],
+        [262, 294, 330, 370,  392, 370, 330, 294],
+        [247, 262, 294, 262,  247, 220, 196,   0],
+    ];
+    const acidBass = [
+        [110, 0, 110, 110,  0, 110, 0, 110],
+        [147, 0, 147, 0,    147, 0, 131, 0],
+        [110, 0, 110, 0,    131, 0, 131, 0],
+        [123, 0, 123, 123,  0, 110, 0, 110],
+        [165, 0, 165, 0,    147, 0, 147, 0],
+        [147, 0, 147, 147,  0, 131, 0, 131],
+        [131, 0, 131, 0,    147, 0, 147, 0],
+        [123, 0, 123, 0,    110, 0, 110, 0],
+    ];
+
+    // ── Biome 2: Crimson Core (heavy, aggressive, ominous) ──
+    const crimsonMelody = [
+        [196, 233, 262, 233,  196, 175, 165, 175],
+        [196, 0,   196, 233,  262, 294, 262, 233],
+        [175, 196, 233, 262,  294, 349, 294, 262],
+        [233, 196, 175, 165,  147, 165, 175, 196],
+        [262, 294, 349, 392,  349, 294, 262, 233],
+        [196, 233, 262, 294,  349, 294, 262, 233],
+        [175, 196, 233, 262,  233, 196, 175, 165],
+        [147, 165, 175, 196,  175, 165, 147,   0],
+    ];
+    const crimsonBass = [
+        [98,  0,  98, 98,   0,  98,  0,  98],
+        [82,  0,  82,  0,   98,  0,  98,  0],
+        [87,  0,  87,  0,   98,  0,  98,  0],
+        [82,  0,  82,  82,  0,  82,  0,  82],
+        [131, 0, 131,  0,  117, 0, 117,  0],
+        [98,  0,  98,  98,  0,  87,  0,  87],
+        [87,  0,  87,  0,   82,  0,  82,  0],
+        [73,  0,  73,  73,  0,  73,  0,  73],
+    ];
+
+    // ── Endboss music (intense, dramatic) ──
+    const bossMelody = [
+        [392, 440, 494, 523,  494, 440, 392, 370],
+        [330, 370, 392, 440,  494, 523, 587, 523],
+        [494, 440, 392, 370,  330, 370, 392, 440],
+        [494, 523, 587, 659,  587, 523, 494, 440],
+        [392, 370, 330, 294,  330, 370, 392, 440],
+        [494, 523, 587, 659,  698, 659, 587, 523],
+        [494, 440, 392, 370,  330, 294, 262, 294],
+        [330, 370, 392, 440,  392, 370, 330,   0],
+    ];
+    const bossBass = [
+        [98,  0,  98,  98,  0,  98,  0,  98],
+        [110, 0, 110,  0, 110,  0, 131,  0],
+        [98,  0,  98,  0,  82,  0,  82,  0],
+        [131, 0, 131, 131, 0, 110,  0, 110],
+        [98,  0,  98,  0,  82,  0,  82,  0],
+        [131, 0, 131,  0, 147,  0, 147,  0],
+        [110, 0, 110, 110, 0,  98,  0,  98],
+        [82,  0,  82,  0,  98,  0,  98,  0],
+    ];
+
+    // Music track configurations per biome
+    const BIOME_MUSIC = [
+        { melody: neonMelody,    bass: neonBass,    melType: "square",   bassType: "triangle", bpm: 140, melVol: 0.08, bassVol: 0.10, kickVol: 0.12, hatVol: 0.04 },
+        { melody: acidMelody,    bass: acidBass,    melType: "sawtooth", bassType: "triangle", bpm: 152, melVol: 0.07, bassVol: 0.12, kickVol: 0.15, hatVol: 0.06 },
+        { melody: crimsonMelody, bass: crimsonBass,  melType: "sawtooth", bassType: "square",   bpm: 130, melVol: 0.09, bassVol: 0.14, kickVol: 0.18, hatVol: 0.05 },
+    ];
+    const BOSS_MUSIC = { melody: bossMelody, bass: bossBass, melType: "sawtooth", bassType: "square", bpm: 160, melVol: 0.10, bassVol: 0.15, kickVol: 0.20, hatVol: 0.07 };
+
+    let currentMusicBiome = -1; // track which biome music is playing
+    let bossMusic = false;
+
     function scheduleMusic() {
         if (!Settings.musicEnabled || !musicPlaying) return;
         const ctx = ensureContext();
         const now = ctx.currentTime;
-        const beatLen = BEAT * 0.5; // eighth notes
-        const barLen = beatLen * 8;
-        const totalLen = barLen * melodyBars.length;
 
-        for (let bar = 0; bar < melodyBars.length; bar++) {
+        const track = bossMusic ? BOSS_MUSIC : (BIOME_MUSIC[currentMusicBiome] || BIOME_MUSIC[0]);
+        const bpm = track.bpm;
+        const beatLen = (60 / bpm) * 0.5; // eighth notes
+        const barLen = beatLen * 8;
+        const totalLen = barLen * track.melody.length;
+
+        for (let bar = 0; bar < track.melody.length; bar++) {
             for (let note = 0; note < 8; note++) {
                 const t = now + bar * barLen + note * beatLen;
                 // Melody
-                const mFreq = melodyBars[bar][note];
+                const mFreq = track.melody[bar][note];
                 if (mFreq > 0) {
-                    playTone(mFreq, "square", beatLen * 0.8, 0.08, musicGain, t);
+                    playTone(mFreq, track.melType, beatLen * 0.8, track.melVol, musicGain, t);
                 }
                 // Bass
-                const bFreq = bassBars[bar][note];
+                const bFreq = track.bass[bar][note];
                 if (bFreq > 0) {
-                    playTone(bFreq, "triangle", beatLen * 0.9, 0.1, musicGain, t);
+                    playTone(bFreq, track.bassType, beatLen * 0.9, track.bassVol, musicGain, t);
                 }
             }
-            // Simple kick drum on beats 1 and 5
-            for (let beat of [0, 4]) {
+            // Kick drum on beats 1 and 5
+            for (const beat of [0, 4]) {
                 const t = now + bar * barLen + beat * beatLen;
-                playTone(60, "sine", 0.08, 0.12, musicGain, t);
+                playTone(60, "sine", 0.08, track.kickVol, musicGain, t);
             }
-            // Hi-hat on every other beat
+            // Hi-hat pattern
             for (let beat = 0; beat < 8; beat += 2) {
                 const t = now + bar * barLen + beat * beatLen + beatLen * 0.5;
-                playNoise(0.03, 0.04, musicGain, t);
+                playNoise(0.03, track.hatVol, musicGain, t);
+            }
+            // Extra percussion for Crimson Core and boss
+            if (currentMusicBiome === 2 || bossMusic) {
+                // Snare-like hit on beats 2 and 6
+                for (const beat of [2, 6]) {
+                    const t = now + bar * barLen + beat * beatLen;
+                    playNoise(0.06, 0.08, musicGain, t);
+                    playTone(180, "triangle", 0.04, 0.06, musicGain, t);
+                }
             }
         }
 
@@ -840,10 +929,33 @@ const Audio = (() => {
         musicTimeout = setTimeout(() => scheduleMusic(), totalLen * 1000 - 100);
     }
 
-    function startMusic() {
-        if (musicPlaying) return;
+    function startMusic(biomeIndex) {
+        const targetBiome = biomeIndex !== undefined ? biomeIndex : 0;
+        if (musicPlaying && currentMusicBiome === targetBiome && !bossMusic) return;
+        // Stop previous music if switching
+        if (musicPlaying) stopMusic();
         ensureContext();
+        currentMusicBiome = targetBiome;
+        bossMusic = false;
         musicPlaying = true;
+        // Restore music gain (may have been zeroed by stopMusic)
+        if (musicGain && Settings.musicEnabled) {
+            musicGain.gain.cancelScheduledValues(0);
+            musicGain.gain.setValueAtTime(0.3, actx.currentTime);
+        }
+        scheduleMusic();
+    }
+
+    function startBossMusic() {
+        if (musicPlaying && bossMusic) return;
+        if (musicPlaying) stopMusic();
+        ensureContext();
+        bossMusic = true;
+        musicPlaying = true;
+        if (musicGain && Settings.musicEnabled) {
+            musicGain.gain.cancelScheduledValues(0);
+            musicGain.gain.setValueAtTime(0.35, actx.currentTime);
+        }
         scheduleMusic();
     }
 
@@ -852,6 +964,11 @@ const Audio = (() => {
         if (musicTimeout) {
             clearTimeout(musicTimeout);
             musicTimeout = null;
+        }
+        // Immediately silence any already-scheduled oscillators
+        if (musicGain) {
+            musicGain.gain.cancelScheduledValues(0);
+            musicGain.gain.setValueAtTime(0, actx ? actx.currentTime : 0);
         }
     }
 
@@ -881,6 +998,7 @@ const Audio = (() => {
         sfxExplosion,
         sfxNewHighScore,
         startMusic,
+        startBossMusic,
         stopMusic,
         setMusicEnabled,
         setSfxEnabled,
@@ -2121,6 +2239,20 @@ class Enemy extends Entity {
 
         // Exploder
         this.exploded = false;
+
+        // Endboss special mechanics
+        if (this.type === "endboss") {
+            this.phase = 1;            // 3 phases based on HP thresholds
+            this.attackTimer = 0;      // timer for special attacks
+            this.attackCooldown = 3.0; // seconds between attacks
+            this.dashTimer = 0;        // dash attack duration
+            this.dashDx = 0;
+            this.dashDy = 0;
+            this.shieldActive = false; // damage reduction shield
+            this.shieldTimer = 0;
+            this.spinAngle = 0;        // rotating visual element
+            this.spawnTimer = 0;       // timer for spawning minions
+        }
     }
 
     update(dt, target) {
@@ -2134,7 +2266,9 @@ class Enemy extends Entity {
         const dy = target.y - this.y;
         const d = Math.sqrt(dx * dx + dy * dy);
 
-        if (this.type === "ranged") {
+        if (this.type === "endboss") {
+            this.updateEndboss(dt, target, dx, dy, d, currentSpeed);
+        } else if (this.type === "ranged") {
             // Ranged enemies try to maintain distance and shoot
             if (d > 1) {
                 let moveFactor = 1;
@@ -2170,6 +2304,163 @@ class Enemy extends Entity {
 
         this.hitFlash = Math.max(0, this.hitFlash - dt);
         this.contactTimer = Math.max(0, this.contactTimer - dt);
+    }
+
+    updateEndboss(dt, target, dx, dy, d, currentSpeed) {
+        this.spinAngle += dt * 1.5;
+
+        // Phase transitions based on HP
+        const hpPct = this.hp / this.maxHp;
+        if (hpPct <= 0.3 && this.phase < 3) {
+            this.phase = 3;
+            this.attackCooldown = 1.8;
+            game.camera.shake();
+            game.spawnParticles(this.x, this.y, "#ff00ff", 25);
+            Audio.sfxExplosion();
+        } else if (hpPct <= 0.6 && this.phase < 2) {
+            this.phase = 2;
+            this.attackCooldown = 2.4;
+            game.camera.shake();
+            game.spawnParticles(this.x, this.y, "#ff44aa", 20);
+            Audio.sfxExplosion();
+        }
+
+        // Shield mechanic
+        if (this.shieldTimer > 0) {
+            this.shieldTimer -= dt;
+            this.shieldActive = this.shieldTimer > 0;
+        }
+
+        // Dash mechanic
+        if (this.dashTimer > 0) {
+            this.dashTimer -= dt;
+            this.x += this.dashDx * currentSpeed * 4 * dt;
+            this.y += this.dashDy * currentSpeed * 4 * dt;
+        } else {
+            // Normal movement: orbit around the player at a distance
+            const orbitDist = this.phase === 3 ? 150 : (this.phase === 2 ? 220 : 280);
+            if (d > orbitDist + 40) {
+                // Move closer
+                if (d > 1) {
+                    this.x += (dx / d) * currentSpeed * 1.3 * dt;
+                    this.y += (dy / d) * currentSpeed * 1.3 * dt;
+                }
+            } else if (d < orbitDist - 40) {
+                // Back away
+                if (d > 1) {
+                    this.x -= (dx / d) * currentSpeed * 0.8 * dt;
+                    this.y -= (dy / d) * currentSpeed * 0.8 * dt;
+                }
+            } else {
+                // Orbit (strafe around)
+                if (d > 1) {
+                    const orbSpd = currentSpeed * (0.6 + this.phase * 0.2);
+                    this.x += (-dy / d) * orbSpd * dt;
+                    this.y += (dx / d) * orbSpd * dt;
+                }
+            }
+        }
+
+        // Special attacks
+        this.attackTimer -= dt;
+        if (this.attackTimer <= 0) {
+            this.attackTimer = this.attackCooldown;
+            this.performEndbossAttack(dx, dy, d);
+        }
+
+        // Spawn minions in phases 2 and 3
+        if (this.phase >= 2) {
+            this.spawnTimer -= dt;
+            if (this.spawnTimer <= 0) {
+                this.spawnTimer = this.phase === 3 ? 6 : 10;
+                this.spawnEndbossMinions();
+            }
+        }
+
+        // Clamp to world
+        this.x = clamp(this.x, this.radius, WORLD_W - this.radius);
+        this.y = clamp(this.y, this.radius, WORLD_H - this.radius);
+    }
+
+    performEndbossAttack(dx, dy, d) {
+        const angle = Math.atan2(dy, dx);
+
+        if (this.phase === 1) {
+            // Phase 1: Triple shot
+            for (let i = -1; i <= 1; i++) {
+                game.bullets.push(new Projectile(
+                    this.x, this.y, angle + i * 0.25,
+                    Math.floor(this.contactDamage * 0.6), 0, 1.2, false, true
+                ));
+            }
+        } else if (this.phase === 2) {
+            // Phase 2: Alternates between ring shot and dash
+            if (Math.random() < 0.5) {
+                // Ring of 8 bullets
+                for (let i = 0; i < 8; i++) {
+                    const a = (Math.PI * 2 / 8) * i;
+                    game.bullets.push(new Projectile(
+                        this.x, this.y, a,
+                        Math.floor(this.contactDamage * 0.5), 0, 1.0, false, true
+                    ));
+                }
+                Audio.sfxExplosion();
+            } else {
+                // Dash toward player
+                if (d > 1) {
+                    this.dashDx = dx / d;
+                    this.dashDy = dy / d;
+                    this.dashTimer = 0.4;
+                }
+            }
+        } else {
+            // Phase 3: Spiral burst + shield + dash combo
+            const attackType = Math.random();
+            if (attackType < 0.35) {
+                // Spiral burst: 12 bullets in a spiral pattern
+                for (let i = 0; i < 12; i++) {
+                    const a = this.spinAngle + (Math.PI * 2 / 12) * i;
+                    game.bullets.push(new Projectile(
+                        this.x, this.y, a,
+                        Math.floor(this.contactDamage * 0.4), 0, 1.0, false, true
+                    ));
+                }
+                Audio.sfxExplosion();
+            } else if (attackType < 0.6) {
+                // Shield: reduce incoming damage for 2 seconds
+                this.shieldActive = true;
+                this.shieldTimer = 2.0;
+            } else {
+                // Dash + triple shot
+                if (d > 1) {
+                    this.dashDx = dx / d;
+                    this.dashDy = dy / d;
+                    this.dashTimer = 0.35;
+                }
+                for (let i = -1; i <= 1; i++) {
+                    game.bullets.push(new Projectile(
+                        this.x, this.y, angle + i * 0.3,
+                        Math.floor(this.contactDamage * 0.5), 0, 1.2, false, true
+                    ));
+                }
+            }
+        }
+    }
+
+    spawnEndbossMinions() {
+        if (game.enemies.length >= dynamicCap(MAX_ENEMIES) - 2) return;
+        const types = this.phase === 3 ? ["speedy", "exploder"] : ["speedy", "normal"];
+        for (let i = 0; i < (this.phase === 3 ? 3 : 2); i++) {
+            const a = Math.random() * Math.PI * 2;
+            const spawnDist = this.radius + 40;
+            const ex = this.x + Math.cos(a) * spawnDist;
+            const ey = this.y + Math.sin(a) * spawnDist;
+            const minionType = randPick(types);
+            const minion = new Enemy(ex, ey, this.maxHp * 0.01, this.baseSpeed * 2, undefined, minionType);
+            minion.contactDamage = Math.floor(this.contactDamage * 0.3);
+            game.enemies.push(minion);
+        }
+        game.spawnParticles(this.x, this.y, "#ff00ff", 10);
     }
 
     draw() {
@@ -2289,6 +2580,111 @@ class Enemy extends Entity {
             ctx.arc(this.x, this.y, this.radius * 1.7, 0, Math.PI * 2);
             ctx.fillStyle = `rgba(204,0,0,${bossGlow})`;
             ctx.fill();
+        } else if (this.type === "endboss") {
+            // ── ENDBOSS: Multi-layered eldritch horror ──
+            const rot = (this.spinAngle || 0);
+            const phaseColor = this.phase === 3 ? "#ff0044" : (this.phase === 2 ? "#ff44aa" : "#ff00ff");
+            const phaseGlow = this.phase === 3 ? "rgba(255,0,68," : (this.phase === 2 ? "rgba(255,68,170," : "rgba(255,0,255,");
+
+            // Outer danger aura (larger in later phases)
+            const auraSize = this.radius * (1.8 + this.phase * 0.3);
+            const auraAlpha = 0.12 + 0.08 * Math.sin(frameNow * 0.005);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, auraSize, 0, Math.PI * 2);
+            ctx.fillStyle = `${phaseGlow}${auraAlpha})`;
+            ctx.fill();
+
+            // Rotating outer ring of spikes
+            ctx.beginPath();
+            const spikeCount = 10 + this.phase * 2;
+            for (let i = 0; i < spikeCount * 2; i++) {
+                const a = (Math.PI * 2 / (spikeCount * 2)) * i + rot;
+                const r = i % 2 === 0 ? this.radius * 1.15 : this.radius * 0.75;
+                const px = this.x + Math.cos(a) * r;
+                const py = this.y + Math.sin(a) * r;
+                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fillStyle = col;
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = phaseColor;
+            ctx.stroke();
+
+            // Inner body (hexagonal)
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI * 2 / 6) * i - rot * 0.7;
+                const r = this.radius * 0.6;
+                const px = this.x + Math.cos(a) * r;
+                const py = this.y + Math.sin(a) * r;
+                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fillStyle = phaseColor;
+            ctx.globalAlpha = 0.6;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+
+            // Core eye (pulsing)
+            const eyeR = this.radius * (0.25 + 0.06 * Math.sin(frameNow * 0.012));
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, eyeR, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            // Pupil (tracks player)
+            const pupilOffset = Math.min(eyeR * 0.4, 6);
+            const toPlayer = Math.atan2(game.player.y - this.y, game.player.x - this.x);
+            ctx.beginPath();
+            ctx.arc(
+                this.x + Math.cos(toPlayer) * pupilOffset,
+                this.y + Math.sin(toPlayer) * pupilOffset,
+                eyeR * 0.5, 0, Math.PI * 2
+            );
+            ctx.fillStyle = "#220022";
+            ctx.fill();
+
+            // Shield visual
+            if (this.shieldActive) {
+                const shieldPulse = 0.3 + 0.15 * Math.sin(frameNow * 0.015);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 1.35, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(100,200,255,${shieldPulse + 0.3})`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+                ctx.fillStyle = `rgba(100,200,255,${shieldPulse * 0.3})`;
+                ctx.fill();
+            }
+
+            // Dashing trail effect
+            if (this.dashTimer > 0) {
+                ctx.globalAlpha = 0.3;
+                for (let i = 1; i <= 3; i++) {
+                    const trailX = this.x - this.dashDx * i * 20;
+                    const trailY = this.y - this.dashDy * i * 20;
+                    ctx.beginPath();
+                    ctx.arc(trailX, trailY, this.radius * (1 - i * 0.15), 0, Math.PI * 2);
+                    ctx.fillStyle = phaseColor;
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            // Phase indicator orbs orbiting the boss
+            for (let i = 0; i < this.phase; i++) {
+                const orbAngle = rot * 2 + (Math.PI * 2 / this.phase) * i;
+                const orbDist = this.radius * 1.5;
+                const ox = this.x + Math.cos(orbAngle) * orbDist;
+                const oy = this.y + Math.sin(orbAngle) * orbDist;
+                ctx.beginPath();
+                ctx.arc(ox, oy, 5, 0, Math.PI * 2);
+                ctx.fillStyle = phaseColor;
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(ox, oy, 8, 0, Math.PI * 2);
+                ctx.fillStyle = `${phaseGlow}0.2)`;
+                ctx.fill();
+            }
         } else {
             // Normal: circle
             ctx.beginPath();
@@ -2302,16 +2698,25 @@ class Enemy extends Entity {
 
         // HP bar (only if damaged)
         if (this.hp < this.maxHp) {
-            const bw = this.radius * 2.5;
-            const bh = (this.type === "bigboss") ? 8 : (this.type === "miniboss" ? 6 : 4);
+            const bw = this.type === "endboss" ? this.radius * 3 : this.radius * 2.5;
+            const bh = this.type === "endboss" ? 10 : ((this.type === "bigboss") ? 8 : (this.type === "miniboss" ? 6 : 4));
             const bx = this.x - bw / 2;
-            const by = this.y - this.radius - 12;
+            const by = this.y - this.radius - (this.type === "endboss" ? 20 : 12);
             ctx.fillStyle = COLOR.hpBarBg;
             ctx.fillRect(bx, by, bw, bh);
-            ctx.fillStyle = this.type === "bigboss" ? "#ff3333" : (this.type === "miniboss" ? "#ff88bb" : COLOR.hpBar);
+            const hpColor = this.type === "endboss" ? "#ff00ff"
+                : (this.type === "bigboss" ? "#ff3333" : (this.type === "miniboss" ? "#ff88bb" : COLOR.hpBar));
+            ctx.fillStyle = hpColor;
             ctx.fillRect(bx, by, bw * (this.hp / this.maxHp), bh);
             // Boss name label
-            if (this.type === "miniboss" || this.type === "bigboss") {
+            if (this.type === "endboss") {
+                const phaseName = this.phase === 3 ? "RAGE" : (this.phase === 2 ? "FURY" : "");
+                ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillStyle = "#ff00ff";
+                ctx.fillText(`☠ VOID HERALD ${phaseName ? "— " + phaseName : ""} ☠`, this.x, by - 4);
+            } else if (this.type === "miniboss" || this.type === "bigboss") {
                 ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "bottom";
@@ -2322,11 +2727,16 @@ class Enemy extends Entity {
     }
 
     takeDamage(amount, isCrit) {
-        this.hp -= amount;
+        // Endboss shield reduces damage by 60%
+        let finalAmount = amount;
+        if (this.type === "endboss" && this.shieldActive) {
+            finalAmount = Math.max(1, Math.floor(amount * 0.4));
+        }
+        this.hp -= finalAmount;
         this.hitFlash = 0.1;
         // Spawn damage number
-        const color = isCrit ? "#ff4444" : "#ffffff";
-        game.spawnDamageNumber(this.x, this.y - this.radius, amount, color, isCrit);
+        const color = (this.type === "endboss" && this.shieldActive) ? "#88ccff" : (isCrit ? "#ff4444" : "#ffffff");
+        game.spawnDamageNumber(this.x, this.y - this.radius, finalAmount, color, isCrit);
         if (this.hp <= 0) {
             this.alive = false;
             game.onEnemyKilled(this);
@@ -3018,6 +3428,8 @@ const game = {
     pendingBonusUpgrade: false,
     pendingBossType: null,
     pendingVictory: false,
+    pendingEndboss: false,
+    endbossActive: false,
 
     // Stats
     killCount: 0,
@@ -3106,6 +3518,8 @@ const game = {
         this.pendingBonusUpgrade = false;
         this.pendingBossType = null;
         this.pendingVictory = false;
+        this.pendingEndboss = false;
+        this.endbossActive = false;
         this.killCount = 0;
         this.timePlayed = 0;
         this.lastHighScoreRank = 0;
@@ -3162,6 +3576,12 @@ const game = {
         return BIOMES[0];
     },
 
+    currentBiomeIndex() {
+        if (this.wave >= 15) return 2;
+        if (this.wave >= 8) return 1;
+        return 0;
+    },
+
     trackPerformance(dt) {
         const fps = dt > 0 ? 1 / dt : TARGET_FPS;
         this.fpsEma = lerp(this.fpsEma, fps, 0.08);
@@ -3188,7 +3608,7 @@ const game = {
             this.state = STATE.GAMEPLAY;
             this.revivedThisRun = true;
             CrazyGamesSDK.gameplayStart();
-            Audio.startMusic();
+            Audio.startMusic(this.currentBiomeIndex());
         }
         this.reviveInProgress = false;
     },
@@ -3972,7 +4392,7 @@ const game = {
         this.resetGame();
         this.state = STATE.GAMEPLAY;
         Audio.ensureContext();
-        Audio.startMusic();
+        Audio.startMusic(0);
         CrazyGamesSDK.gameplayStart();
     },
 
@@ -4248,6 +4668,35 @@ const game = {
             this.drawVignette();
         }
 
+        // Biome-specific ambient screen effects (screen-space)
+        if (!this.lowPerf) {
+            const bi = this.currentBiomeIndex();
+            if (bi === 1) {
+                // Acid Grid: subtle green scan lines
+                ctx.globalAlpha = 0.03;
+                ctx.fillStyle = "#66ff99";
+                const scanY = (frameNow * 0.15) % (CANVAS_H + 40) - 20;
+                ctx.fillRect(0, scanY, CANVAS_W, 3);
+                ctx.fillRect(0, scanY - CANVAS_H * 0.5, CANVAS_W, 2);
+                ctx.globalAlpha = 1;
+            } else if (bi === 2) {
+                // Crimson Core: pulsing red vignette overlay
+                const pulse = 0.02 + 0.015 * Math.sin(frameNow * 0.004);
+                ctx.fillStyle = `rgba(255,40,40,${pulse})`;
+                ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+                // Ember-like floating particles
+                for (let i = 0; i < 12; i++) {
+                    const ex = (i * 83 + frameNow * 0.03) % CANVAS_W;
+                    const ey = CANVAS_H - ((i * 127 + frameNow * 0.05) % CANVAS_H);
+                    const a = 0.15 + 0.1 * Math.sin(frameNow * 0.005 + i);
+                    ctx.beginPath();
+                    ctx.arc(ex, ey, 1.5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255,100,60,${a})`;
+                    ctx.fill();
+                }
+            }
+        }
+
         // Level-up flash effect (screen-space)
         if (this.levelUpFlashTimer > 0) {
             const flashAlpha = clamp(this.levelUpFlashTimer / 0.3, 0, 0.25);
@@ -4359,7 +4808,27 @@ const game = {
         ctx.textAlign = "center";
         ctx.fillStyle = COLOR.text;
         ctx.font = "bold 22px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Wave ${this.wave}`, CANVAS_W / 2, pad + 14);
+        if (this.endbossActive) {
+            ctx.fillStyle = "#ff00ff";
+            ctx.fillText("☠ VOID HERALD ☠", CANVAS_W / 2, pad + 14);
+            // Endboss HP bar (full width at top)
+            if (this.activeBoss && this.activeBoss.alive) {
+                const ebHpW = 300, ebHpH = 12;
+                const ebX = CANVAS_W / 2 - ebHpW / 2;
+                const ebY = pad + 26;
+                const ebPct = this.activeBoss.hp / this.activeBoss.maxHp;
+                ctx.fillStyle = COLOR.hpBarBg;
+                ctx.fillRect(ebX, ebY, ebHpW, ebHpH);
+                const ebColor = this.activeBoss.phase === 3 ? "#ff0044" : (this.activeBoss.phase === 2 ? "#ff44aa" : "#ff00ff");
+                ctx.fillStyle = ebColor;
+                ctx.fillRect(ebX, ebY, ebHpW * clamp(ebPct, 0, 1), ebHpH);
+                ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+                ctx.fillStyle = "#ffffff";
+                ctx.fillText(`Phase ${this.activeBoss.phase} — ${Math.ceil(ebPct * 100)}%`, CANVAS_W / 2, ebY + ebHpH / 2);
+            }
+        } else {
+            ctx.fillText(`Wave ${this.wave}`, CANVAS_W / 2, pad + 14);
+        }
 
         // Enemies remaining
         ctx.font = "14px 'Segoe UI', Arial, sans-serif";
@@ -4385,13 +4854,20 @@ const game = {
         }
 
         // ── Wave incoming message ──
-        if (!this.waveActive && this.waveRestTimer > 0 && !this.pendingVictory) {
+        if (!this.waveActive && this.waveRestTimer > 0 && !this.pendingVictory && !this.endbossActive) {
             ctx.textAlign = "center";
             ctx.fillStyle = COLOR.accent;
             ctx.font = "bold 28px 'Segoe UI', Arial, sans-serif";
             ctx.globalAlpha = 0.6 + 0.4 * Math.sin(frameNow * 0.005);
-            const nextLabel = (this.wave + 1 === WAVE_MAX) ? `⚠️ FINAL WAVE Incoming...`
-                : `Wave ${this.wave + 1} Incoming...`;
+            let nextLabel;
+            if (this.pendingEndboss) {
+                nextLabel = "☠ FINAL BOSS Incoming... ☠";
+                ctx.fillStyle = "#ff00ff";
+            } else if (this.wave + 1 === WAVE_MAX) {
+                nextLabel = "⚠️ FINAL WAVE Incoming...";
+            } else {
+                nextLabel = `Wave ${this.wave + 1} Incoming...`;
+            }
             ctx.fillText(nextLabel, CANVAS_W / 2, CANVAS_H / 2 - 40);
             ctx.globalAlpha = 1;
         }
@@ -4542,13 +5018,20 @@ const game = {
     // ────── WAVE SYSTEM ──────
 
     manageWaves(dt) {
+        // If endboss is active, don't manage normal waves — just keep spawning light adds
+        if (this.endbossActive) {
+            // Check if endboss was killed (handled in onEnemyKilled)
+            return;
+        }
+
         if (this.waveActive) {
             // Check if kill target reached
             if (this.waveKills >= this.waveKillsRequired) {
                 this.waveActive = false;
                 this.waveRestTimer = WAVE_REST_TIME;
+                // Wave 25 triggers endboss instead of pending victory
                 if (this.wave === WAVE_MAX) {
-                    this.pendingVictory = true;
+                    this.pendingEndboss = true;
                 }
                 this.maybeRequestMidroll();
                 return;
@@ -4565,6 +5048,9 @@ const game = {
                 if (this.pendingVictory) {
                     this.pendingVictory = false;
                     this.onVictory();
+                } else if (this.pendingEndboss) {
+                    this.pendingEndboss = false;
+                    this.spawnEndboss();
                 } else if (this.pendingBonusUpgrade) {
                     this.pendingBonusUpgrade = false;
                     const bossType = this.pendingBossType;
@@ -4575,6 +5061,35 @@ const game = {
                 }
             }
         }
+    },
+
+    spawnEndboss() {
+        this.endbossActive = true;
+        // Clear existing enemies for a clean arena
+        this.enemies = [];
+        // Spawn the endboss near the player
+        const mods = modeModifiers();
+        const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
+        const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
+        const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
+        const bx = clamp(this.player.x + randRange(-150, 150), 200, WORLD_W - 200);
+        const by = clamp(this.camera.y - 200, 200, WORLD_H - 200);
+        const boss = new Enemy(bx, by,
+            Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult),
+            ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * mods.enemySpdMult,
+            undefined, "endboss");
+        boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
+        this.enemies.push(boss);
+        this.activeBoss = boss;
+
+        // Switch to boss music
+        Audio.startBossMusic();
+
+        // Boss intro banner
+        this.waveBannerTimer = 3.0;
+        this.waveBannerText = "☠ VOID HERALD APPROACHES ☠";
+        this.camera.shake();
+        Audio.sfxExplosion();
     },
 
     startNextWave() {
@@ -4588,6 +5103,9 @@ const game = {
         }
         this.spawnTimer = 0; // spawn immediately
         this.waveActive = true;
+
+        // Switch music when biome changes
+        Audio.startMusic(this.currentBiomeIndex());
 
         // Animated wave banner
         this.waveBannerTimer = 2.0;
@@ -4691,6 +5209,20 @@ const game = {
         } else if (enemy.type === "miniboss" || enemy.type === "bigboss") {
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
+        } else if (enemy.type === "endboss") {
+            // Endboss death: massive explosion of particles
+            this.spawnParticles(enemy.x, enemy.y, "#ff00ff", isMobile ? 10 : 30);
+            this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 8 : 25);
+            this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
+            this.camera.shake();
+            Audio.sfxExplosion();
+            // Trigger victory!
+            this.endbossActive = false;
+            this.activeBoss = null;
+            // Small delay before victory screen
+            this.pendingVictory = true;
+            this.waveActive = false;
+            this.waveRestTimer = 1.5;
         }
 
         const mods = modeModifiers();
@@ -4913,22 +5445,42 @@ const game = {
 
         const isPausedMidRun = !!(this.player && this.player.alive && this.wave > 0);
 
-        // Use tighter spacing when paused to fit all elements on screen
-        const btnSpacing = isPausedMidRun ? 50 : 60;
-        const sectionGap = isPausedMidRun ? 40 : 80;
-        const lineGap = isPausedMidRun ? 20 : 24;
-        const preBackGap = isPausedMidRun ? 30 : 50;
+        // ── Compute total content height first, then center vertically ──
+        const bw = 280, bh = 44;
+        const bx = CANVAS_W / 2 - bw / 2;
+        const btnGap = 8;   // gap between buttons
+        const sectionGap = isPausedMidRun ? 18 : 30;
+        const lineGap = isPausedMidRun ? 17 : 22;
+        const controlLines = isMobile ? 4 : 4;
+        const hasCacheBtn = isPausedMidRun && APP_CONFIG.monetization;
 
+        // Calculate total height of all elements
+        let totalH = 40;   // title
+        totalH += 12;      // gap after title
+        totalH += (bh + btnGap) * 3; // 3 toggle buttons
+        if (hasCacheBtn) totalH += bh + btnGap + 20; // cache button + hint
+        totalH += sectionGap; // gap before controls
+        totalH += 20 + (lineGap + 4) * controlLines; // controls header + lines
+        if (!isMobile) totalH += lineGap; // layout note
+        totalH += sectionGap; // gap before back
+        totalH += bh; // back button
+        if (isPausedMidRun) totalH += bh + btnGap + 8; // abandon button
+
+        let y = Math.max(30, Math.floor((CANVAS_H - totalH) / 2));
+
+        // ── Title ──
         ctx.fillStyle = COLOR.accent;
         ctx.font = "bold 36px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("⚙  SETTINGS", CANVAS_W / 2, isPausedMidRun ? 60 : 80);
+        ctx.fillText(isPausedMidRun ? "⏸  PAUSED" : "⚙  SETTINGS", CANVAS_W / 2, y + 30);
+        y += 52;
 
+        // ── Run stats panel (right side, independent of button column) ──
         if (isPausedMidRun) {
-            const statsX = CANVAS_W - 280;
-            const statsY = 100;
-            const statsW = 240;
-            const statsH = 170;
+            const statsW = 220;
+            const statsH = 160;
+            const statsX = CANVAS_W - statsW - 30;
+            const statsY = Math.max(30, Math.floor((CANVAS_H - statsH) / 2));
 
             drawRoundRect(statsX, statsY, statsW, statsH, 8);
             ctx.fillStyle = "rgba(8, 8, 24, 0.92)";
@@ -4938,25 +5490,23 @@ const game = {
             ctx.stroke();
 
             ctx.fillStyle = COLOR.accent;
-            ctx.font = "bold 15px 'Segoe UI', Arial, sans-serif";
+            ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText("⏸ RUN STATS", statsX + statsW / 2, statsY + 18);
+            ctx.fillText("RUN STATS", statsX + statsW / 2, statsY + 20);
 
             ctx.fillStyle = COLOR.text;
             ctx.font = "13px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
-            ctx.fillText(`Wave: ${this.wave}`, statsX + 12, statsY + 44);
-            ctx.fillText(`Wave kills: ${this.waveKills}/${this.waveKillsRequired}`, statsX + 12, statsY + 66);
-            ctx.fillText(`Total kills: ${this.killCount}`, statsX + 12, statsY + 88);
-            ctx.fillText(`Level: ${this.player.level}`, statsX + 12, statsY + 110);
-            ctx.fillText(`HP: ${Math.max(0, Math.ceil(this.player.hp))}/${this.player.maxHp}`, statsX + 12, statsY + 132);
-            ctx.fillText(`Time: ${formatTime(this.timePlayed)}`, statsX + 12, statsY + 154);
+            const sl = statsX + 14;
+            ctx.fillText(`Wave: ${this.wave}`, sl, statsY + 44);
+            ctx.fillText(`Kills: ${this.waveKills}/${this.waveKillsRequired}`, sl, statsY + 64);
+            ctx.fillText(`Total kills: ${this.killCount}`, sl, statsY + 84);
+            ctx.fillText(`Level: ${this.player.level}`, sl, statsY + 104);
+            ctx.fillText(`HP: ${Math.max(0, Math.ceil(this.player.hp))}/${this.player.maxHp}`, sl, statsY + 124);
+            ctx.fillText(`Time: ${formatTime(this.timePlayed)}`, sl, statsY + 144);
         }
 
-        const bw = 280, bh = 44, bx = CANVAS_W / 2 - bw / 2;
-        let y = isPausedMidRun ? 100 : 140;
-
-        // Sound toggle
+        // ── Toggle buttons (centered column) ──
         const soundHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
             `Sound: ${Settings.soundEnabled ? "ON" : "OFF"}`,
@@ -4965,9 +5515,8 @@ const game = {
             Settings.soundEnabled = !Settings.soundEnabled;
             Audio.setSfxEnabled(Settings.soundEnabled);
         }
+        y += bh + btnGap;
 
-        y += btnSpacing;
-        // Music toggle
         const musicHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
             `Music: ${Settings.musicEnabled ? "ON" : "OFF"}`,
@@ -4976,9 +5525,8 @@ const game = {
             Settings.musicEnabled = !Settings.musicEnabled;
             Audio.setMusicEnabled(Settings.musicEnabled);
         }
+        y += bh + btnGap;
 
-        y += btnSpacing;
-        // Screen shake toggle
         const shakeHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
             `Screen Shake: ${Settings.shakeEnabled ? "ON" : "OFF"}`,
@@ -4986,10 +5534,10 @@ const game = {
         )) {
             Settings.shakeEnabled = !Settings.shakeEnabled;
         }
+        y += bh + btnGap;
 
         // Optional rewarded shard cache once per run
-        if (isPausedMidRun && APP_CONFIG.monetization) {
-            y += btnSpacing;
+        if (hasCacheBtn) {
             const cacheHover = Mouse.inRect(bx, y, bw, bh);
             const cacheLabel = this.shardCacheClaimedThisRun
                 ? "✅ SHARD CACHE CLAIMED"
@@ -4998,25 +5546,23 @@ const game = {
                 && !this.shardCacheClaimedThisRun && !this.shardCacheLoading) {
                 void this.claimRunShardCache();
             }
-
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText("+20 base shards, scales with wave. Once per run.", CANVAS_W / 2, y + bh + 14);
-            y += bh + 28; // advance past button and hint text
+            ctx.fillText("+20 base shards, scales with wave. Once per run.", CANVAS_W / 2, y + bh + 12);
+            y += bh + 20;
         }
 
-        y += isPausedMidRun ? 16 : sectionGap;
-        // Key layout info
+        // ── Controls info section ──
+        y += sectionGap;
         ctx.fillStyle = COLOR.text;
-        ctx.font = isPausedMidRun ? "bold 15px 'Segoe UI', Arial, sans-serif" : "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.font = isPausedMidRun ? "bold 14px 'Segoe UI', Arial, sans-serif" : "bold 16px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         if (isMobile) {
             ctx.fillText("Controls (Touch)", CANVAS_W / 2, y);
-
-            ctx.font = isPausedMidRun ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
+            ctx.font = "13px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = COLOR.textDim;
-            y += lineGap + 6;
+            y += lineGap + 4;
             ctx.fillText("Left side — Virtual joystick to move", CANVAS_W / 2, y);
             y += lineGap;
             ctx.fillText("Auto-aim — Targets nearest enemy", CANVAS_W / 2, y);
@@ -5025,11 +5571,10 @@ const game = {
             y += lineGap;
             ctx.fillText("⏸ Pause button — Settings", CANVAS_W / 2, y);
         } else {
-            ctx.fillText("Controls (Layout-agnostic)", CANVAS_W / 2, y);
-
-            ctx.font = isPausedMidRun ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Controls", CANVAS_W / 2, y);
+            ctx.font = "13px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = COLOR.textDim;
-            y += lineGap + 6;
+            y += lineGap + 4;
             ctx.fillText("WASD / ZQSD / Arrow Keys — Move", CANVAS_W / 2, y);
             y += lineGap;
             ctx.fillText(Settings.gameMode === "hard"
@@ -5039,32 +5584,29 @@ const game = {
             ctx.fillText("1 / 2 / 3 — Select upgrade", CANVAS_W / 2, y);
             y += lineGap;
             ctx.fillText("ESC — Settings / Back", CANVAS_W / 2, y);
+            y += lineGap;
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Layout-agnostic: works on QWERTY, AZERTY, QWERTZ, etc.", CANVAS_W / 2, y);
         }
 
-        y += preBackGap;
-        ctx.font = isPausedMidRun ? "11px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
-        ctx.fillStyle = COLOR.textDim;
-        if (!isMobile) {
-            ctx.fillText("Uses event.code: works on QWERTY, AZERTY, QWERTZ, etc.", CANVAS_W / 2, y);
-        }
-
+        // A/B experiment info (small, bottom area)
         y += lineGap;
-        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         const exp = Experiments.all();
         ctx.fillText(`A/B: pacing=${exp.earlyPacing}, gameOver=${exp.gameOverFlow}, adCopy=${exp.rewardedCopy}`, CANVAS_W / 2, y);
 
-        // Back button
-        y += preBackGap;
+        // ── Back button ──
+        y += sectionGap;
         const backHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton("← BACK", bx, y, bw, bh, backHover)) {
             this.state = this.player && this.player.alive && this.wave > 0
                 ? STATE.GAMEPLAY : STATE.START_MENU;
         }
 
-        // Abandon current run and return to main menu
+        // ── Abandon run button ──
         if (isPausedMidRun) {
-            y += 50;
+            y += bh + btnGap + 8;
             const abandonHover = Mouse.inRect(bx, y, bw, bh);
             if (drawButton("⏹  ABANDON RUN", bx, y, bw, bh, abandonHover)) {
                 this.abandonRun();
@@ -5248,7 +5790,7 @@ const game = {
 
         ctx.fillStyle = COLOR.text;
         ctx.font = "22px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Completed all ${WAVE_MAX} waves!`, CANVAS_W / 2, CANVAS_H / 2 - 60);
+        ctx.fillText("The Void Herald has been vanquished!", CANVAS_W / 2, CANVAS_H / 2 - 60);
 
         ctx.fillStyle = COLOR.accent;
         ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";
