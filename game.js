@@ -1279,6 +1279,11 @@ const Input = {
 const Mouse = {
     x: 0, y: 0,
     clicked: false,
+    wheelDelta: 0,
+    touchScrollDelta: 0,
+    touchDragId: -1,
+    touchLastY: 0,
+    touchDragged: false,
 
     init() {
         canvas.addEventListener("mousemove", (e) => {
@@ -1287,6 +1292,10 @@ const Mouse = {
             this.y = (e.clientY - rect.top) * (CANVAS_H / rect.height);
         });
         canvas.addEventListener("mousedown", () => { this.clicked = true; });
+        canvas.addEventListener("wheel", (e) => {
+            e.preventDefault();
+            this.wheelDelta += e.deltaY;
+        }, { passive: false });
 
         // Touch support – map touches to mouse position & click
         canvas.addEventListener("touchstart", (e) => {
@@ -1301,6 +1310,12 @@ const Mouse = {
                 this.x = cx;
                 this.y = cy;
                 this.clicked = true;
+
+                if (game.state === STATE.SHOP && this.touchDragId === -1) {
+                    this.touchDragId = t.identifier;
+                    this.touchLastY = cy;
+                    this.touchDragged = false;
+                }
             }
             // Fallback: if no valid touch was found (e.g. all on left side), still mark clicked for menus
             if (!this.clicked && game.state !== STATE.GAMEPLAY) {
@@ -1319,14 +1334,45 @@ const Mouse = {
                 if (isMobile && game.state === STATE.GAMEPLAY && cx < CANVAS_W / 2) continue;
                 this.x = cx;
                 this.y = cy;
+
+                if (game.state === STATE.SHOP && t.identifier === this.touchDragId) {
+                    const dy = cy - this.touchLastY;
+                    this.touchLastY = cy;
+                    this.touchScrollDelta -= dy;
+                    if (Math.abs(dy) > 2) {
+                        this.touchDragged = true;
+                        this.clicked = false;
+                    }
+                }
             }
         }, { passive: false });
         canvas.addEventListener("touchend", (e) => {
             e.preventDefault();
+            for (const t of e.changedTouches) {
+                if (t.identifier === this.touchDragId) {
+                    this.touchDragId = -1;
+                    this.touchLastY = 0;
+                    this.touchDragged = false;
+                }
+            }
+        }, { passive: false });
+        canvas.addEventListener("touchcancel", (e) => {
+            e.preventDefault();
+            for (const t of e.changedTouches) {
+                if (t.identifier === this.touchDragId) {
+                    this.touchDragId = -1;
+                    this.touchLastY = 0;
+                    this.touchDragged = false;
+                }
+            }
         }, { passive: false });
     },
 
-    flush() { this.clicked = false; },
+    flush() {
+        this.clicked = false;
+        this.wheelDelta = 0;
+        this.touchScrollDelta = 0;
+    },
 
     /** Check if mouse is inside a rect */
     inRect(rx, ry, rw, rh) {
@@ -2996,6 +3042,10 @@ const game = {
     expGameOverFlow: "reviveFirst",
     expRewardedCopy: "neutral",
 
+    // Shop scrolling
+    shopScroll: 0,
+    shopMaxScroll: 0,
+
     // ────── INITIALISE ──────
 
     init() {
@@ -3061,6 +3111,8 @@ const game = {
         this.expEarlyPacing = Experiments.get("earlyPacing");
         this.expGameOverFlow = Experiments.get("gameOverFlow");
         this.expRewardedCopy = Experiments.get("rewardedCopy");
+        this.shopScroll = 0;
+        this.shopMaxScroll = 0;
 
         if (Settings.challengeMode === "rush") {
             this.enemySpeedMult = 1.18;
@@ -3586,10 +3638,26 @@ const game = {
 
     // ────── SKIN SHOP ──────
 
-    updateShop() {
+    updateShop(dt) {
         if (Input.just("Escape")) {
             this.state = STATE.START_MENU;
         }
+
+        const wheelStep = Mouse.wheelDelta;
+        if (wheelStep !== 0) {
+            this.shopScroll += wheelStep;
+        }
+        const touchStep = Mouse.touchScrollDelta;
+        if (touchStep !== 0) {
+            this.shopScroll += touchStep;
+        }
+        if (Input.held("ArrowDown") || Input.held("KeyS")) {
+            this.shopScroll += 420 * dt;
+        }
+        if (Input.held("ArrowUp") || Input.held("KeyW")) {
+            this.shopScroll -= 420 * dt;
+        }
+        this.shopScroll = clamp(this.shopScroll, 0, this.shopMaxScroll);
     },
 
     drawShop() {
@@ -3707,12 +3775,28 @@ const game = {
         const itemGap = 10;
         const itemW = Math.floor((aW - 32 - (cols - 1) * itemGap) / cols);
         const itemH = 74;
+        const listStartY = aY + 38;
+        const listViewportH = aH - 52;
+        const rowCount = Math.ceil(allSkins.length / cols);
+        const contentH = rowCount > 0 ? (rowCount * itemH + (rowCount - 1) * 10) : 0;
+        this.shopMaxScroll = Math.max(0, contentH - listViewportH);
+        this.shopScroll = clamp(this.shopScroll, 0, this.shopMaxScroll);
+
+        // Clip list content to panel viewport so overflow can be scrolled.
+        ctx.save();
+        drawRoundRect(aX + 10, listStartY - 4, aW - 20, listViewportH + 8, 8);
+        ctx.clip();
+
         for (let i = 0; i < allSkins.length; i++) {
             const s = allSkins[i];
             const col = i % cols;
             const row = Math.floor(i / cols);
             const x = aX + 16 + col * (itemW + itemGap);
-            const y = aY + 38 + row * (itemH + 10);
+            const y = listStartY + row * (itemH + 10) - this.shopScroll;
+
+            const visible = y + itemH >= listStartY && y <= listStartY + listViewportH;
+            if (!visible) continue;
+
             const hov = Mouse.inRect(x, y, itemW, itemH);
 
             drawRoundRect(x, y, itemW, itemH, 8);
@@ -3745,6 +3829,26 @@ const game = {
                 Progression.unlockOrSelectSkin(s.id);
             }
         }
+        ctx.restore();
+
+        // Draw scrollbar when content exceeds viewport.
+        if (this.shopMaxScroll > 0) {
+            const barX = aX + aW - 12;
+            const barY = listStartY;
+            const barW = 4;
+            const barH = listViewportH;
+            drawRoundRect(barX, barY, barW, barH, 2);
+            ctx.fillStyle = "rgba(255,255,255,0.16)";
+            ctx.fill();
+
+            const thumbH = Math.max(24, barH * (listViewportH / contentH));
+            const travel = barH - thumbH;
+            const t = this.shopMaxScroll > 0 ? this.shopScroll / this.shopMaxScroll : 0;
+            const thumbY = barY + travel * t;
+            drawRoundRect(barX - 1, thumbY, barW + 2, thumbH, 2);
+            ctx.fillStyle = "rgba(102,204,255,0.9)";
+            ctx.fill();
+        }
 
         const backW = 250;
         const backH = 44;
@@ -3758,6 +3862,11 @@ const game = {
         ctx.textAlign = "center";
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Tip: Edit skinshop.txt to add skins, set prices, and manage featured cards.", CANVAS_W / 2, CANVAS_H - 66);
+        if (this.shopMaxScroll > 0) {
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Scroll: mouse wheel or W/S / Up/Down", CANVAS_W / 2, CANVAS_H - 50);
+        }
     },
 
     // ────── CHANGELOGS ──────
