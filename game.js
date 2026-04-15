@@ -98,6 +98,10 @@ const CAMERA_LERP_SPEED = 5;             // Higher = snappier follow
 const SHAKE_DURATION = 0.15;
 const SHAKE_INTENSITY = 6;
 
+// Skin shop
+const MAX_FEATURED_SKINS = 3;
+const COLOR_SHOP_ACCENT = "#ffcc66";
+
 // Wave – infinite spawning, kill-target progression
 const WAVE_BASE_KILLS = 10;              // kills needed to complete wave 1
 const WAVE_KILLS_GROWTH = 5;             // additional kills required per wave
@@ -957,7 +961,7 @@ const Progression = (() => {
         const unlocked = new Set(data.skins.unlocked);
         return Object.values(SKINS)
             .filter(s => s.featured)
-            .slice(0, 3)
+            .slice(0, MAX_FEATURED_SKINS)
             .map(s => ({ ...s, unlocked: unlocked.has(s.id), selected: data.skins.selected === s.id }));
     }
 
@@ -3308,7 +3312,7 @@ const game = {
         // Featured skins section
         const featured = Progression.getFeaturedSkins();
         ctx.textAlign = "left";
-        ctx.fillStyle = "#ffcc66";
+        ctx.fillStyle = COLOR_SHOP_ACCENT;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.fillText("✨ FEATURED SKINS", mpX + 12, mpY + mpH - 136);
         const sw = compactMobile ? 74 : 68;
@@ -3333,7 +3337,7 @@ const game = {
             ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
             ctx.fillText(s.name.split(" ")[0], sx + 26, skinY + 14, sw - 30);
-            ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
+            ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : COLOR_SHOP_ACCENT;
             ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Unlock") : `${s.cost}◆`, sx + 26, skinY + 31, sw - 30);
             if (hov && Mouse.clicked) {
                 Progression.unlockOrSelectSkin(s.id);
@@ -3349,10 +3353,10 @@ const game = {
         drawRoundRect(shopBtnX, shopBtnY, shopBtnW, shopBtnH, 6);
         ctx.fillStyle = shopHov ? "rgba(255,204,102,0.3)" : "rgba(255,255,255,0.08)";
         ctx.fill();
-        ctx.strokeStyle = shopHov ? "#ffcc66" : "#556";
+        ctx.strokeStyle = shopHov ? COLOR_SHOP_ACCENT : "#556";
         ctx.lineWidth = 1.2;
         ctx.stroke();
-        ctx.fillStyle = shopHov ? "#ffcc66" : COLOR.text;
+        ctx.fillStyle = shopHov ? COLOR_SHOP_ACCENT : COLOR.text;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText("🛒  SKIN SHOP", shopBtnX + shopBtnW / 2, shopBtnY + shopBtnH / 2 + 1);
@@ -3545,7 +3549,7 @@ const game = {
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
         // Title
-        ctx.fillStyle = "#ffcc66";
+        ctx.fillStyle = COLOR_SHOP_ACCENT;
         ctx.font = "bold 36px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -3591,13 +3595,13 @@ const game = {
                 ctx.fillStyle = "rgba(10,10,30,0.92)";
             }
             ctx.fill();
-            ctx.strokeStyle = s.selected ? COLOR.accent : (s.featured ? "#ffcc66" : "#334");
+            ctx.strokeStyle = s.selected ? COLOR.accent : (s.featured ? COLOR_SHOP_ACCENT : "#334");
             ctx.lineWidth = s.selected ? 2 : 1.2;
             ctx.stroke();
 
             // Featured badge
             if (s.featured) {
-                ctx.fillStyle = "#ffcc66";
+                ctx.fillStyle = COLOR_SHOP_ACCENT;
                 ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
                 ctx.textAlign = "left";
                 ctx.fillText("★ FEATURED", cx + 10, cy + 14);
