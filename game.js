@@ -128,6 +128,12 @@ const WAVE_MAX = 25;                     // completing this wave triggers victor
 
 // Upgrade choices per level-up
 const UPGRADE_CHOICES = 3;
+const CHEAT_CODE_SEQUENCE = [
+    "ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown",
+    "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight",
+    "KeyB", "KeyA",
+];
+const CHEAT_TARGET_LEVEL = 4;
 
 // Colors
 const COLOR = {
@@ -3570,6 +3576,9 @@ const game = {
     shopScroll: 0,
     shopMaxScroll: 0,
 
+    // Cheat code state
+    cheatProgress: 0,
+
     // ────── INITIALISE ──────
 
     init() {
@@ -3639,6 +3648,7 @@ const game = {
         this.expRewardedCopy = Experiments.get("rewardedCopy");
         this.shopScroll = 0;
         this.shopMaxScroll = 0;
+        this.cheatProgress = 0;
 
         if (Settings.challengeMode === "rush") {
             this.enemySpeedMult = 1.18;
@@ -4490,6 +4500,7 @@ const game = {
     updateGameplay(dt) {
         this.timePlayed += dt;
         this.trackPerformance(dt);
+        this.updateCheatCode();
 
         if (!this.tutorialDismissed) {
             const mv = Input.moveVector();
@@ -4650,6 +4661,57 @@ const game = {
         if (Input.just("Escape") || TouchControls.pauseTapped) {
             this.state = STATE.SETTINGS;
         }
+    },
+
+    updateCheatCode() {
+        const expected = CHEAT_CODE_SEQUENCE[this.cheatProgress];
+        if (!expected) return;
+
+        if (Input.just(expected)) {
+            this.cheatProgress++;
+            if (this.cheatProgress >= CHEAT_CODE_SEQUENCE.length) {
+                this.applyMaxLevelCheat();
+                this.cheatProgress = 0;
+            }
+            return;
+        }
+
+        // Reset sequence if a sequence key is pressed out of order.
+        for (let i = 0; i < CHEAT_CODE_SEQUENCE.length; i++) {
+            const code = CHEAT_CODE_SEQUENCE[i];
+            if (Input.just(code)) {
+                this.cheatProgress = code === CHEAT_CODE_SEQUENCE[0] ? 1 : 0;
+                return;
+            }
+        }
+    },
+
+    applyMaxLevelCheat() {
+        if (!this.player) return;
+
+        // Bring all stat upgrades to at least level 4 equivalents.
+        for (const up of UPGRADES) {
+            if (up.cat !== "stat") continue;
+            const current = this.player.upgradeCounts[up.id] || 0;
+            const needed = Math.max(0, CHEAT_TARGET_LEVEL - current);
+            for (let i = 0; i < needed; i++) {
+                up.apply(this.player);
+            }
+            this.player.upgradeCounts[up.id] = Math.max(current, CHEAT_TARGET_LEVEL);
+        }
+
+        // Set all weapon levels to at least level 4.
+        const w = this.player.weapons;
+        w.orbitShield.level = Math.max(w.orbitShield.level, CHEAT_TARGET_LEVEL);
+        w.lightningAura.level = Math.max(w.lightningAura.level, CHEAT_TARGET_LEVEL);
+        w.frostNova.level = Math.max(w.frostNova.level, CHEAT_TARGET_LEVEL);
+        w.flameTrail.level = Math.max(w.flameTrail.level, CHEAT_TARGET_LEVEL);
+
+        // Visual/audio confirmation that the cheat was accepted.
+        this.waveBannerTimer = 1.8;
+        this.waveBannerText = "CHEAT ACTIVATED";
+        this.levelUpFlashTimer = 0.35;
+        Audio.sfxLevelUp();
     },
 
     drawGameplay() {
