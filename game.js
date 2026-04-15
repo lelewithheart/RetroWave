@@ -3758,7 +3758,6 @@ const game = {
         ctx.textAlign = "center";
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Tip: Edit skinshop.txt to add skins, set prices, and manage featured cards.", CANVAS_W / 2, CANVAS_H - 66);
     },
 
     // ────── CHANGELOGS ──────
