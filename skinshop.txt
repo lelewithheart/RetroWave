@@ -1,5 +1,6 @@
 # Skin Shop Config
 # Edit only this file to add/remove skins, set prices, and define featured cards.
+# Skin format: 128x128 px Circle
 #
 # Section [skins] format:
 # id|name|playerColor|glowColor|cost|assetPath
