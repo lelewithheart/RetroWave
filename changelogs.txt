@@ -3,6 +3,9 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 15.04:01-01
+- Hotfix: Raised the middle start-menu background rectangle so it frames the center section up to SELECT MODE
+
 beta 15.04:01
 - Added a dedicated Skin Shop page with shard-based in-game currency purchases
 - Added configurable skin catalog via skinshop.txt to quickly add skins and set prices
