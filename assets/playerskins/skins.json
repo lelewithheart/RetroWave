@@ -1,0 +1,114 @@
+{
+    "_README": "Add or edit skins here. Each skin needs: id, name, player (hex color), glow (rgba), cost (in shards), featured (true to show on home screen, max 3). Set cost to 0 for free/default skins. For itch.io donation skins, set the cost high and note the itch.io donation tier in the description field.",
+
+    "skins": [
+        {
+            "id": "default",
+            "name": "Classic Cyan",
+            "description": "The original RogueWave look.",
+            "player": "#33ccff",
+            "glow": "rgba(51,204,255,0.25)",
+            "cost": 0,
+            "featured": false
+        },
+        {
+            "id": "surge",
+            "name": "Lime Surge",
+            "description": "Charged with electric green energy.",
+            "player": "#66ff99",
+            "glow": "rgba(102,255,153,0.25)",
+            "cost": 140,
+            "featured": false
+        },
+        {
+            "id": "ember",
+            "name": "Ember Pulse",
+            "description": "Burning with a warm crimson glow.",
+            "player": "#ff6688",
+            "glow": "rgba(255,102,136,0.25)",
+            "cost": 140,
+            "featured": false
+        },
+        {
+            "id": "solar",
+            "name": "Solar Flare",
+            "description": "Radiating golden sunlight.",
+            "player": "#ffcc33",
+            "glow": "rgba(255,204,51,0.25)",
+            "cost": 200,
+            "featured": true
+        },
+        {
+            "id": "phantom",
+            "name": "Phantom Violet",
+            "description": "A mysterious purple aura.",
+            "player": "#bb66ff",
+            "glow": "rgba(187,102,255,0.25)",
+            "cost": 200,
+            "featured": true
+        },
+        {
+            "id": "frost",
+            "name": "Frost Bite",
+            "description": "Ice-cold arctic blue.",
+            "player": "#88ddff",
+            "glow": "rgba(136,221,255,0.25)",
+            "cost": 250,
+            "featured": false
+        },
+        {
+            "id": "magma",
+            "name": "Magma Core",
+            "description": "Deep molten orange.",
+            "player": "#ff8844",
+            "glow": "rgba(255,136,68,0.25)",
+            "cost": 250,
+            "featured": false
+        },
+        {
+            "id": "toxic",
+            "name": "Toxic Glow",
+            "description": "Bright radioactive green.",
+            "player": "#aaff00",
+            "glow": "rgba(170,255,0,0.25)",
+            "cost": 300,
+            "featured": true
+        },
+        {
+            "id": "midnight",
+            "name": "Midnight Rose",
+            "description": "Deep pink with a dark edge.",
+            "player": "#ff44aa",
+            "glow": "rgba(255,68,170,0.25)",
+            "cost": 300,
+            "featured": false
+        },
+        {
+            "id": "arctic",
+            "name": "Arctic White",
+            "description": "Pure and blinding white.",
+            "player": "#eeeeff",
+            "glow": "rgba(238,238,255,0.25)",
+            "cost": 350,
+            "featured": false
+        },
+        {
+            "id": "void",
+            "name": "Void Black",
+            "description": "Absorbs all light around it.",
+            "player": "#334455",
+            "glow": "rgba(51,68,85,0.25)",
+            "cost": 400,
+            "featured": false
+        },
+        {
+            "id": "golden",
+            "name": "Golden Legend",
+            "description": "For the truly dedicated. Wish for this on itch.io!",
+            "player": "#ffd700",
+            "glow": "rgba(255,215,0,0.30)",
+            "cost": 500,
+            "featured": false
+        }
+    ]
+}
