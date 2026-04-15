@@ -18,10 +18,26 @@ const MAX_DT = 0.1;                      // Cap to avoid spiral of death
 let GAME_VERSION = "loading...";
 let CHANGELOG_ENTRIES = [];
 
+const APP_CONFIG = {
+    monetization: true,
+};
+
+// Skin shop config (loaded from skinshop.txt at boot)
+let SKIN_SHOP_CONFIG = {
+    skins: [
+        { id: "default", name: "Classic Cyan", player: "#33ccff", glow: "rgba(51,204,255,0.25)", cost: 0, asset: "assets/playerskins/default.png" },
+        { id: "surge",   name: "Lime Surge",   player: "#66ff99", glow: "rgba(102,255,153,0.25)", cost: 140, asset: "assets/playerskins/surge.png" },
+        { id: "ember",   name: "Ember Pulse",  player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140, asset: "assets/playerskins/ember.png" },
+        { id: "nova",    name: "Nova Gold",    player: "#ffd166", glow: "rgba(255,209,102,0.28)", cost: 180, asset: "assets/playerskins/nova.png" },
+    ],
+    featuredIds: ["surge", "ember", "nova"],
+};
+
 // Game-state identifiers
 const STATE = {
     START_MENU:     "START_MENU",
     CHANGELOGS:     "CHANGELOGS",
+    SHOP:           "SHOP",
     GAMEPLAY:       "GAMEPLAY",
     UPGRADE_SCREEN: "UPGRADE_SCREEN",
     SETTINGS:       "SETTINGS",
@@ -360,6 +376,145 @@ async function loadChangelogs() {
     }
 }
 
+/** Parse skin shop text format into config.
+ *
+ * Format:
+ * [skins]
+ * id|name|playerColor|glowColor|cost|assetPath
+ *
+ * [featured]
+ * skinId
+ */
+function parseSkinShopText(text) {
+    const lines = text.split(/\r?\n/);
+    const skins = [];
+    const featuredIds = [];
+    let section = "";
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith("#")) continue;
+
+        if (line.toLowerCase() === "[skins]") {
+            section = "skins";
+            continue;
+        }
+        if (line.toLowerCase() === "[featured]") {
+            section = "featured";
+            continue;
+        }
+
+        if (section === "skins") {
+            const parts = line.split("|").map(s => s.trim());
+            if (parts.length < 6) continue;
+
+            const id = parts[0];
+            const name = parts[1];
+            const player = parts[2];
+            const glow = parts[3];
+            const cost = Math.max(0, Math.floor(Number(parts[4]) || 0));
+            const asset = parts[5];
+
+            if (!id || !name || !player || !glow) continue;
+            skins.push({ id, name, player, glow, cost, asset });
+            continue;
+        }
+
+        if (section === "featured") {
+            featuredIds.push(line);
+        }
+    }
+
+    // Guarantee default skin exists and costs 0.
+    let hasDefault = false;
+    for (let i = 0; i < skins.length; i++) {
+        if (skins[i].id === "default") {
+            skins[i].cost = 0;
+            hasDefault = true;
+            break;
+        }
+    }
+    if (!hasDefault) {
+        skins.unshift({
+            id: "default",
+            name: "Classic Cyan",
+            player: "#33ccff",
+            glow: "rgba(51,204,255,0.25)",
+            cost: 0,
+            asset: "assets/playerskins/default.png",
+        });
+    }
+
+    const seen = new Set();
+    const uniqueSkins = [];
+    for (let i = 0; i < skins.length; i++) {
+        const s = skins[i];
+        if (seen.has(s.id)) continue;
+        seen.add(s.id);
+        uniqueSkins.push(s);
+    }
+
+    const validIds = new Set(uniqueSkins.map(s => s.id));
+    const uniqueFeatured = [];
+    const featuredSeen = new Set();
+    for (let i = 0; i < featuredIds.length; i++) {
+        const id = featuredIds[i];
+        if (!validIds.has(id) || featuredSeen.has(id)) continue;
+        featuredSeen.add(id);
+        uniqueFeatured.push(id);
+    }
+
+    return {
+        skins: uniqueSkins,
+        featuredIds: uniqueFeatured,
+    };
+}
+
+async function loadSkinShopConfig() {
+    try {
+        const res = await fetch("skinshop.txt", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const parsed = parseSkinShopText(text);
+        if (parsed.skins.length > 0) {
+            SKIN_SHOP_CONFIG = parsed;
+        }
+    } catch (err) {
+        console.warn("Failed to load skinshop.txt, using fallback skin config", err);
+    }
+}
+
+function parseEnvBoolean(raw, fallback) {
+    if (typeof raw !== "string") return fallback;
+    const v = raw.trim().toLowerCase();
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+    return fallback;
+}
+
+async function loadEnvConfig() {
+    try {
+        const res = await fetch(".env", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const lines = text.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line || line.startsWith("#")) continue;
+            const idx = line.indexOf("=");
+            if (idx <= 0) continue;
+
+            const key = line.slice(0, idx).trim();
+            const value = line.slice(idx + 1).trim();
+            if (key === "MONETIZATION") {
+                APP_CONFIG.monetization = parseEnvBoolean(value, APP_CONFIG.monetization);
+            }
+        }
+    } catch (err) {
+        console.warn("Failed to load .env, using default app config", err);
+    }
+}
+
 /**
  * Remove dead/expired items in-place using swap-and-pop.
  * Avoids creating a new array every frame (the old .filter() approach).
@@ -379,6 +534,22 @@ function compactInPlace(arr, isAlive) {
 
 /** Cached DOMHighResTimeStamp – updated once per frame in mainLoop from requestAnimationFrame */
 let frameNow = 0;
+
+// Simple sprite cache for player skin assets.
+const SkinAssets = (() => {
+    const cache = new Map();
+
+    function get(path) {
+        if (!path) return null;
+        if (cache.has(path)) return cache.get(path);
+        const img = new Image();
+        img.src = path;
+        cache.set(path, img);
+        return img;
+    }
+
+    return { get };
+})();
 
 // ── Spatial grid for broadphase collision ──
 const GRID_CELL = 128;                       // cell size in world-pixels
@@ -774,11 +945,9 @@ const HighScores = (() => {
 const Progression = (() => {
     const STORAGE_KEY = "roguewave_profile_v2";
     const META_MAX = 8;
-    const SKINS = {
-        default: { id: "default", name: "Classic Cyan", player: "#33ccff", glow: "rgba(51,204,255,0.25)", cost: 0 },
-        surge:   { id: "surge",   name: "Lime Surge",  player: "#66ff99", glow: "rgba(102,255,153,0.25)", cost: 140 },
-        ember:   { id: "ember",   name: "Ember Pulse", player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140 },
-    };
+    let SKIN_CATALOG = [...SKIN_SHOP_CONFIG.skins];
+    let FEATURED_SKIN_IDS = [...SKIN_SHOP_CONFIG.featuredIds];
+    let SKINS = Object.fromEntries(SKIN_CATALOG.map(s => [s.id, s]));
 
     let data = {
         shards: 0,
@@ -826,6 +995,10 @@ const Progression = (() => {
     }
 
     function normalize(loaded) {
+        SKIN_CATALOG = [...SKIN_SHOP_CONFIG.skins];
+        FEATURED_SKIN_IDS = [...SKIN_SHOP_CONFIG.featuredIds];
+        SKINS = Object.fromEntries(SKIN_CATALOG.map(s => [s.id, s]));
+
         const base = cloneData();
         if (!loaded || typeof loaded !== "object") return base;
         base.shards = Number.isFinite(loaded.shards) ? Math.max(0, Math.floor(loaded.shards)) : 0;
@@ -921,7 +1094,14 @@ const Progression = (() => {
 
     function getSkinCatalog() {
         const unlocked = new Set(data.skins.unlocked);
-        return Object.values(SKINS).map(s => ({ ...s, unlocked: unlocked.has(s.id), selected: data.skins.selected === s.id }));
+        return SKIN_CATALOG.map(s => ({ ...s, unlocked: unlocked.has(s.id), selected: data.skins.selected === s.id }));
+    }
+
+    function getFeaturedSkinCatalog() {
+        const catalogById = Object.fromEntries(getSkinCatalog().map(s => [s.id, s]));
+        return FEATURED_SKIN_IDS
+            .filter(id => !!catalogById[id])
+            .map(id => catalogById[id]);
     }
 
     function getSelectedSkin() {
@@ -987,6 +1167,7 @@ const Progression = (() => {
         metaLevel,
         metaCost,
         getSkinCatalog,
+        getFeaturedSkinCatalog,
         getSelectedSkin,
         unlockOrSelectSkin,
         applyMetaToPlayer,
@@ -1466,6 +1647,8 @@ class Player extends Entity {
         const skin = Progression.getSelectedSkin();
         this.skinColor = skin.player;
         this.skinGlow = skin.glow;
+        this.skinAssetPath = skin.asset || "";
+        this.skinImage = SkinAssets.get(this.skinAssetPath);
         Progression.applyMetaToPlayer(this);
     }
 
@@ -1684,6 +1867,19 @@ class Player extends Entity {
         const flash = this.invTimer > 0 && Math.floor(this.invTimer * 20) % 2;
         ctx.fillStyle = flash ? "#ffffff" : this.skinColor;
         ctx.fill();
+
+        // Skin sprite overlay (opaque assets fully cover the body area).
+        const img = this.skinImage;
+        if (!flash && img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.clip();
+            const size = this.radius * 2;
+            ctx.drawImage(img, this.x - this.radius, this.y - this.radius, size, size);
+            ctx.restore();
+        }
+
         ctx.lineWidth = 2;
         ctx.strokeStyle = "#ffffff";
         ctx.stroke();
@@ -2497,6 +2693,7 @@ const CrazyGamesSDK = (() => {
 
     /** Request a midgame ad (between waves). Mutes audio during ad. */
     function requestMidroll() {
+        if (!APP_CONFIG.monetization) return;
         const s = sdk();
         if (!sdkAvailable || !s) return;
         try {
@@ -2525,6 +2722,7 @@ const CrazyGamesSDK = (() => {
     /** Request a rewarded ad (e.g. revive). Returns promise<boolean> indicating success. */
     function requestRewarded() {
         return new Promise((resolve) => {
+            if (!APP_CONFIG.monetization) { resolve(false); return; }
             const s = sdk();
             if (!sdkAvailable || !s) { resolve(false); return; }
             try {
@@ -2904,6 +3102,7 @@ const game = {
     },
 
     async tryRewardedRevive() {
+        if (!APP_CONFIG.monetization) return;
         if (this.revivedThisRun || this.reviveInProgress) return;
         this.reviveInProgress = true;
         const ok = await CrazyGamesSDK.requestRewarded();
@@ -2920,6 +3119,7 @@ const game = {
     },
 
     async requestMenuAdBooster() {
+        if (!APP_CONFIG.monetization) return;
         if (this.adBoosterLoading || this.adBoosterPending) return;
         this.adBoosterLoading = true;
         const ok = await CrazyGamesSDK.requestRewarded();
@@ -2928,6 +3128,7 @@ const game = {
     },
 
     async claimRunShardCache() {
+        if (!APP_CONFIG.monetization) return;
         if (this.shardCacheLoading || this.shardCacheClaimedThisRun) return;
         if (!(this.player && this.player.alive && this.wave > 0)) return;
         this.shardCacheLoading = true;
@@ -2945,6 +3146,7 @@ const game = {
     },
 
     maybeRequestMidroll() {
+        if (!APP_CONFIG.monetization) return;
         if (this.wave < 2) return;
         if (this.pendingVictory || this.wave >= WAVE_MAX) return;
         if (this.isBossWave(this.wave)) return;
@@ -2980,6 +3182,7 @@ const game = {
         switch (this.state) {
             case STATE.START_MENU:   this.updateStartMenu(dt); break;
             case STATE.CHANGELOGS:   this.updateChangelogs(dt); break;
+            case STATE.SHOP:         this.updateShop(dt); break;
             case STATE.GAMEPLAY:     this.updateGameplay(dt);  break;
             case STATE.UPGRADE_SCREEN: this.updateUpgrade(dt); break;
             case STATE.SETTINGS:     this.updateSettings(dt);  break;
@@ -2998,6 +3201,7 @@ const game = {
         switch (this.state) {
             case STATE.START_MENU:   this.drawStartMenu();   break;
             case STATE.CHANGELOGS:   this.drawChangelogs();  break;
+            case STATE.SHOP:         this.drawShop();         break;
             case STATE.GAMEPLAY:     this.drawGameplay();     break;
             case STATE.UPGRADE_SCREEN:
                 this.drawGameplay();  // gameplay as background
@@ -3020,11 +3224,8 @@ const game = {
             this.startGame();
         }
 
-        const catalog = Progression.getSkinCatalog();
-        for (const skin of catalog) {
-            if (Input.just(`Digit${catalog.indexOf(skin) + 1}`)) {
-                Progression.unlockOrSelectSkin(skin.id);
-            }
+        if (Input.just("KeyK")) {
+            this.state = STATE.SHOP;
         }
 
         if (Input.just("KeyB")) {
@@ -3176,16 +3377,18 @@ const game = {
 
         // Optional rewarded pre-run booster
         const boosterY = challengeEnd + btnGap + 2;
-        const boosterHover = Mouse.inRect(bx, boosterY, bw, bh);
-        const boosterLabel = this.adBoosterPending
-            ? "✅ BOOSTER ARMED"
-            : (this.adBoosterLoading ? "⏳ LOADING AD..." : "⚡ WATCH AD: START BOOSTER");
-        if (drawButton(boosterLabel, bx, boosterY, bw, bh, boosterHover)
-            && !this.adBoosterPending && !this.adBoosterLoading) {
-            void this.requestMenuAdBooster();
+        if (APP_CONFIG.monetization) {
+            const boosterHover = Mouse.inRect(bx, boosterY, bw, bh);
+            const boosterLabel = this.adBoosterPending
+                ? "✅ BOOSTER ARMED"
+                : (this.adBoosterLoading ? "⏳ LOADING AD..." : "⚡ WATCH AD: START BOOSTER");
+            if (drawButton(boosterLabel, bx, boosterY, bw, bh, boosterHover)
+                && !this.adBoosterPending && !this.adBoosterLoading) {
+                void this.requestMenuAdBooster();
+            }
         }
 
-        const by = boosterY + bh + btnGap;
+        const by = (APP_CONFIG.monetization ? boosterY + bh : boosterY) + btnGap;
         const hovered = Mouse.inRect(bx, by, bw, bhPlay);
         if (drawButton("▶  PLAY", bx, by, bw, bhPlay, hovered, 22)) {
             this.startGame();
@@ -3198,13 +3401,19 @@ const game = {
             this.state = STATE.SETTINGS;
         }
 
-        // Standalone full changelog button (recent-changelog panel removed)
+        // Shop button
         const logBtnW = bw;
         const logBtnH = bh;
         const logBtnX = bx;
         const logBtnY = settingsY + bh + btnGap;
-        const logBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
-        if (drawButton("📜  CHANGELOGS", logBtnX, logBtnY, logBtnW, logBtnH, logBtnHover)) {
+        const shopBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
+        if (drawButton("🛍  SKIN SHOP", logBtnX, logBtnY, logBtnW, logBtnH, shopBtnHover)) {
+            this.state = STATE.SHOP;
+        }
+
+        // Standalone full changelog button (recent-changelog panel removed)
+        const changelogY = logBtnY + bh + btnGap;
+        if (drawButton("📜  CHANGELOGS", logBtnX, changelogY, logBtnW, logBtnH, Mouse.inRect(logBtnX, changelogY, logBtnW, logBtnH))) {
             this.state = STATE.CHANGELOGS;
         }
 
@@ -3264,40 +3473,26 @@ const game = {
             }
         }
 
-        // Skin bar
-        const skins = Progression.getSkinCatalog();
+        // Selected skin info
+        const selectedSkin = Progression.getSelectedSkin();
+        const previewY = mpY + mpH - 96;
+        drawRoundRect(mpX + 10, previewY, mpW - 20, 72, 8);
+        ctx.fillStyle = "rgba(255,255,255,0.04)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(102,204,255,0.4)";
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+        ctx.fillStyle = selectedSkin.player;
+        ctx.beginPath();
+        ctx.arc(mpX + 30, previewY + 36, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = COLOR.text;
         ctx.textAlign = "left";
-        ctx.fillStyle = COLOR.textDim;
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("SKINS", mpX + 12, mpY + mpH - 136);
-        const sw = compactMobile ? 74 : 68;
-        const sh = compactMobile ? 56 : 66;
-        const sGap = compactMobile ? 6 : 5;
-        for (let i = 0; i < skins.length; i++) {
-            const s = skins[i];
-            const sx = mpX + 12 + i * (sw + sGap);
-            const skinY = mpY + mpH - 124;
-            const hov = Mouse.inRect(sx, skinY, sw, sh);
-            drawRoundRect(sx, skinY, sw, sh, 7);
-            ctx.fillStyle = s.selected ? "rgba(51,204,255,0.28)" : (hov ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.06)");
-            ctx.fill();
-            ctx.strokeStyle = s.selected ? COLOR.accent : "#556";
-            ctx.lineWidth = 1.2;
-            ctx.stroke();
-            ctx.fillStyle = s.player;
-            ctx.beginPath();
-            ctx.arc(sx + 14, skinY + 16, 8, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = COLOR.text;
-            ctx.font = compactMobile ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
-            ctx.textAlign = "left";
-            ctx.fillText(s.name.split(" ")[0], sx + 26, skinY + 14, sw - 30);
-            ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
-            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Unlock") : `${s.cost}`, sx + 26, skinY + 31, sw - 30);
-            if (hov && Mouse.clicked) {
-                Progression.unlockOrSelectSkin(s.id);
-            }
-        }
+        ctx.fillText(`Equipped: ${selectedSkin.name}`, mpX + 50, previewY + 30, mpW - 70);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Open SKIN SHOP to buy or equip skins", mpX + 50, previewY + 48, mpW - 70);
 
         // Daily panel
         const dpW = rightW;
@@ -3381,12 +3576,189 @@ const game = {
         if (isMobile) {
             const mobileAimHint = Settings.gameMode === "hard" ? "Touch right side to aim" : "Auto-aim & fire";
             ctx.fillText(`Virtual joystick to move  •  ${mobileAimHint}`, CANVAS_W / 2, compactMobile ? CANVAS_H - 74 : CANVAS_H - 60);
-            ctx.fillText("Tap PLAY to start", CANVAS_W / 2, compactMobile ? CANVAS_H - 52 : CANVAS_H - 38);
+            ctx.fillText("Tap PLAY to start  •  Tap SHOP for skins", CANVAS_W / 2, compactMobile ? CANVAS_H - 52 : CANVAS_H - 38);
         } else {
             const aimHint = Settings.gameMode === "hard" ? "Mouse to aim" : "Auto-aim";
             ctx.fillText(`WASD / Arrow Keys to move  •  ${aimHint}`, CANVAS_W / 2, CANVAS_H - 30);
-            ctx.fillText("Press ENTER or click PLAY", CANVAS_W / 2, CANVAS_H - 14);
+            ctx.fillText("Press ENTER to play  •  Press K for shop", CANVAS_W / 2, CANVAS_H - 14);
         }
+    },
+
+    // ────── SKIN SHOP ──────
+
+    updateShop() {
+        if (Input.just("Escape")) {
+            this.state = STATE.START_MENU;
+        }
+    },
+
+    drawShop() {
+        const profile = Progression.get();
+        const featured = Progression.getFeaturedSkinCatalog();
+        const allSkins = Progression.getSkinCatalog();
+
+        const bgGrad = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
+        bgGrad.addColorStop(0, "#0e1228");
+        bgGrad.addColorStop(0.5, "#121a3b");
+        bgGrad.addColorStop(1, "#0b0f22");
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = "bold 46px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("🛍 SKIN SHOP", CANVAS_W / 2, 66);
+        ctx.fillStyle = "#9fc6ff";
+        ctx.font = "13px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Shop config is loaded from skinshop.txt", CANVAS_W / 2, 88);
+
+        drawRoundRect(CANVAS_W - 230, 28, 200, 44, 8);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+        ctx.strokeStyle = "#66ff99";
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+        ctx.fillStyle = "#66ff99";
+        ctx.font = "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`◆ SHARDS ${profile.shards}`, CANVAS_W - 214, 56);
+
+        // Featured section
+        const fX = 44;
+        const fY = 114;
+        const fW = CANVAS_W - 88;
+        const fH = 220;
+        drawRoundRect(fX, fY, fW, fH, 12);
+        ctx.fillStyle = "rgba(6,8,22,0.9)";
+        ctx.fill();
+        ctx.strokeStyle = "#ffcc66";
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.fillStyle = "#ffcc66";
+        ctx.font = "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("FEATURED", fX + 16, fY + 26);
+
+        const fCount = Math.max(1, featured.length);
+        const cardGap = 14;
+        const cardW = Math.floor((fW - 32 - (fCount - 1) * cardGap) / fCount);
+        const cardH = 162;
+        const cardY = fY + 40;
+
+        for (let i = 0; i < featured.length; i++) {
+            const s = featured[i];
+            const x = fX + 16 + i * (cardW + cardGap);
+            const hov = Mouse.inRect(x, cardY, cardW, cardH);
+            drawRoundRect(x, cardY, cardW, cardH, 10);
+            ctx.fillStyle = hov ? "rgba(255,255,255,0.11)" : "rgba(255,255,255,0.06)";
+            ctx.fill();
+            ctx.strokeStyle = s.selected ? COLOR.accent : (hov ? "#aac8ff" : "#41537a");
+            ctx.lineWidth = s.selected ? 2 : 1.2;
+            ctx.stroke();
+
+            ctx.fillStyle = withAlpha(s.glow, 0.28);
+            ctx.beginPath();
+            ctx.arc(x + cardW / 2, cardY + 42, 22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = s.player;
+            ctx.beginPath();
+            ctx.arc(x + cardW / 2, cardY + 42, 13, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(s.name, x + cardW / 2, cardY + 80, cardW - 14);
+
+            ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            const priceLabel = s.cost <= 0 ? "Free" : `${s.cost} shards`;
+            const stateLabel = s.unlocked ? (s.selected ? "Selected" : "Owned") : priceLabel;
+            ctx.fillText(stateLabel, x + cardW / 2, cardY + 100, cardW - 14);
+
+            const btnW = cardW - 22;
+            const btnH = 32;
+            const btnX = x + 11;
+            const btnY = cardY + cardH - 42;
+            const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
+            const actionLabel = s.selected ? "EQUIPPED" : (s.unlocked ? "EQUIP" : "BUY");
+            if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 14) && !s.selected) {
+                Progression.unlockOrSelectSkin(s.id);
+            }
+        }
+
+        // All skins section
+        const aX = 44;
+        const aY = 350;
+        const aW = CANVAS_W - 88;
+        const aH = 220;
+        drawRoundRect(aX, aY, aW, aH, 12);
+        ctx.fillStyle = "rgba(6,8,22,0.9)";
+        ctx.fill();
+        ctx.strokeStyle = "#66ccff";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = "#66ccff";
+        ctx.font = "bold 16px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("ALL SKINS", aX + 16, aY + 24);
+
+        const cols = 4;
+        const itemGap = 10;
+        const itemW = Math.floor((aW - 32 - (cols - 1) * itemGap) / cols);
+        const itemH = 74;
+        for (let i = 0; i < allSkins.length; i++) {
+            const s = allSkins[i];
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const x = aX + 16 + col * (itemW + itemGap);
+            const y = aY + 38 + row * (itemH + 10);
+            const hov = Mouse.inRect(x, y, itemW, itemH);
+
+            drawRoundRect(x, y, itemW, itemH, 8);
+            ctx.fillStyle = s.selected ? "rgba(51,204,255,0.24)" : (hov ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)");
+            ctx.fill();
+            ctx.strokeStyle = s.selected ? COLOR.accent : "#45566f";
+            ctx.lineWidth = 1.1;
+            ctx.stroke();
+
+            ctx.fillStyle = s.player;
+            ctx.beginPath();
+            ctx.arc(x + 16, y + 20, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.textAlign = "left";
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(s.name, x + 30, y + 18, itemW - 34);
+            ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Owned") : `${s.cost} shards`, x + 30, y + 34, itemW - 34);
+
+            const btnW = 86;
+            const btnH = 24;
+            const btnX = x + itemW - btnW - 8;
+            const btnY = y + itemH - btnH - 6;
+            const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
+            const actionLabel = s.selected ? "ON" : (s.unlocked ? "EQUIP" : "BUY");
+            if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 12) && !s.selected) {
+                Progression.unlockOrSelectSkin(s.id);
+            }
+        }
+
+        const backW = 250;
+        const backH = 44;
+        const backX = CANVAS_W / 2 - backW / 2;
+        const backY = CANVAS_H - 58;
+        const backHover = Mouse.inRect(backX, backY, backW, backH);
+        if (drawButton("← BACK TO MENU", backX, backY, backW, backH, backHover, 17)) {
+            this.state = STATE.START_MENU;
+        }
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Tip: Edit skinshop.txt to add skins, set prices, and manage featured cards.", CANVAS_W / 2, CANVAS_H - 66);
     },
 
     // ────── CHANGELOGS ──────
@@ -4486,7 +4858,7 @@ const game = {
         }
 
         // Optional rewarded shard cache once per run
-        if (isPausedMidRun) {
+        if (isPausedMidRun && APP_CONFIG.monetization) {
             y += btnSpacing;
             const cacheHover = Mouse.inRect(bx, y, bw, bh);
             const cacheLabel = this.shardCacheClaimedThisRun
@@ -4643,7 +5015,7 @@ const game = {
         const restartY = this.expGameOverFlow === "restartFirst" ? CANVAS_H / 2 + 26 : CANVAS_H / 2 + 100;
 
         // Rewarded revive (one-time)
-        if (!this.revivedThisRun) {
+        if (APP_CONFIG.monetization && !this.revivedThisRun) {
             const reviveHover = Mouse.inRect(bx, reviveY, bw, bh);
             if (drawButton(reviveLabel, bx, reviveY, bw, bh, reviveHover) && !this.reviveInProgress) {
                 void this.tryRewardedRevive();
@@ -4654,7 +5026,7 @@ const game = {
         }
 
         // Restart
-        const effectiveRestartY = this.revivedThisRun ? CANVAS_H / 2 + 26 : restartY;
+        const effectiveRestartY = (!APP_CONFIG.monetization || this.revivedThisRun) ? CANVAS_H / 2 + 26 : restartY;
         const restartHover = Mouse.inRect(bx, effectiveRestartY, bw, bh);
         if (drawButton("↻  RESTART", bx, effectiveRestartY, bw, bh, restartHover)) {
             this.commitLossIfNeeded();
@@ -4837,6 +5209,12 @@ function mainLoop(timestamp) {
 
 // ────── BOOT ──────
 async function bootGame() {
+    try {
+        await loadEnvConfig();
+    } catch (e) {
+        console.warn("[Boot] Failed loading .env config, continuing", e);
+    }
+
     Experiments.load();
     try {
         await CrazyGamesSDK.init();
@@ -4852,6 +5230,12 @@ async function bootGame() {
         } catch (e) {
             console.warn("[Boot] Failed loading changelogs, continuing", e);
             GAME_VERSION = "unknown";
+        }
+
+        try {
+            await loadSkinShopConfig();
+        } catch (e) {
+            console.warn("[Boot] Failed loading skin shop config, continuing", e);
         }
 
         try {

@@ -3,6 +3,15 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 15.04:01
+- Added a dedicated Skin Shop page with shard-based in-game currency purchases
+- Added configurable skin catalog via skinshop.txt to quickly add skins and set prices
+- Added configurable featured slots via skinshop.txt for the Featured section
+- Added new skin "Nova Gold" as a featured offer
+- Reworked main menu skin flow: skins are now managed via the new Shop button
+- Added external skin shop config file (skinshop.txt) for skins, prices, and featured slots
+- Added assets folder path for player skins: assets/playerskins
+
 beta 14.04:09
 - Started next phase (Phase 5 launch prep)
 - Added persistent A/B experiment variants for early pacing, game-over flow, and rewarded copy

@@ -1,0 +1,19 @@
+# Skin Shop Config
+# Edit only this file to add/remove skins, set prices, and define featured cards.
+#
+# Section [skins] format:
+# id|name|playerColor|glowColor|cost|assetPath
+#
+# Section [featured] format:
+# skinId
+
+[skins]
+default|Classic Cyan|#33ccff|rgba(51,204,255,0.25)|0|assets/playerskins/default.png
+surge|Lime Surge|#66ff99|rgba(102,255,153,0.25)|140|assets/playerskins/surge.png
+ember|Ember Pulse|#ff6688|rgba(255,102,136,0.25)|140|assets/playerskins/ember.png
+nova|Nova Gold|#ffd166|rgba(255,209,102,0.28)|180|assets/playerskins/nova.png
+
+[featured]
+surge
+ember
+nova
