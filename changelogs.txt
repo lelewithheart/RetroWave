@@ -3,6 +3,27 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 15.04:03
+- Added Void Herald endboss at the end of wave 25 with 3 phases (normal, fury, rage)
+- Endboss has unique attack patterns: triple-shot, bullet ring, spiral burst, dash, and shield
+- Endboss spawns minions in phases 2 and 3
+- Victory is now triggered by defeating the Void Herald instead of just completing waves
+- Added dedicated boss music track (intense, fast-paced) during the endboss fight
+- Added endboss HUD with phase indicator and HP bar
+
+beta 15.04:02
+- Added unique chiptune music tracks for each biome stage
+- Neon District: upbeat synthwave with square wave melody
+- Acid Grid: tense minor-key track with sawtooth lead and faster tempo
+- Crimson Core: heavy aggressive track with extra percussion and ominous bass
+- Music now automatically transitions when entering a new biome
+- Added visual ambient effects per biome (Acid Grid scan lines, Crimson Core ember particles and red pulse)
+
+beta 15.04:01-04
+- Hotfix: Fixed music not stopping when abandoning a run (scheduled oscillators now properly silenced)
+- Hotfix: Fixed pause menu alignment — all elements are now vertically centered and properly spaced
+- Hotfix: Pause menu shows "PAUSED" title when mid-run instead of "SETTINGS"
+
 beta 15.04:01-03
 - Hotfix: Fixed monetization toggle reliability when .env is not served by host
 - Hotfix: Added env.txt fallback config loading for MONETIZATION setting
