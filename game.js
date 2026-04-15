@@ -133,7 +133,7 @@ const CHEAT_CODE_SEQUENCE = [
     "ArrowLeft", "ArrowRight", "ArrowLeft", "ArrowRight",
     "KeyB", "KeyA",
 ];
-const CHEAT_TARGET_LEVEL = 4;
+const CHEAT_TARGET_LEVEL = 2;
 
 // Colors
 const COLOR = {
