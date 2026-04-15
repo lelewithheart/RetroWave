@@ -19,7 +19,7 @@ let GAME_VERSION = "loading...";
 let CHANGELOG_ENTRIES = [];
 
 const APP_CONFIG = {
-    monetization: true,
+    monetization: false,
 };
 
 // Skin shop config (loaded from skinshop.txt at boot)
@@ -486,32 +486,55 @@ async function loadSkinShopConfig() {
 
 function parseEnvBoolean(raw, fallback) {
     if (typeof raw !== "string") return fallback;
-    const v = raw.trim().toLowerCase();
+    let v = raw.trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+        v = v.slice(1, -1);
+    }
+    const hashIndex = v.indexOf("#");
+    if (hashIndex >= 0) v = v.slice(0, hashIndex).trim();
+    v = v.toLowerCase();
     if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
     if (v === "false" || v === "0" || v === "no" || v === "off") return false;
     return fallback;
 }
 
-async function loadEnvConfig() {
-    try {
-        const res = await fetch(".env", { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
-        const lines = text.split(/\r?\n/);
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line || line.startsWith("#")) continue;
-            const idx = line.indexOf("=");
-            if (idx <= 0) continue;
+function applyEnvConfigText(text) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.startsWith("#")) continue;
+        const idx = line.indexOf("=");
+        if (idx <= 0) continue;
 
-            const key = line.slice(0, idx).trim();
-            const value = line.slice(idx + 1).trim();
-            if (key === "MONETIZATION") {
-                APP_CONFIG.monetization = parseEnvBoolean(value, APP_CONFIG.monetization);
-            }
+        const key = line.slice(0, idx).trim();
+        const value = line.slice(idx + 1).trim();
+        if (key === "MONETIZATION") {
+            APP_CONFIG.monetization = parseEnvBoolean(value, APP_CONFIG.monetization);
         }
+    }
+}
+
+async function loadEnvConfig() {
+    // .env may be blocked on some static hosts; fallback to env.txt.
+    const candidates = [".env", "env.txt"];
+    let lastErr = null;
+    for (let i = 0; i < candidates.length; i++) {
+        const path = candidates[i];
+        try {
+            const res = await fetch(path, { cache: "no-store" });
+            if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+            const text = await res.text();
+            applyEnvConfigText(text);
+            return;
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+
+    try {
+        console.warn("Failed to load .env/env.txt, using default app config", lastErr);
     } catch (err) {
-        console.warn("Failed to load .env, using default app config", err);
+        // ignore console failures
     }
 }
 

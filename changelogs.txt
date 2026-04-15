@@ -3,6 +3,11 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 15.04:01-03
+- Hotfix: Fixed monetization toggle reliability when .env is not served by host
+- Hotfix: Added env.txt fallback config loading for MONETIZATION setting
+- Hotfix: Set fail-safe default to monetization OFF when config files are unavailable
+
 beta 15.04:01-02
 - Hotfix: Added scrolling to the scin shop
 - Hotfix: Added intuitive touchscreen drag scrolling in Skin Shop for long skin lists
