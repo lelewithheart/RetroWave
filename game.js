@@ -3288,7 +3288,7 @@ const game = {
         const my = uiTop;
 
         if (!compactMobile) {
-            drawRoundRect(centerX, 122, centerW, 380, 12);
+            drawRoundRect(centerX, 136, centerW, 414, 12);
             ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
             ctx.fill();
             ctx.strokeStyle = "rgba(102,204,255,0.35)";
