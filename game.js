@@ -39,6 +39,7 @@ const STATE = {
     CHANGELOGS:     "CHANGELOGS",
     SHOP:           "SHOP",
     GAMEPLAY:       "GAMEPLAY",
+    CHEAT_MENU:     "CHEAT_MENU",
     UPGRADE_SCREEN: "UPGRADE_SCREEN",
     SETTINGS:       "SETTINGS",
     GAME_OVER:      "GAME_OVER",
@@ -134,6 +135,14 @@ const CHEAT_CODE_SEQUENCE = [
     "KeyB", "KeyA",
 ];
 const CHEAT_TARGET_LEVEL = 2;
+const CHEAT_LEVEL_MIN = 0;
+const CHEAT_LEVEL_MAX = 99;
+const CHEAT_WEAPON_ROWS = [
+    { id: "orbitShield", name: "Orbit Shield", icon: "🔵" },
+    { id: "lightningAura", name: "Lightning Aura", icon: "⚡" },
+    { id: "frostNova", name: "Frost Nova", icon: "❄️" },
+    { id: "flameTrail", name: "Flame Trail", icon: "🔥" },
+];
 
 // Colors
 const COLOR = {
@@ -3578,6 +3587,9 @@ const game = {
 
     // Cheat code state
     cheatProgress: 0,
+    cheatRows: [],
+    cheatScroll: 0,
+    cheatMaxScroll: 0,
 
     // ────── INITIALISE ──────
 
@@ -3649,6 +3661,9 @@ const game = {
         this.shopScroll = 0;
         this.shopMaxScroll = 0;
         this.cheatProgress = 0;
+        this.cheatRows = [];
+        this.cheatScroll = 0;
+        this.cheatMaxScroll = 0;
 
         if (Settings.challengeMode === "rush") {
             this.enemySpeedMult = 1.18;
@@ -3778,6 +3793,7 @@ const game = {
             case STATE.CHANGELOGS:   this.updateChangelogs(dt); break;
             case STATE.SHOP:         this.updateShop(dt); break;
             case STATE.GAMEPLAY:     this.updateGameplay(dt);  break;
+            case STATE.CHEAT_MENU:   this.updateCheatMenu(dt); break;
             case STATE.UPGRADE_SCREEN: this.updateUpgrade(dt); break;
             case STATE.SETTINGS:     this.updateSettings(dt);  break;
             case STATE.GAME_OVER:    this.updateGameOver(dt);  break;
@@ -3797,6 +3813,10 @@ const game = {
             case STATE.CHANGELOGS:   this.drawChangelogs();  break;
             case STATE.SHOP:         this.drawShop();         break;
             case STATE.GAMEPLAY:     this.drawGameplay();     break;
+            case STATE.CHEAT_MENU:
+                this.drawGameplay();
+                this.drawCheatMenuOverlay();
+                break;
             case STATE.UPGRADE_SCREEN:
                 this.drawGameplay();  // gameplay as background
                 this.drawUpgradeOverlay();
@@ -4670,7 +4690,7 @@ const game = {
         if (Input.just(expected)) {
             this.cheatProgress++;
             if (this.cheatProgress >= CHEAT_CODE_SEQUENCE.length) {
-                this.applyMaxLevelCheat();
+                this.openCheatMenu();
                 this.cheatProgress = 0;
             }
             return;
@@ -4686,32 +4706,306 @@ const game = {
         }
     },
 
-    applyMaxLevelCheat() {
-        if (!this.player) return;
+    sanitizeCheatLevel(level) {
+        if (!Number.isFinite(level)) return CHEAT_LEVEL_MIN;
+        return clamp(Math.floor(level), CHEAT_LEVEL_MIN, CHEAT_LEVEL_MAX);
+    },
 
-        // Bring all stat upgrades to at least level 4 equivalents.
-        for (const up of UPGRADES) {
-            if (up.cat !== "stat") continue;
-            const current = this.player.upgradeCounts[up.id] || 0;
-            const needed = Math.max(0, CHEAT_TARGET_LEVEL - current);
-            for (let i = 0; i < needed; i++) {
-                up.apply(this.player);
-            }
-            this.player.upgradeCounts[up.id] = Math.max(current, CHEAT_TARGET_LEVEL);
+    openCheatMenu() {
+        if (!this.player) return;
+        const statRows = UPGRADES
+            .filter(up => up.cat === "stat")
+            .map(up => ({
+                kind: "stat",
+                id: up.id,
+                icon: up.icon,
+                name: up.name,
+                value: this.sanitizeCheatLevel(this.player.upgradeCounts[up.id] || 0),
+            }));
+
+        const weaponRows = CHEAT_WEAPON_ROWS.map(w => ({
+            kind: "weapon",
+            id: w.id,
+            icon: w.icon,
+            name: w.name,
+            value: this.sanitizeCheatLevel(this.player.weapons[w.id].level || 0),
+        }));
+
+        this.cheatRows = [...statRows, ...weaponRows];
+        this.cheatScroll = 0;
+        this.cheatMaxScroll = 0;
+        this.state = STATE.CHEAT_MENU;
+    },
+
+    setAllCheatRows(level) {
+        const value = this.sanitizeCheatLevel(level);
+        for (const row of this.cheatRows) row.value = value;
+    },
+
+    getCheatMenuLayout() {
+        const panelW = 760;
+        const panelH = 560;
+        const panelX = CANVAS_W / 2 - panelW / 2;
+        const panelY = CANVAS_H / 2 - panelH / 2;
+        const listX = panelX + 20;
+        const listY = panelY + 98;
+        const listW = panelW - 40;
+        const listH = panelH - 180;
+        const rowH = 34;
+        const rowGap = 8;
+        const footerY = panelY + panelH - 58;
+        return { panelX, panelY, panelW, panelH, listX, listY, listW, listH, rowH, rowGap, footerY };
+    },
+
+    updateCheatMenu(dt) {
+        if (!this.player) {
+            this.state = STATE.GAMEPLAY;
+            return;
         }
 
-        // Set all weapon levels to at least level 4.
-        const w = this.player.weapons;
-        w.orbitShield.level = Math.max(w.orbitShield.level, CHEAT_TARGET_LEVEL);
-        w.lightningAura.level = Math.max(w.lightningAura.level, CHEAT_TARGET_LEVEL);
-        w.frostNova.level = Math.max(w.frostNova.level, CHEAT_TARGET_LEVEL);
-        w.flameTrail.level = Math.max(w.flameTrail.level, CHEAT_TARGET_LEVEL);
+        if (Input.just("Escape")) {
+            this.state = STATE.GAMEPLAY;
+            return;
+        }
+
+        const layout = this.getCheatMenuLayout();
+        const contentH = this.cheatRows.length > 0
+            ? this.cheatRows.length * layout.rowH + (this.cheatRows.length - 1) * layout.rowGap
+            : 0;
+        this.cheatMaxScroll = Math.max(0, contentH - layout.listH);
+
+        this.cheatScroll += Mouse.wheelDelta + Mouse.touchScrollDelta;
+        if (Input.held("ArrowDown") || Input.held("KeyS")) this.cheatScroll += 400 * dt;
+        if (Input.held("ArrowUp") || Input.held("KeyW")) this.cheatScroll -= 400 * dt;
+        this.cheatScroll = clamp(this.cheatScroll, 0, this.cheatMaxScroll);
+
+        const cancelRect = { x: layout.panelX + 20, y: layout.footerY, w: 170, h: 36 };
+        const allTargetRect = { x: layout.panelX + layout.panelW / 2 - 105, y: layout.footerY, w: 210, h: 36 };
+        const applyRect = { x: layout.panelX + layout.panelW - 190, y: layout.footerY, w: 170, h: 36 };
+
+        if (!Mouse.clicked) return;
+
+        if (Mouse.inRect(cancelRect.x, cancelRect.y, cancelRect.w, cancelRect.h)) {
+            this.state = STATE.GAMEPLAY;
+            return;
+        }
+        if (Mouse.inRect(allTargetRect.x, allTargetRect.y, allTargetRect.w, allTargetRect.h)) {
+            this.setAllCheatRows(CHEAT_TARGET_LEVEL);
+            return;
+        }
+        if (Mouse.inRect(applyRect.x, applyRect.y, applyRect.w, applyRect.h)) {
+            this.applyCheatConfiguration();
+            this.state = STATE.GAMEPLAY;
+            return;
+        }
+
+        for (let i = 0; i < this.cheatRows.length; i++) {
+            const y = layout.listY + i * (layout.rowH + layout.rowGap) - this.cheatScroll;
+            if (y + layout.rowH < layout.listY || y > layout.listY + layout.listH) continue;
+
+            const row = this.cheatRows[i];
+            const minusRect = { x: layout.listX + layout.listW - 124, y: y + 4, w: 28, h: 26 };
+            const valueRect = { x: layout.listX + layout.listW - 92, y: y + 4, w: 48, h: 26 };
+            const plusRect  = { x: layout.listX + layout.listW - 40, y: y + 4, w: 28, h: 26 };
+
+            if (Mouse.inRect(minusRect.x, minusRect.y, minusRect.w, minusRect.h)) {
+                row.value = this.sanitizeCheatLevel(row.value - 1);
+                return;
+            }
+            if (Mouse.inRect(plusRect.x, plusRect.y, plusRect.w, plusRect.h)) {
+                row.value = this.sanitizeCheatLevel(row.value + 1);
+                return;
+            }
+            if (Mouse.inRect(valueRect.x, valueRect.y, valueRect.w, valueRect.h)) {
+                const input = window.prompt(`Set level for ${row.name} (${CHEAT_LEVEL_MIN}-${CHEAT_LEVEL_MAX})`, String(row.value));
+                if (input !== null) {
+                    const parsed = Number(input);
+                    row.value = this.sanitizeCheatLevel(parsed);
+                }
+                return;
+            }
+        }
+    },
+
+    applyCheatConfiguration() {
+        if (!this.player) return;
+
+        const p = this.player;
+        const hpBefore = p.hp;
+        const fireTimerBefore = p.fireTimer;
+        const angleBefore = p.angle;
+
+        // Rebuild from base stats so lowered levels are applied correctly.
+        p.maxHp = PLAYER_BASE_HP;
+        p.hp = PLAYER_BASE_HP;
+        p.speed = PLAYER_BASE_SPEED;
+        p.damage = PLAYER_BASE_DAMAGE;
+        p.fireRate = PLAYER_BASE_FIRE_RATE;
+        p.armor = 0;
+        p.hpRegen = 0;
+        p.piercing = 0;
+        p.multiShot = 0;
+        p.critChance = 0;
+        p.critMult = 2.0;
+        p.bulletSize = 1.0;
+        p.range = PLAYER_BASE_RANGE;
+        p.xpGainMult = 1.0;
+        p.upgradeCounts = {};
+
+        p.weapons.orbitShield.level = 0;
+        p.weapons.lightningAura.level = 0;
+        p.weapons.frostNova.level = 0;
+        p.weapons.flameTrail.level = 0;
+
+        Progression.applyMetaToPlayer(p);
+
+        if (Settings.challengeMode === "glass") {
+            p.maxHp = Math.floor(p.maxHp * 0.62);
+            p.hp = p.maxHp;
+            p.damage = Math.floor(p.damage * 1.45);
+        }
+
+        if (this.adBoosterActive) {
+            p.damage = Math.floor(p.damage * 1.12);
+            p.fireRate *= 0.88;
+            p.speed *= 1.08;
+        }
+
+        for (const row of this.cheatRows) {
+            if (row.kind !== "stat") continue;
+            const up = UPGRADES.find(u => u.id === row.id && u.cat === "stat");
+            if (!up) continue;
+            const count = this.sanitizeCheatLevel(row.value);
+            for (let i = 0; i < count; i++) up.apply(p);
+            p.upgradeCounts[row.id] = count;
+        }
+
+        for (const row of this.cheatRows) {
+            if (row.kind !== "weapon") continue;
+            if (!p.weapons[row.id]) continue;
+            p.weapons[row.id].level = this.sanitizeCheatLevel(row.value);
+        }
+
+        p.weapons.flameTrail.lastX = p.x;
+        p.weapons.flameTrail.lastY = p.y;
+        p.hp = clamp(hpBefore, 1, p.maxHp);
+        p.fireTimer = Math.min(fireTimerBefore, p.fireRate);
+        p.angle = angleBefore;
 
         // Visual/audio confirmation that the cheat was accepted.
         this.waveBannerTimer = 1.8;
-        this.waveBannerText = "CHEAT ACTIVATED";
+        this.waveBannerText = "CHEAT APPLIED";
         this.levelUpFlashTimer = 0.35;
         Audio.sfxLevelUp();
+    },
+
+    drawCheatMenuOverlay() {
+        const layout = this.getCheatMenuLayout();
+
+        ctx.fillStyle = "rgba(0,0,0,0.72)";
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        drawRoundRect(layout.panelX, layout.panelY, layout.panelW, layout.panelH, 12);
+        ctx.fillStyle = "rgba(10, 12, 34, 0.95)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(102,204,255,0.55)";
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = "bold 28px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("CHEAT CONFIG", CANVAS_W / 2, layout.panelY + 36);
+
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Set each stat/weapon level. Click the number for direct input.", CANVAS_W / 2, layout.panelY + 58);
+
+        drawRoundRect(layout.listX, layout.listY, layout.listW, layout.listH, 8);
+        ctx.fillStyle = "rgba(255,255,255,0.04)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255,255,255,0.16)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.save();
+        drawRoundRect(layout.listX + 1, layout.listY + 1, layout.listW - 2, layout.listH - 2, 7);
+        ctx.clip();
+
+        for (let i = 0; i < this.cheatRows.length; i++) {
+            const row = this.cheatRows[i];
+            const y = layout.listY + i * (layout.rowH + layout.rowGap) - this.cheatScroll;
+            if (y + layout.rowH < layout.listY || y > layout.listY + layout.listH) continue;
+
+            drawRoundRect(layout.listX + 8, y, layout.listW - 16, layout.rowH, 6);
+            ctx.fillStyle = row.kind === "weapon" ? "rgba(255,200,80,0.10)" : "rgba(102,204,255,0.08)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,255,255,0.12)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            ctx.textAlign = "left";
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "13px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(`${row.icon}  ${row.name}`, layout.listX + 18, y + 21);
+
+            ctx.fillStyle = row.kind === "weapon" ? "#ffcc66" : "#7ed9ff";
+            ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(row.kind === "weapon" ? "WEAPON" : "STAT", layout.listX + 18, y + 31);
+
+            const minusRect = { x: layout.listX + layout.listW - 124, y: y + 4, w: 28, h: 26 };
+            const valueRect = { x: layout.listX + layout.listW - 92, y: y + 4, w: 48, h: 26 };
+            const plusRect  = { x: layout.listX + layout.listW - 40, y: y + 4, w: 28, h: 26 };
+
+            drawRoundRect(minusRect.x, minusRect.y, minusRect.w, minusRect.h, 5);
+            ctx.fillStyle = "rgba(255,255,255,0.09)";
+            ctx.fill();
+            drawRoundRect(valueRect.x, valueRect.y, valueRect.w, valueRect.h, 5);
+            ctx.fillStyle = "rgba(51,204,255,0.18)";
+            ctx.fill();
+            drawRoundRect(plusRect.x, plusRect.y, plusRect.w, plusRect.h, 5);
+            ctx.fillStyle = "rgba(255,255,255,0.09)";
+            ctx.fill();
+
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLOR.text;
+            ctx.font = "bold 16px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("-", minusRect.x + minusRect.w / 2, minusRect.y + 18);
+            ctx.fillText("+", plusRect.x + plusRect.w / 2, plusRect.y + 18);
+            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText(String(row.value), valueRect.x + valueRect.w / 2, valueRect.y + 17);
+        }
+
+        ctx.restore();
+
+        if (this.cheatMaxScroll > 0) {
+            const barX = layout.listX + layout.listW - 7;
+            const barY = layout.listY + 6;
+            const barH = layout.listH - 12;
+            const thumbH = Math.max(26, barH * (layout.listH / (layout.listH + this.cheatMaxScroll)));
+            const travel = barH - thumbH;
+            const t = this.cheatMaxScroll > 0 ? this.cheatScroll / this.cheatMaxScroll : 0;
+            const thumbY = barY + travel * t;
+            drawRoundRect(barX, barY, 3, barH, 2);
+            ctx.fillStyle = "rgba(255,255,255,0.18)";
+            ctx.fill();
+            drawRoundRect(barX - 1, thumbY, 5, thumbH, 3);
+            ctx.fillStyle = "rgba(102,204,255,0.92)";
+            ctx.fill();
+        }
+
+        const cancelRect = { x: layout.panelX + 20, y: layout.footerY, w: 170, h: 36 };
+        const allTargetRect = { x: layout.panelX + layout.panelW / 2 - 105, y: layout.footerY, w: 210, h: 36 };
+        const applyRect = { x: layout.panelX + layout.panelW - 190, y: layout.footerY, w: 170, h: 36 };
+
+        drawButton("CANCEL", cancelRect.x, cancelRect.y, cancelRect.w, cancelRect.h, Mouse.inRect(cancelRect.x, cancelRect.y, cancelRect.w, cancelRect.h), 14);
+        drawButton(`ALL -> ${CHEAT_TARGET_LEVEL}`, allTargetRect.x, allTargetRect.y, allTargetRect.w, allTargetRect.h, Mouse.inRect(allTargetRect.x, allTargetRect.y, allTargetRect.w, allTargetRect.h), 14);
+        drawButton("APPLY", applyRect.x, applyRect.y, applyRect.w, applyRect.h, Mouse.inRect(applyRect.x, applyRect.y, applyRect.w, applyRect.h), 14);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Mouse wheel/W-S to scroll • ESC to close", CANVAS_W / 2, layout.panelY + layout.panelH - 12);
     },
 
     drawGameplay() {
