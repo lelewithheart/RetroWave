@@ -3,6 +3,11 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 16.04:01-1
+- Hotfix: Aligned all three menu panels (left/center/right) to same top edge (Y=148)
+- Hotfix: Adjusted title section positioning (moved up by ~10-12px)
+- Hotfix: Increased UI element spacing for better vertical layout balance
+
 beta 16.04:01
 - Fixed rainbow skin not rendering in shop featured and all-skins sections
 - Added drawSkinIcon renderer to display skin asset images inside circular cards with fallback color

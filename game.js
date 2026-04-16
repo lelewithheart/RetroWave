@@ -3939,16 +3939,16 @@ const game = {
         ctx.font = compactMobile ? "bold 50px 'Segoe UI', Arial, sans-serif" : "bold 60px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 80 : 78);
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 70 : 66);
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = compactMobile ? "18px 'Segoe UI', Arial, sans-serif" : "20px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 108 : 108);
+        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 98 : 96);
 
         ctx.font = compactMobile ? "13px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 124 : 126);
+        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 114 : 114);
 
-        const uiTop = compactMobile ? 148 : 156;
+        const uiTop = compactMobile ? 148 : 172;
         const leftX = compactMobile ? 16 : 22;
         const leftW = compactMobile ? 270 : 248;
         const rightW = compactMobile ? 260 : 248;
@@ -3969,7 +3969,7 @@ const game = {
         const my = uiTop;
 
         if (!compactMobile) {
-            drawRoundRect(centerX, 136, centerW, 414, 12);
+            drawRoundRect(centerX, 148, centerW, 414, 12);
             ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
             ctx.fill();
             ctx.strokeStyle = "rgba(102,204,255,0.35)";
