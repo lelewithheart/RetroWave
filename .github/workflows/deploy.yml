@@ -28,7 +28,7 @@ jobs:
           set -e
           rm -rf dist web-build.zip
           mkdir -p dist
-          cp index.html game.js styles.css changelogs.txt dist/
+          cp index.html game.js styles.css changelogs.txt skinshop.txt dist/
           if [ -d assets ]; then
             cp -R assets dist/
           fi

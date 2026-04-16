@@ -3,6 +3,14 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 16.04:01
+- Fixed rainbow skin not rendering in shop featured and all-skins sections
+- Added drawSkinIcon renderer to display skin asset images inside circular cards with fallback color
+- Implemented resilient skin asset loader with path fallbacks and cache-busting for hosted builds (itch.io)
+- SkinAssets.get now appends version query param and retries alternate path formats on CDN failures
+- Updated deploy.yml to include skinshop.txt in packaged artifacts so configs deploy correctly
+- Removed miniboss-style HP bar from endboss so only the top-center phase indicator is shown
+
 beta 15.04:03
 - Added Void Herald endboss at the end of wave 25 with 3 phases (normal, fury, rage)
 - Endboss has unique attack patterns: triple-shot, bullet ring, spiral burst, dash, and shield

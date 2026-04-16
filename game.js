@@ -578,12 +578,59 @@ let frameNow = 0;
 const SkinAssets = (() => {
     const cache = new Map();
 
+    function cacheBustUrl(path) {
+        const version = (typeof GAME_VERSION === "string" && GAME_VERSION && GAME_VERSION !== "loading...")
+            ? GAME_VERSION
+            : "dev";
+        const sep = path.includes("?") ? "&" : "?";
+        return `${path}${sep}v=${encodeURIComponent(version)}`;
+    }
+
+    function buildPathCandidates(path) {
+        const raw = String(path || "").trim();
+        if (!raw) return [];
+
+        const noQuery = raw.split("?")[0];
+        const noLeadingDot = noQuery.replace(/^\.\//, "");
+        const noLeadingSlash = noLeadingDot.replace(/^\/+/, "");
+        const withDot = `./${noLeadingSlash}`;
+        const fileName = noLeadingSlash.includes("/")
+            ? noLeadingSlash.slice(noLeadingSlash.lastIndexOf("/") + 1)
+            : noLeadingSlash;
+
+        const candidates = [raw, noQuery, noLeadingSlash, withDot, fileName];
+        const uniq = [];
+        const seen = new Set();
+        for (let i = 0; i < candidates.length; i++) {
+            const p = candidates[i];
+            if (!p || seen.has(p)) continue;
+            seen.add(p);
+            uniq.push(p);
+        }
+        return uniq;
+    }
+
     function get(path) {
-        if (!path) return null;
-        if (cache.has(path)) return cache.get(path);
+        const key = String(path || "").trim();
+        if (!key) return null;
+        if (cache.has(key)) return cache.get(key);
+
         const img = new Image();
-        img.src = path;
-        cache.set(path, img);
+        const candidates = buildPathCandidates(key);
+        let idx = 0;
+
+        img.onerror = () => {
+            idx++;
+            if (idx < candidates.length) {
+                img.src = cacheBustUrl(candidates[idx]);
+            }
+        };
+
+        if (candidates.length > 0) {
+            img.src = cacheBustUrl(candidates[0]);
+        }
+
+        cache.set(key, img);
         return img;
     }
 
@@ -5406,7 +5453,7 @@ const game = {
         }
 
         // ── Boss HP bar (bottom-center) ──
-        if (this.activeBoss && this.activeBoss.alive) {
+        if (this.activeBoss && this.activeBoss.alive && this.activeBoss.type !== "endboss") {
             const isBig = this.activeBoss.type === "bigboss";
             const bw = isBig ? 400 : 300;
             const bh = isBig ? 14 : 10;
