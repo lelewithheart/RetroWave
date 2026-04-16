@@ -590,6 +590,26 @@ const SkinAssets = (() => {
     return { get };
 })();
 
+function drawSkinIcon(x, y, radius, skin) {
+    if (!skin) return;
+
+    ctx.fillStyle = skin.player;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    const img = SkinAssets.get(skin.asset || "");
+    if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.clip();
+    const size = radius * 2;
+    ctx.drawImage(img, x - radius, y - radius, size, size);
+    ctx.restore();
+}
+
 // ── Spatial grid for broadphase collision ──
 const GRID_CELL = 128;                       // cell size in world-pixels
 const GRID_COLS = Math.ceil(WORLD_W / GRID_CELL);
@@ -4290,10 +4310,7 @@ const game = {
             ctx.beginPath();
             ctx.arc(x + cardW / 2, cardY + 42, 22, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = s.player;
-            ctx.beginPath();
-            ctx.arc(x + cardW / 2, cardY + 42, 13, 0, Math.PI * 2);
-            ctx.fill();
+            drawSkinIcon(x + cardW / 2, cardY + 42, 13, s);
 
             ctx.textAlign = "center";
             ctx.fillStyle = COLOR.text;
@@ -4368,10 +4385,7 @@ const game = {
             ctx.lineWidth = 1.1;
             ctx.stroke();
 
-            ctx.fillStyle = s.player;
-            ctx.beginPath();
-            ctx.arc(x + 16, y + 20, 8, 0, Math.PI * 2);
-            ctx.fill();
+            drawSkinIcon(x + 16, y + 20, 8, s);
 
             ctx.textAlign = "left";
             ctx.fillStyle = COLOR.text;

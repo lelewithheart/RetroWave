@@ -13,8 +13,9 @@ default|Classic Cyan|#33ccff|rgba(51,204,255,0.25)|0|assets/playerskins/default.
 surge|Lime Surge|#66ff99|rgba(102,255,153,0.25)|140|assets/playerskins/surge.png
 ember|Ember Pulse|#ff6688|rgba(255,102,136,0.25)|140|assets/playerskins/ember.png
 nova|Nova Gold|#ffd166|rgba(255,209,102,0.28)|180|assets/playerskins/nova.png
+rainbow|Rainbow|#ff00ff|rgba(255, 0, 255, 0.4)|200|assets/playerskins/rainbow.png
 
 [featured]
 surge
-ember
+rainbow
 nova
