@@ -4,9 +4,9 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
 beta 16.04:01-1
-- Hotfix: Aligned all three menu panels (left/center/right) to same top edge (Y=148)
-- Hotfix: Adjusted title section positioning (moved up by ~10-12px)
-- Hotfix: Increased UI element spacing for better vertical layout balance
+- Aligned all three menu panels (left/center/right) to same top edge (Y=148)
+- Adjusted title section positioning (moved up by ~10-12px)
+- Increased UI element spacing for better vertical layout balance
 
 beta 16.04:01
 - Fixed rainbow skin not rendering in shop featured and all-skins sections
@@ -33,21 +33,21 @@ beta 15.04:02
 - Added visual ambient effects per biome (Acid Grid scan lines, Crimson Core ember particles and red pulse)
 
 beta 15.04:01-04
-- Hotfix: Fixed music not stopping when abandoning a run (scheduled oscillators now properly silenced)
-- Hotfix: Fixed pause menu alignment — all elements are now vertically centered and properly spaced
-- Hotfix: Pause menu shows "PAUSED" title when mid-run instead of "SETTINGS"
+- Fixed music not stopping when abandoning a run (scheduled oscillators now properly silenced)
+- Fixed pause menu alignment — all elements are now vertically centered and properly spaced
+- Pause menu shows "PAUSED" title when mid-run instead of "SETTINGS"
 
 beta 15.04:01-03
-- Hotfix: Fixed monetization toggle reliability when .env is not served by host
-- Hotfix: Added env.txt fallback config loading for MONETIZATION setting
-- Hotfix: Set fail-safe default to monetization OFF when config files are unavailable
+- Fixed monetization toggle reliability when .env is not served by host
+- Added env.txt fallback config loading for MONETIZATION setting
+- Set fail-safe default to monetization OFF when config files are unavailable
 
 beta 15.04:01-02
-- Hotfix: Added scrolling to the scin shop
-- Hotfix: Added intuitive touchscreen drag scrolling in Skin Shop for long skin lists
+- Added scrolling to the scin shop
+- Added intuitive touchscreen drag scrolling in Skin Shop for long skin lists
 
 beta 15.04:01-01
-- Hotfix: Raised the middle start-menu background rectangle so it frames the center section up to SELECT MODE
+- Raised the middle start-menu background rectangle so it frames the center section up to SELECT MODE
 
 beta 15.04:01
 - Added a dedicated Skin Shop page with shard-based in-game currency purchases
@@ -86,7 +86,7 @@ beta 14.04:06
 - Home screen score panel now shows top entries only for better readability
 
 beta 10.04:05-01
-- Hotfix for 10.04:05
+- Hotfix version for 10.04:05
 
 beta 10.04:05
 - Automatic Deployment to itch.io added
