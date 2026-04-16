@@ -183,6 +183,9 @@ const CHALLENGE_MODES = [
     { id: "glass", label: "Glass Cannon", desc: "Low HP, high damage" },
 ];
 
+const GAME_SPEED_OPTIONS = [1, 2, 3, 5, 10, 15];
+const GAME_SPEED_UNLOCK_COST = 75;
+
 // ─────────────────────────────────────────────
 // §2  CANVAS & CONTEXT SETUP
 // ─────────────────────────────────────────────
@@ -266,23 +269,27 @@ function modeModifiers() {
     switch (Settings.gameMode) {
         case "easy":
             return {
-                waveKillsMult: 0.85,
-                spawnCdMult: 1.2,
-                enemyHpMult: 0.82,
-                enemySpdMult: 0.88,
-                enemyDmgMult: 0.82,
-                xpGainMult: 1.8,
-                xpNeedGrowth: 1.32,
+                waveKillsMult: 0.78,
+                spawnCdMult: 1.25,
+                enemyHpMult: 0.8,
+                enemySpdMult: 0.82,
+                enemyDmgMult: 0.8,
+                xpGainMult: 1.9,
+                xpNeedGrowth: 1.28,
+                waveRestMult: 1.12,
+                specialChanceMult: 0.9,
             };
         case "hard":
             return {
-                waveKillsMult: 1.25,
-                spawnCdMult: 0.82,
-                enemyHpMult: 1.22,
-                enemySpdMult: 1.18,
-                enemyDmgMult: 1.25,
-                xpGainMult: 0.78,
-                xpNeedGrowth: 1.48,
+                waveKillsMult: 1.35,
+                spawnCdMult: 0.72,
+                enemyHpMult: 1.3,
+                enemySpdMult: 1.28,
+                enemyDmgMult: 1.35,
+                xpGainMult: 0.72,
+                xpNeedGrowth: 1.55,
+                waveRestMult: 0.85,
+                specialChanceMult: 1.25,
             };
         default:
             return {
@@ -293,6 +300,8 @@ function modeModifiers() {
                 enemyDmgMult: 1,
                 xpGainMult: 1,
                 xpNeedGrowth: 1.4,
+                waveRestMult: 1,
+                specialChanceMult: 1,
             };
     }
 }
@@ -1174,7 +1183,8 @@ const Progression = (() => {
 
     let data = {
         shards: 0,
-        meta: { hp: 0, dmg: 0, xp: 0 },
+        meta: { hp: 0, dmg: 0, xp: 0, speed: 0 },
+        gameSpeedIndex: 0,
         skins: { unlocked: ["default"], selected: "default" },
         daily: {
             key: "",
@@ -1230,6 +1240,10 @@ const Progression = (() => {
         base.meta.hp = clamp(Math.floor(lm.hp || 0), 0, META_MAX);
         base.meta.dmg = clamp(Math.floor(lm.dmg || 0), 0, META_MAX);
         base.meta.xp = clamp(Math.floor(lm.xp || 0), 0, META_MAX);
+        base.meta.speed = clamp(Math.floor(lm.speed || 0), 0, 1);
+        base.gameSpeedIndex = Number.isFinite(loaded.gameSpeedIndex)
+            ? clamp(Math.floor(loaded.gameSpeedIndex), 0, GAME_SPEED_OPTIONS.length - 1)
+            : 0;
 
         const ls = loaded.skins || {};
         const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
@@ -1289,6 +1303,15 @@ const Progression = (() => {
     function buyMeta(type) {
         if (!(type in data.meta)) return { ok: false, reason: "unknown" };
         const level = data.meta[type];
+        if (type === "speed") {
+            if (level >= 1) return { ok: false, reason: "max" };
+            if (data.shards < GAME_SPEED_UNLOCK_COST) return { ok: false, reason: "shards" };
+            data.shards -= GAME_SPEED_UNLOCK_COST;
+            data.meta.speed = 1;
+            if (!Number.isFinite(data.gameSpeedIndex)) data.gameSpeedIndex = 0;
+            save();
+            return { ok: true };
+        }
         if (level >= META_MAX) return { ok: false, reason: "max" };
         const cost = 25 + level * 25;
         if (data.shards < cost) return { ok: false, reason: "shards" };
@@ -1377,8 +1400,31 @@ const Progression = (() => {
     }
 
     function metaCost(type) {
+        if (type === "speed") {
+            return data.meta.speed >= 1 ? null : GAME_SPEED_UNLOCK_COST;
+        }
         const lvl = metaLevel(type);
         return lvl >= META_MAX ? null : 25 + lvl * 25;
+    }
+
+    function isGameSpeedUnlocked() {
+        return (data.meta.speed || 0) >= 1;
+    }
+
+    function getGameSpeedIndex() {
+        return clamp(Math.floor(data.gameSpeedIndex || 0), 0, GAME_SPEED_OPTIONS.length - 1);
+    }
+
+    function getGameSpeedMultiplier() {
+        if (!isGameSpeedUnlocked()) return 1;
+        return GAME_SPEED_OPTIONS[getGameSpeedIndex()] || 1;
+    }
+
+    function setGameSpeedIndex(index) {
+        if (!isGameSpeedUnlocked()) return { ok: false, reason: "locked" };
+        data.gameSpeedIndex = clamp(Math.floor(index), 0, GAME_SPEED_OPTIONS.length - 1);
+        save();
+        return { ok: true };
     }
 
     return {
@@ -1389,6 +1435,10 @@ const Progression = (() => {
         buyMeta,
         metaLevel,
         metaCost,
+        isGameSpeedUnlocked,
+        getGameSpeedIndex,
+        getGameSpeedMultiplier,
+        setGameSpeedIndex,
         getSkinCatalog,
         getFeaturedSkinCatalog,
         getSelectedSkin,
@@ -3624,6 +3674,8 @@ const game = {
     // Run modifiers
     enemySpeedMult: 1,
     shardRewardMult: 1,
+    gameSpeedIndex: 0,
+    gameSpeedMult: 1,
     adBoosterActive: false,
     adBoosterPending: false,
     adBoosterLoading: false,
@@ -3710,6 +3762,8 @@ const game = {
         this.waveBannerText = "";
         this.enemySpeedMult = 1;
         this.shardRewardMult = 1;
+        this.gameSpeedIndex = Progression.getGameSpeedIndex();
+        this.gameSpeedMult = Progression.getGameSpeedMultiplier();
         this.adBoosterActive = false;
         this.shardCacheClaimedThisRun = false;
         this.shardCacheLoading = false;
@@ -3733,7 +3787,7 @@ const game = {
         this.cheatMaxScroll = 0;
 
         if (Settings.challengeMode === "rush") {
-            this.enemySpeedMult = 1.18;
+            this.enemySpeedMult = 1.22;
             this.shardRewardMult = 1.45;
         } else if (Settings.challengeMode === "glass") {
             this.shardRewardMult = 1.55;
@@ -3838,6 +3892,50 @@ const game = {
         if (this.expEarlyPacing !== "softstart") return 1;
         if (this.timePlayed > 60) return 1;
         return 0.88;
+    },
+
+    getSpeedSelectorLayout() {
+        const portrait = isPortraitMobile();
+        const pad = portrait ? 12 : 16;
+        const buttonW = portrait ? 34 : 38;
+        const buttonH = portrait ? 18 : 20;
+        const gap = 4;
+        const cols = 3;
+        const rows = 2;
+        const innerW = cols * buttonW + (cols - 1) * gap;
+        const panelW = innerW + 16;
+        const panelH = 24 + rows * buttonH + gap + 10;
+        const x = CANVAS_W - pad - panelW;
+        const y = pad + 62;
+
+        const buttons = [];
+        for (let i = 0; i < GAME_SPEED_OPTIONS.length; i++) {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            buttons.push({
+                index: i,
+                mult: GAME_SPEED_OPTIONS[i],
+                x: x + 8 + col * (buttonW + gap),
+                y: y + 26 + row * (buttonH + gap),
+                w: buttonW,
+                h: buttonH,
+            });
+        }
+
+        return { x, y, panelW, panelH, buttons };
+    },
+
+    updateGameSpeedSelection() {
+        if (!Progression.isGameSpeedUnlocked() || !Mouse.clicked) return;
+        const layout = this.getSpeedSelectorLayout();
+        for (let i = 0; i < layout.buttons.length; i++) {
+            const b = layout.buttons[i];
+            if (!Mouse.inRect(b.x, b.y, b.w, b.h)) continue;
+            Progression.setGameSpeedIndex(b.index);
+            this.gameSpeedIndex = Progression.getGameSpeedIndex();
+            this.gameSpeedMult = Progression.getGameSpeedMultiplier();
+            return;
+        }
     },
 
     commitLossIfNeeded() {
@@ -4102,7 +4200,7 @@ const game = {
         const mpX = leftX;
         const mpY = compactMobile ? 42 : 148;
         const mpW = leftW;
-        const mpH = compactMobile ? 206 : 432;
+        const mpH = compactMobile ? 274 : 432;
         drawRoundRect(mpX, mpY, mpW, mpH, 10);
         ctx.fillStyle = "rgba(8, 10, 22, 0.92)";
         ctx.fill();
@@ -4118,10 +4216,13 @@ const game = {
             { key: "hp", label: "Vital Core", bonus: "+10 max HP" },
             { key: "dmg", label: "Pulse Cannon", bonus: "+2 base damage" },
             { key: "xp", label: "Data Magnet", bonus: "+10% XP gain" },
+            { key: "speed", label: "Game Speed", bonus: "Unlocks top-right speed selector", max: 1 },
         ];
+        const metaStartY = compactMobile ? mpY + 36 : mpY + 44;
+        const metaStepY = compactMobile ? 38 : 66;
         for (let i = 0; i < metaRows.length; i++) {
             const row = metaRows[i];
-            const ry = mpY + 44 + i * 66;
+            const ry = metaStartY + i * metaStepY;
             const level = Progression.metaLevel(row.key);
             const cost = Progression.metaCost(row.key);
 
@@ -4132,7 +4233,7 @@ const game = {
             ctx.fillStyle = COLOR.text;
             ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
             const labelMaxW = ubX - (mpX + 12) - 4;
-            ctx.fillText(`${row.label}  Lv.${level}/8`, mpX + 12, ry, labelMaxW);
+            ctx.fillText(`${row.label}  Lv.${level}/${row.max || 8}`, mpX + 12, ry, labelMaxW);
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(row.bonus, mpX + 12, ry + 16, labelMaxW);
@@ -4156,7 +4257,7 @@ const game = {
 
         // Selected skin info
         const selectedSkin = Progression.getSelectedSkin();
-        const previewY = mpY + mpH - 96;
+        const previewY = compactMobile ? (mpY + mpH - 74) : (mpY + mpH - 96);
         drawRoundRect(mpX + 10, previewY, mpW - 20, 72, 8);
         ctx.fillStyle = "rgba(255,255,255,0.04)";
         ctx.fill();
@@ -4570,6 +4671,8 @@ const game = {
 
     startGame() {
         this.resetGame();
+        this.gameSpeedIndex = Progression.getGameSpeedIndex();
+        this.gameSpeedMult = Progression.getGameSpeedMultiplier();
         this.state = STATE.GAMEPLAY;
         Audio.ensureContext();
         Audio.startMusic(0);
@@ -4579,7 +4682,10 @@ const game = {
     // ────── GAMEPLAY ──────
 
     updateGameplay(dt) {
-        this.timePlayed += dt;
+        this.updateGameSpeedSelection();
+        const speedDt = dt * this.gameSpeedMult;
+
+        this.timePlayed += speedDt;
         this.trackPerformance(dt);
         this.updateCheatCode();
 
@@ -4591,15 +4697,15 @@ const game = {
         }
 
         // Player
-        this.player.update(dt);
+        this.player.update(speedDt);
 
         // Bullets
-        for (const b of this.bullets) b.update(dt);
+        for (const b of this.bullets) b.update(speedDt);
         compactInPlace(this.bullets, b => b.alive);
 
         // Enemies
         for (const e of this.enemies) {
-            e.update(dt, this.player);
+            e.update(speedDt, this.player);
 
             // Contact damage
             if (e.collidesWith(this.player) && e.contactTimer <= 0) {
@@ -4652,19 +4758,19 @@ const game = {
         }
 
         // XP orbs
-        for (const o of this.xpOrbs) o.update(dt, this.player);
+        for (const o of this.xpOrbs) o.update(speedDt, this.player);
         compactInPlace(this.xpOrbs, o => o.alive);
 
         // Particles
-        for (const p of this.particles) p.update(dt);
+        for (const p of this.particles) p.update(speedDt);
         compactInPlace(this.particles, p => p.alive);
 
         // Damage numbers
-        for (const d of this.damageNumbers) d.update(dt);
+        for (const d of this.damageNumbers) d.update(speedDt);
         compactInPlace(this.damageNumbers, d => d.alive);
 
         // Trail particles
-        for (const t of this.trailParticles) t.update(dt);
+        for (const t of this.trailParticles) t.update(speedDt);
         compactInPlace(this.trailParticles, t => t.alive);
 
         // Player trail spawning (only when moving)
@@ -4679,33 +4785,33 @@ const game = {
 
         // Kill combo timer
         if (this.comboTimer > 0) {
-            this.comboTimer -= dt;
+            this.comboTimer -= speedDt;
             if (this.comboTimer <= 0) {
                 this.comboCount = 0;
             }
         }
 
         // Level-up flash timer
-        if (this.levelUpFlashTimer > 0) this.levelUpFlashTimer -= dt;
+        if (this.levelUpFlashTimer > 0) this.levelUpFlashTimer -= speedDt;
 
         // Wave banner timer
-        if (this.waveBannerTimer > 0) this.waveBannerTimer -= dt;
+        if (this.waveBannerTimer > 0) this.waveBannerTimer -= speedDt;
 
         // Lightning bolts (visual only)
-        for (const l of this.lightningBolts) l.life -= dt;
+        for (const l of this.lightningBolts) l.life -= speedDt;
         compactInPlace(this.lightningBolts, l => l.life > 0);
 
         // Frost waves (visual only)
         for (const f of this.frostWaves) {
-            f.life -= dt;
+            f.life -= speedDt;
             f.radius = f.maxRadius * (1 - f.life / f.maxLife);
         }
         compactInPlace(this.frostWaves, f => f.life > 0);
 
         // Flame patches (damage zones)
         for (const fp of this.flamePatches) {
-            fp.life -= dt;
-            fp.dmgTimer -= dt;
+            fp.life -= speedDt;
+            fp.dmgTimer -= speedDt;
             if (fp.dmgTimer <= 0) {
                 fp.dmgTimer = 0.3;
                 // Use spatial grid for flame-enemy collisions
@@ -4722,10 +4828,10 @@ const game = {
 
         // Camera
         this.camera.follow(this.player);
-        this.camera.update(dt);
+        this.camera.update(speedDt);
 
         // Wave management
-        this.manageWaves(dt);
+        this.manageWaves(speedDt);
 
         // Player death
         if (!this.player.alive) {
@@ -5359,6 +5465,37 @@ const game = {
             ctx.fillText(Settings.gameMode === "easy" ? "😊 EASY" : "💀 HARD", CANVAS_W - pad, pad + 56);
         }
 
+        if (Progression.isGameSpeedUnlocked()) {
+            const layout = this.getSpeedSelectorLayout();
+            drawRoundRect(layout.x, layout.y, layout.panelW, layout.panelH, 8);
+            ctx.fillStyle = "rgba(8, 10, 24, 0.88)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(102,204,255,0.45)";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            ctx.fillStyle = COLOR.accent;
+            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("GAME SPEED", layout.x + layout.panelW / 2, layout.y + 15);
+
+            for (let i = 0; i < layout.buttons.length; i++) {
+                const b = layout.buttons[i];
+                const selected = this.gameSpeedIndex === b.index;
+                drawRoundRect(b.x, b.y, b.w, b.h, 5);
+                ctx.fillStyle = selected ? COLOR.accent : "rgba(255,255,255,0.08)";
+                ctx.globalAlpha = selected ? 1 : 0.95;
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = selected ? COLOR.accentHover : "rgba(255,255,255,0.15)";
+                ctx.lineWidth = selected ? 1.2 : 1;
+                ctx.stroke();
+                ctx.fillStyle = selected ? "#000" : COLOR.text;
+                ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+                ctx.fillText(`${b.mult}x`, b.x + b.w / 2, b.y + b.h / 2 + 1);
+            }
+        }
+
         // ── Wave incoming message ──
         if (!this.waveActive && this.waveRestTimer > 0 && !this.pendingVictory && !this.endbossActive) {
             ctx.textAlign = "center";
@@ -5534,7 +5671,8 @@ const game = {
             // Check if kill target reached
             if (this.waveKills >= this.waveKillsRequired) {
                 this.waveActive = false;
-                this.waveRestTimer = WAVE_REST_TIME;
+                const mods = modeModifiers();
+                this.waveRestTimer = WAVE_REST_TIME * mods.waveRestMult;
                 // Wave 25 triggers endboss instead of pending victory
                 if (this.wave === WAVE_MAX) {
                     this.pendingEndboss = true;
@@ -5656,7 +5794,7 @@ const game = {
         if (this.wave >= 7) typePool.push("ranged");
         if (this.wave >= 9) typePool.push("exploder");
 
-        const specialChance = Math.min(0.7, 0.1 + this.wave * 0.04);
+        const specialChance = Math.min(0.9, (0.1 + this.wave * 0.04) * mods.specialChanceMult);
 
         // Spawn outside camera view
         const edge = randInt(0, 3);
@@ -5728,7 +5866,7 @@ const game = {
             // Small delay before victory screen
             this.pendingVictory = true;
             this.waveActive = false;
-            this.waveRestTimer = 1.5;
+            this.waveRestTimer = 1.5 * modeModifiers().waveRestMult;
         }
 
         const mods = modeModifiers();

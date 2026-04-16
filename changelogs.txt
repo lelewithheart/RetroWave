@@ -3,6 +3,11 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 16.04:02
+- Added a purchasable Game Speed Modifier upgrade with top-right in-run speed selection (1x, 2x, 3x, 5x, 10x, 15x)
+- Made challenge modes more impactful by tuning wave pacing, enemy pressure, and reward multipliers
+- Improved the start-menu layout spacing from the previous hotfix pass
+
 beta 16.04:01-1
 - Aligned all three menu panels (left/center/right) to same top edge (Y=148)
 - Adjusted title section positioning (moved up by ~10-12px)
