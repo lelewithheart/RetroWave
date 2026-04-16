@@ -183,7 +183,7 @@ const CHALLENGE_MODES = [
     { id: "glass", label: "Glass Cannon", desc: "Low HP, high damage" },
 ];
 
-const GAME_SPEED_OPTIONS = [1, 2, 3, 5, 10, 15];
+const GAME_SPEED_OPTIONS = [1, 1.5, 2, 3, 5, 10];
 const GAME_SPEED_UNLOCK_COST = 75;
 const GAME_SPEED_UNLOCK_MAX = GAME_SPEED_OPTIONS.length - 1;
 
