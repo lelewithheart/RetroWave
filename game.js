@@ -185,6 +185,7 @@ const CHALLENGE_MODES = [
 
 const GAME_SPEED_OPTIONS = [1, 2, 3, 5, 10, 15];
 const GAME_SPEED_UNLOCK_COST = 75;
+const GAME_SPEED_UNLOCK_MAX = GAME_SPEED_OPTIONS.length - 1;
 
 // ─────────────────────────────────────────────
 // §2  CANVAS & CONTEXT SETUP
@@ -1240,9 +1241,10 @@ const Progression = (() => {
         base.meta.hp = clamp(Math.floor(lm.hp || 0), 0, META_MAX);
         base.meta.dmg = clamp(Math.floor(lm.dmg || 0), 0, META_MAX);
         base.meta.xp = clamp(Math.floor(lm.xp || 0), 0, META_MAX);
-        base.meta.speed = clamp(Math.floor(lm.speed || 0), 0, 1);
+        base.meta.speed = clamp(Math.floor(lm.speed || 0), 0, GAME_SPEED_UNLOCK_MAX);
+        const maxSpeedIdx = Math.min(GAME_SPEED_OPTIONS.length - 1, base.meta.speed);
         base.gameSpeedIndex = Number.isFinite(loaded.gameSpeedIndex)
-            ? clamp(Math.floor(loaded.gameSpeedIndex), 0, GAME_SPEED_OPTIONS.length - 1)
+            ? clamp(Math.floor(loaded.gameSpeedIndex), 0, maxSpeedIdx)
             : 0;
 
         const ls = loaded.skins || {};
@@ -1304,11 +1306,14 @@ const Progression = (() => {
         if (!(type in data.meta)) return { ok: false, reason: "unknown" };
         const level = data.meta[type];
         if (type === "speed") {
-            if (level >= 1) return { ok: false, reason: "max" };
-            if (data.shards < GAME_SPEED_UNLOCK_COST) return { ok: false, reason: "shards" };
-            data.shards -= GAME_SPEED_UNLOCK_COST;
-            data.meta.speed = 1;
+            if (level >= GAME_SPEED_UNLOCK_MAX) return { ok: false, reason: "max" };
+            const cost = GAME_SPEED_UNLOCK_COST + level * GAME_SPEED_UNLOCK_COST;
+            if (data.shards < cost) return { ok: false, reason: "shards" };
+            data.shards -= cost;
+            data.meta.speed += 1;
+            const maxSpeedIdx = Math.min(GAME_SPEED_OPTIONS.length - 1, data.meta.speed);
             if (!Number.isFinite(data.gameSpeedIndex)) data.gameSpeedIndex = 0;
+            data.gameSpeedIndex = clamp(Math.floor(data.gameSpeedIndex), 0, maxSpeedIdx);
             save();
             return { ok: true };
         }
@@ -1401,7 +1406,8 @@ const Progression = (() => {
 
     function metaCost(type) {
         if (type === "speed") {
-            return data.meta.speed >= 1 ? null : GAME_SPEED_UNLOCK_COST;
+            if (data.meta.speed >= GAME_SPEED_UNLOCK_MAX) return null;
+            return GAME_SPEED_UNLOCK_COST + data.meta.speed * GAME_SPEED_UNLOCK_COST;
         }
         const lvl = metaLevel(type);
         return lvl >= META_MAX ? null : 25 + lvl * 25;
@@ -1411,8 +1417,12 @@ const Progression = (() => {
         return (data.meta.speed || 0) >= 1;
     }
 
+    function getMaxGameSpeedIndex() {
+        return clamp(Math.floor(data.meta.speed || 0), 0, GAME_SPEED_OPTIONS.length - 1);
+    }
+
     function getGameSpeedIndex() {
-        return clamp(Math.floor(data.gameSpeedIndex || 0), 0, GAME_SPEED_OPTIONS.length - 1);
+        return clamp(Math.floor(data.gameSpeedIndex || 0), 0, getMaxGameSpeedIndex());
     }
 
     function getGameSpeedMultiplier() {
@@ -1422,7 +1432,7 @@ const Progression = (() => {
 
     function setGameSpeedIndex(index) {
         if (!isGameSpeedUnlocked()) return { ok: false, reason: "locked" };
-        data.gameSpeedIndex = clamp(Math.floor(index), 0, GAME_SPEED_OPTIONS.length - 1);
+        data.gameSpeedIndex = clamp(Math.floor(index), 0, getMaxGameSpeedIndex());
         save();
         return { ok: true };
     }
@@ -1436,6 +1446,7 @@ const Progression = (() => {
         metaLevel,
         metaCost,
         isGameSpeedUnlocked,
+        getMaxGameSpeedIndex,
         getGameSpeedIndex,
         getGameSpeedMultiplier,
         setGameSpeedIndex,
@@ -3928,8 +3939,10 @@ const game = {
     updateGameSpeedSelection() {
         if (!Progression.isGameSpeedUnlocked() || !Mouse.clicked) return;
         const layout = this.getSpeedSelectorLayout();
+        const maxUnlockedIdx = Progression.getMaxGameSpeedIndex();
         for (let i = 0; i < layout.buttons.length; i++) {
             const b = layout.buttons[i];
+            if (b.index > maxUnlockedIdx) continue;
             if (!Mouse.inRect(b.x, b.y, b.w, b.h)) continue;
             Progression.setGameSpeedIndex(b.index);
             this.gameSpeedIndex = Progression.getGameSpeedIndex();
@@ -4216,7 +4229,7 @@ const game = {
             { key: "hp", label: "Vital Core", bonus: "+10 max HP" },
             { key: "dmg", label: "Pulse Cannon", bonus: "+2 base damage" },
             { key: "xp", label: "Data Magnet", bonus: "+10% XP gain" },
-            { key: "speed", label: "Game Speed", bonus: "Unlocks top-right speed selector", max: 1 },
+            { key: "speed", label: "Game Speed", bonus: "Each level unlocks next speed tier", max: GAME_SPEED_UNLOCK_MAX },
         ];
         const metaStartY = compactMobile ? mpY + 36 : mpY + 44;
         const metaStepY = compactMobile ? 38 : 66;
@@ -4845,7 +4858,7 @@ const game = {
         }
 
         // Settings shortcut
-        if (Input.just("Escape") || TouchControls.pauseTapped) {
+        if (Input.just("Escape") || Input.just("KeyP") || TouchControls.pauseTapped) {
             this.state = STATE.SETTINGS;
         }
     },
@@ -5467,6 +5480,7 @@ const game = {
 
         if (Progression.isGameSpeedUnlocked()) {
             const layout = this.getSpeedSelectorLayout();
+            const maxUnlockedIdx = Progression.getMaxGameSpeedIndex();
             drawRoundRect(layout.x, layout.y, layout.panelW, layout.panelH, 8);
             ctx.fillStyle = "rgba(8, 10, 24, 0.88)";
             ctx.fill();
@@ -5481,18 +5495,19 @@ const game = {
 
             for (let i = 0; i < layout.buttons.length; i++) {
                 const b = layout.buttons[i];
-                const selected = this.gameSpeedIndex === b.index;
+                const unlocked = b.index <= maxUnlockedIdx;
+                const selected = unlocked && this.gameSpeedIndex === b.index;
                 drawRoundRect(b.x, b.y, b.w, b.h, 5);
-                ctx.fillStyle = selected ? COLOR.accent : "rgba(255,255,255,0.08)";
-                ctx.globalAlpha = selected ? 1 : 0.95;
+                ctx.fillStyle = selected ? COLOR.accent : (unlocked ? "rgba(255,255,255,0.08)" : "rgba(80,80,80,0.2)");
+                ctx.globalAlpha = selected ? 1 : (unlocked ? 0.95 : 0.75);
                 ctx.fill();
                 ctx.globalAlpha = 1;
-                ctx.strokeStyle = selected ? COLOR.accentHover : "rgba(255,255,255,0.15)";
+                ctx.strokeStyle = selected ? COLOR.accentHover : (unlocked ? "rgba(255,255,255,0.15)" : "rgba(120,120,120,0.25)");
                 ctx.lineWidth = selected ? 1.2 : 1;
                 ctx.stroke();
-                ctx.fillStyle = selected ? "#000" : COLOR.text;
+                ctx.fillStyle = selected ? "#000" : (unlocked ? COLOR.text : "#8a8f99");
                 ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-                ctx.fillText(`${b.mult}x`, b.x + b.w / 2, b.y + b.h / 2 + 1);
+                ctx.fillText(unlocked ? `${b.mult}x` : "🔒", b.x + b.w / 2, b.y + b.h / 2 + 1);
             }
         }
 
