@@ -1735,6 +1735,12 @@ const Progression = (() => {
         return unlockedIds;
     }
 
+    function getPrestigeSkinRequirement(id) {
+        if (!PRESTIGE_ENABLED || PRESTIGE_SKIN_THRESHOLDS.length === 0) return 0;
+        const threshold = PRESTIGE_SKIN_THRESHOLDS.find((entry) => entry.skinId === id);
+        return threshold ? Math.max(0, Math.floor(threshold.prestigeLevel || 0)) : 0;
+    }
+
     function normalize(loaded) {
         SKIN_CATALOG = [...SKIN_SHOP_CONFIG.skins];
         FEATURED_SKIN_IDS = [...SKIN_SHOP_CONFIG.featuredIds];
@@ -1760,6 +1766,14 @@ const Progression = (() => {
         const ls = loaded.skins || {};
         const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
         const prestigeUnlocked = getUnlockedSkinsForPrestige(base.prestige.count);
+        const prestigeUnlockedSet = new Set(prestigeUnlocked);
+        for (let i = unlocked.length - 1; i >= 0; i--) {
+            const skinId = unlocked[i];
+            const prestigeRequirement = getPrestigeSkinRequirement(skinId);
+            if (prestigeRequirement > 0 && !prestigeUnlockedSet.has(skinId)) {
+                unlocked.splice(i, 1);
+            }
+        }
         for (const skinId of prestigeUnlocked) {
             if (!unlocked.includes(skinId)) unlocked.push(skinId);
         }
@@ -1847,6 +1861,10 @@ const Progression = (() => {
     function unlockOrSelectSkin(id) {
         const skin = SKINS[id];
         if (!skin) return { ok: false, reason: "unknown" };
+        const prestigeRequirement = getPrestigeSkinRequirement(id);
+        if (prestigeRequirement > 0 && getPrestigeCount() < prestigeRequirement) {
+            return { ok: false, reason: "prestige", required: prestigeRequirement };
+        }
         if (!data.skins.unlocked.includes(id)) {
             if (data.shards < skin.cost) return { ok: false, reason: "shards" };
             data.shards -= skin.cost;
@@ -1859,7 +1877,20 @@ const Progression = (() => {
 
     function getSkinCatalog() {
         const unlocked = new Set(data.skins.unlocked);
-        return SKIN_CATALOG.map(s => ({ ...s, unlocked: unlocked.has(s.id), selected: data.skins.selected === s.id }));
+        return SKIN_CATALOG.map((s) => {
+            const prestigeRequirement = getPrestigeSkinRequirement(s.id);
+            const prestigeUnlocked = prestigeRequirement > 0 && getPrestigeCount() >= prestigeRequirement;
+            const unlockedByData = unlocked.has(s.id);
+            const unlockedByPrestige = prestigeRequirement > 0 ? prestigeUnlocked : unlockedByData;
+            return {
+                ...s,
+                unlocked: unlockedByPrestige,
+                selected: data.skins.selected === s.id,
+                prestigeRequirement,
+                prestigeLocked: prestigeRequirement > 0 && !prestigeUnlocked,
+                prestigeSkin: prestigeRequirement > 0,
+            };
+        });
     }
 
     function getFeaturedSkinCatalog() {
@@ -5068,6 +5099,22 @@ const game = {
         const featured = Progression.getFeaturedSkinCatalog();
         const allSkins = Progression.getSkinCatalog();
         const skinAssetTelemetry = SkinAssets.getTelemetry();
+        const prestigeCount = Progression.getPrestigeCount();
+        const prestigeSkinsTotal = allSkins.filter((s) => s.prestigeSkin).length;
+
+        const drawLockedButton = (text, x, y, w, h, fontSize) => {
+            drawRoundRect(x, y, w, h, 8);
+            ctx.fillStyle = "rgba(88,94,112,0.72)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(170,176,196,0.34)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.fillStyle = "rgba(255,255,255,0.7)";
+            ctx.font = `bold ${fontSize || 18}px 'Segoe UI', Arial, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(text, x + w / 2, y + h / 2);
+        };
 
         if (!this.shopTelemetryLogged) {
             console.info("[SkinAssets] Telemetry", skinAssetTelemetry);
@@ -5091,7 +5138,7 @@ const game = {
         ctx.font = "11px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = "#8fb0e6";
         ctx.fillText(
-            `Asset telemetry  ok:${skinAssetTelemetry.loadSuccess}  missing:${skinAssetTelemetry.loadFailed}  fallback retries:${skinAssetTelemetry.fallbackRetries}  placeholders:${skinAssetTelemetry.placeholderRenders}`,
+            `Asset telemetry  ok:${skinAssetTelemetry.loadSuccess}  missing:${skinAssetTelemetry.loadFailed}  fallback retries:${skinAssetTelemetry.fallbackRetries}  placeholders:${skinAssetTelemetry.placeholderRenders}  •  Prestige clears:${prestigeCount}/${prestigeSkinsTotal}`,
             CANVAS_W / 2,
             104
         );
@@ -5154,8 +5201,18 @@ const game = {
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
             const priceLabel = s.cost <= 0 ? "Free" : `${s.cost} shards`;
-            const stateLabel = s.unlocked ? (s.selected ? "Selected" : "Owned") : priceLabel;
+            const stateLabel = s.prestigeLocked
+                ? `Prestige ${s.prestigeRequirement} required`
+                : (s.prestigeSkin
+                    ? (s.selected ? "Selected" : `Prestige ${s.prestigeRequirement} reward`)
+                    : (s.unlocked ? (s.selected ? "Selected" : "Owned") : priceLabel));
             ctx.fillText(stateLabel, x + cardW / 2, cardY + 100, cardW - 14);
+
+            if (s.prestigeSkin) {
+                ctx.fillStyle = s.prestigeLocked ? "#ffcc66" : "#ffd700";
+                ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
+                ctx.fillText("PRESTIGE", x + cardW / 2, cardY + 114, cardW - 14);
+            }
 
             const featureAssetStatus = SkinAssets.getStatus(s.asset || "");
             if (featureAssetStatus.state === "missing") {
@@ -5169,8 +5226,10 @@ const game = {
             const btnX = x + 11;
             const btnY = cardY + cardH - 42;
             const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
-            const actionLabel = s.selected ? "EQUIPPED" : (s.unlocked ? "EQUIP" : "BUY");
-            if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 14) && !s.selected) {
+            const actionLabel = s.prestigeLocked ? "LOCKED" : (s.selected ? "EQUIPPED" : (s.unlocked ? "EQUIP" : "BUY"));
+            if (s.prestigeLocked) {
+                drawLockedButton(actionLabel, btnX, btnY, btnW, btnH, 14);
+            } else if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 14) && !s.selected) {
                 Progression.unlockOrSelectSkin(s.id);
             }
         }
@@ -5232,11 +5291,22 @@ const game = {
             ctx.fillStyle = COLOR.text;
             ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(s.name, x + 30, y + 18, itemW - 34);
+            if (s.prestigeSkin) {
+                ctx.fillStyle = s.prestigeLocked ? "#ffcc66" : "#ffd700";
+                ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
+                ctx.fillText("PRESTIGE", x + 30, y + 29, itemW - 34);
+            }
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
             const assetStatus = SkinAssets.getStatus(s.asset || "");
-            const ownershipLabel = s.unlocked ? (s.selected ? "Selected" : "Owned") : `${s.cost} shards`;
-            const secondaryLabel = assetStatus.state === "missing" ? "  Placeholder" : "";
+            const ownershipLabel = s.prestigeLocked
+                ? `Prestige ${s.prestigeRequirement} required`
+                : (s.prestigeSkin
+                    ? (s.selected ? "Selected" : `Prestige ${s.prestigeRequirement} reward`)
+                    : (s.unlocked ? (s.selected ? "Selected" : "Owned") : `${s.cost} shards`));
+            const secondaryLabel = s.prestigeSkin
+                ? (s.prestigeLocked ? "Achievement reward" : "Prestige reward")
+                : (assetStatus.state === "missing" ? "Placeholder" : "");
             ctx.fillText(`${ownershipLabel}${secondaryLabel}`, x + 30, y + 34, itemW - 34);
 
             const btnW = 86;
@@ -5244,8 +5314,10 @@ const game = {
             const btnX = x + itemW - btnW - 8;
             const btnY = y + itemH - btnH - 6;
             const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
-            const actionLabel = s.selected ? "ON" : (s.unlocked ? "EQUIP" : "BUY");
-            if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 12) && !s.selected) {
+            const actionLabel = s.prestigeLocked ? "LOCKED" : (s.selected ? "ON" : (s.unlocked ? "EQUIP" : "BUY"));
+            if (s.prestigeLocked) {
+                drawLockedButton(actionLabel, btnX, btnY, btnW, btnH, 12);
+            } else if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 12) && !s.selected) {
                 Progression.unlockOrSelectSkin(s.id);
             }
         }

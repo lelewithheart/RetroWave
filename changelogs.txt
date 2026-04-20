@@ -2,6 +2,10 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 20.04:18-1
+- HOTFIX: Prestige skins are now achievement-locked and cannot be bought with shards
+- Load/save normalization strips invalid prestige unlocks unless the prestige threshold is met
+
 beta 20.04:18
 - Performance optimization: Event feedback system (flash & toast) now skips rendering on lowPerf mode to reduce overhead
 - Defensive guard added for event VFX: renders only when performance headroom available (FPS > 54)
