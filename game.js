@@ -18,6 +18,14 @@ const MAX_DT = 0.1;                      // Cap to avoid spiral of death
 let GAME_VERSION = "loading...";
 let CHANGELOG_ENTRIES = [];
 
+const BOOT_DIAGNOSTICS = {
+    env: { ok: false, source: "none" },
+    changelogs: { ok: false, source: "none", entries: 0, version: "loading..." },
+    skinShop: { ok: false, source: "none", skins: 0, featured: 0 },
+    progression: { ok: false },
+    runtimeWarnings: [],
+};
+
 const APP_CONFIG = {
     monetization: false,
 };
@@ -378,7 +386,7 @@ async function loadChangelogs() {
         if (entries.length > 0) {
             CHANGELOG_ENTRIES = entries;
             GAME_VERSION = entries[0].version;
-            return;
+            return { ok: true, source: "window", entries: entries.length, version: GAME_VERSION };
         }
     }
 
@@ -391,14 +399,16 @@ async function loadChangelogs() {
         if (entries.length > 0) {
             CHANGELOG_ENTRIES = entries;
             GAME_VERSION = entries[0].version;
-            return;
+            return { ok: true, source: "changelogs.txt", entries: entries.length, version: GAME_VERSION };
         }
 
         GAME_VERSION = "unknown";
+        return { ok: false, source: "changelogs.txt", entries: 0, version: GAME_VERSION };
     } catch (err) {
         console.warn("Failed to load changelogs.txt", err);
         CHANGELOG_ENTRIES = [];
         GAME_VERSION = "unknown";
+        return { ok: false, source: "error", entries: 0, version: GAME_VERSION };
     }
 }
 
@@ -504,9 +514,22 @@ async function loadSkinShopConfig() {
         const parsed = parseSkinShopText(text);
         if (parsed.skins.length > 0) {
             SKIN_SHOP_CONFIG = parsed;
+            return {
+                ok: true,
+                source: "skinshop.txt",
+                skins: SKIN_SHOP_CONFIG.skins.length,
+                featured: SKIN_SHOP_CONFIG.featuredIds.length,
+            };
         }
+        return { ok: false, source: "skinshop.txt", skins: 0, featured: 0 };
     } catch (err) {
         console.warn("Failed to load skinshop.txt, using fallback skin config", err);
+        return {
+            ok: true,
+            source: "fallback",
+            skins: SKIN_SHOP_CONFIG.skins.length,
+            featured: SKIN_SHOP_CONFIG.featuredIds.length,
+        };
     }
 }
 
@@ -551,7 +574,7 @@ async function loadEnvConfig() {
             if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
             const text = await res.text();
             applyEnvConfigText(text);
-            return;
+            return { ok: true, source: path };
         } catch (err) {
             lastErr = err;
         }
@@ -561,6 +584,39 @@ async function loadEnvConfig() {
         console.warn("Failed to load .env/env.txt, using default app config", lastErr);
     } catch (err) {
         // ignore console failures
+    }
+    return { ok: false, source: "default" };
+}
+
+function validateRuntimeConfiguration() {
+    const warnings = [];
+
+    if (!Number.isFinite(COLLISION_QUERY_BUFFER) || COLLISION_QUERY_BUFFER <= 0) {
+        warnings.push("COLLISION_QUERY_BUFFER must be a positive finite number");
+    }
+    if (!Array.isArray(SKIN_SHOP_CONFIG.skins) || SKIN_SHOP_CONFIG.skins.length === 0) {
+        warnings.push("Skin shop has no skins configured");
+    }
+    if (!Array.isArray(CHANGELOG_ENTRIES)) {
+        warnings.push("Changelog entries failed to initialize");
+    }
+
+    BOOT_DIAGNOSTICS.runtimeWarnings = warnings;
+    return warnings;
+}
+
+function logBootDiagnostics() {
+    const summary = {
+        env: BOOT_DIAGNOSTICS.env,
+        changelogs: BOOT_DIAGNOSTICS.changelogs,
+        skinShop: BOOT_DIAGNOSTICS.skinShop,
+        progression: BOOT_DIAGNOSTICS.progression,
+        monetization: APP_CONFIG.monetization,
+        runtimeWarnings: BOOT_DIAGNOSTICS.runtimeWarnings,
+    };
+    console.info("[Boot] Diagnostics", summary);
+    if (BOOT_DIAGNOSTICS.runtimeWarnings.length > 0) {
+        console.warn("[Boot] Runtime warnings", BOOT_DIAGNOSTICS.runtimeWarnings);
     }
 }
 
@@ -2503,15 +2559,21 @@ class Enemy extends Entity {
         } else if (this.type === "ranged") {
             // Ranged enemies try to maintain distance and shoot
             if (d > 1) {
-                let moveFactor = 1;
-                if (d < this.preferredDist - 20) moveFactor = -0.7; // back away
-                else if (d < this.preferredDist + 20) moveFactor = 0; // hold position
-                this.x += (dx / d) * currentSpeed * moveFactor * dt;
-                this.y += (dy / d) * currentSpeed * moveFactor * dt;
-                // Slight strafe
+                const nx = dx / d;
+                const ny = dy / d;
+
+                let forward = 1;
+                if (d < this.preferredDist - 20) forward = -0.7; // back away
+                else if (d < this.preferredDist + 20) forward = 0; // hold position
+
                 const strafe = Math.sin(frameNow * 0.003 + this.x) * 0.5;
-                this.x += (-dy / d) * currentSpeed * strafe * dt;
-                this.y += (dx / d) * currentSpeed * strafe * dt;
+                const moveX = nx * forward + (-ny) * strafe;
+                const moveY = ny * forward + nx * strafe;
+                const mag = Math.hypot(moveX, moveY);
+                const speedScale = mag > 1 ? 1 / mag : 1;
+
+                this.x += moveX * speedScale * currentSpeed * dt;
+                this.y += moveY * speedScale * currentSpeed * dt;
             }
             // Shoot at player
             this.fireTimer -= dt;
@@ -2539,6 +2601,7 @@ class Enemy extends Entity {
     }
 
     updateEndboss(dt, target, dx, dy, d, currentSpeed) {
+        if (!this.alive || this.hp <= 0) return;
         this.spinAngle += dt * 1.5;
 
         // Phase transitions based on HP
@@ -5008,9 +5071,10 @@ const game = {
     },
 
     applyCheatConfiguration() {
-        if (!this.player) return;
+        if (!this.player || !Array.isArray(this.cheatRows) || this.cheatRows.length === 0) return;
 
         const p = this.player;
+        if (!p.weapons || !p.upgradeCounts) return;
         const hpBefore = p.hp;
         const fireTimerBefore = p.fireTimer;
         const angleBefore = p.angle;
@@ -6541,9 +6605,10 @@ function mainLoop(timestamp) {
 // ────── BOOT ──────
 async function bootGame() {
     try {
-        await loadEnvConfig();
+        BOOT_DIAGNOSTICS.env = await loadEnvConfig();
     } catch (e) {
         console.warn("[Boot] Failed loading .env config, continuing", e);
+        BOOT_DIAGNOSTICS.env = { ok: false, source: "default" };
     }
 
     Experiments.load();
@@ -6557,23 +6622,35 @@ async function bootGame() {
 
     try {
         try {
-            await loadChangelogs();
+            BOOT_DIAGNOSTICS.changelogs = await loadChangelogs();
         } catch (e) {
             console.warn("[Boot] Failed loading changelogs, continuing", e);
             GAME_VERSION = "unknown";
+            BOOT_DIAGNOSTICS.changelogs = { ok: false, source: "error", entries: 0, version: GAME_VERSION };
         }
 
         try {
-            await loadSkinShopConfig();
+            BOOT_DIAGNOSTICS.skinShop = await loadSkinShopConfig();
         } catch (e) {
             console.warn("[Boot] Failed loading skin shop config, continuing", e);
+            BOOT_DIAGNOSTICS.skinShop = {
+                ok: false,
+                source: "error",
+                skins: SKIN_SHOP_CONFIG.skins.length,
+                featured: SKIN_SHOP_CONFIG.featuredIds.length,
+            };
         }
 
         try {
             await Progression.init();
+            BOOT_DIAGNOSTICS.progression = { ok: true };
         } catch (e) {
             console.warn("[Boot] Failed loading progression, continuing", e);
+            BOOT_DIAGNOSTICS.progression = { ok: false };
         }
+
+        validateRuntimeConfiguration();
+        logBootDiagnostics();
 
         game.init();
     } finally {

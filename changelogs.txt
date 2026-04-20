@@ -3,6 +3,13 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:01
+- Phase 1 started: baseline stability and correctness hardening
+- Added boot diagnostics summary for env, changelog, skin shop, and progression initialization
+- Added runtime configuration validation warnings for key boot assumptions
+- Added safety guards for endboss update flow and cheat configuration application
+- Normalized ranged enemy movement vector to prevent unintended diagonal overspeed
+
 beta 16.04:02-2
 - Added pause hotkey: press P to open pause/settings during gameplay
 - Reworked Game Speed Modifier into tiered unlocks (each upgrade unlocks the next speed tier)
