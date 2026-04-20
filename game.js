@@ -26,6 +26,16 @@ const BOOT_DIAGNOSTICS = {
     runtimeWarnings: [],
 };
 
+const SKIN_ASSET_TELEMETRY = {
+    requests: 0,
+    cacheHits: 0,
+    loadSuccess: 0,
+    loadFailed: 0,
+    fallbackRetries: 0,
+    resolvedByFallback: 0,
+    placeholderRenders: 0,
+};
+
 const APP_CONFIG = {
     monetization: false,
 };
@@ -643,6 +653,8 @@ let frameNow = 0;
 // Simple sprite cache for player skin assets.
 const SkinAssets = (() => {
     const cache = new Map();
+    const status = new Map();
+    const placeholderSeen = new Set();
 
     function cacheBustUrl(path) {
         const version = (typeof GAME_VERSION === "string" && GAME_VERSION && GAME_VERSION !== "loading...")
@@ -679,16 +691,49 @@ const SkinAssets = (() => {
     function get(path) {
         const key = String(path || "").trim();
         if (!key) return null;
-        if (cache.has(key)) return cache.get(key);
+        if (cache.has(key)) {
+            SKIN_ASSET_TELEMETRY.cacheHits++;
+            return cache.get(key);
+        }
+
+        SKIN_ASSET_TELEMETRY.requests++;
 
         const img = new Image();
         const candidates = buildPathCandidates(key);
         let idx = 0;
 
+        status.set(key, {
+            state: "loading",
+            attempts: candidates.length,
+            attemptIndex: 0,
+            failed: false,
+            loaded: false,
+        });
+
+        img.onload = () => {
+            const st = status.get(key);
+            if (st) {
+                st.state = "ready";
+                st.loaded = true;
+                st.attemptIndex = idx;
+            }
+            SKIN_ASSET_TELEMETRY.loadSuccess++;
+            if (idx > 0) SKIN_ASSET_TELEMETRY.resolvedByFallback++;
+        };
+
         img.onerror = () => {
             idx++;
+            const st = status.get(key);
+            if (st) st.attemptIndex = idx;
             if (idx < candidates.length) {
+                SKIN_ASSET_TELEMETRY.fallbackRetries++;
                 img.src = cacheBustUrl(candidates[idx]);
+            } else {
+                if (st) {
+                    st.state = "missing";
+                    st.failed = true;
+                }
+                SKIN_ASSET_TELEMETRY.loadFailed++;
             }
         };
 
@@ -700,7 +745,32 @@ const SkinAssets = (() => {
         return img;
     }
 
-    return { get };
+    function getStatus(path) {
+        const key = String(path || "").trim();
+        if (!key) return { state: "none" };
+        const st = status.get(key);
+        if (!st) return { state: "unrequested" };
+        return {
+            state: st.state,
+            attempts: st.attempts,
+            attemptIndex: st.attemptIndex,
+            failed: st.failed,
+            loaded: st.loaded,
+        };
+    }
+
+    function markPlaceholderRendered(path) {
+        const key = String(path || "").trim();
+        if (!key || placeholderSeen.has(key)) return;
+        placeholderSeen.add(key);
+        SKIN_ASSET_TELEMETRY.placeholderRenders++;
+    }
+
+    function getTelemetry() {
+        return { ...SKIN_ASSET_TELEMETRY };
+    }
+
+    return { get, getStatus, markPlaceholderRendered, getTelemetry };
 })();
 
 function drawSkinIcon(x, y, radius, skin) {
@@ -712,7 +782,19 @@ function drawSkinIcon(x, y, radius, skin) {
     ctx.fill();
 
     const img = SkinAssets.get(skin.asset || "");
-    if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+    if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
+        SkinAssets.markPlaceholderRendered(skin.asset || "");
+        ctx.strokeStyle = "rgba(255,255,255,0.55)";
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(2, radius - 2), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("?", x, y + 3);
+        return;
+    }
 
     ctx.save();
     ctx.beginPath();
@@ -3777,6 +3859,7 @@ const game = {
     // Shop scrolling
     shopScroll: 0,
     shopMaxScroll: 0,
+    shopTelemetryLogged: false,
 
     // Cheat code state
     cheatProgress: 0,
@@ -3855,6 +3938,7 @@ const game = {
         this.expRewardedCopy = Experiments.get("rewardedCopy");
         this.shopScroll = 0;
         this.shopMaxScroll = 0;
+        this.shopTelemetryLogged = false;
         this.cheatProgress = 0;
         this.cheatRows = [];
         this.cheatScroll = 0;
@@ -4446,6 +4530,7 @@ const game = {
 
     updateShop(dt) {
         if (Input.just("Escape")) {
+            this.shopTelemetryLogged = false;
             this.state = STATE.START_MENU;
         }
 
@@ -4470,6 +4555,12 @@ const game = {
         const profile = Progression.get();
         const featured = Progression.getFeaturedSkinCatalog();
         const allSkins = Progression.getSkinCatalog();
+        const skinAssetTelemetry = SkinAssets.getTelemetry();
+
+        if (!this.shopTelemetryLogged) {
+            console.info("[SkinAssets] Telemetry", skinAssetTelemetry);
+            this.shopTelemetryLogged = true;
+        }
 
         const bgGrad = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
         bgGrad.addColorStop(0, "#0e1228");
@@ -4485,6 +4576,13 @@ const game = {
         ctx.fillStyle = "#9fc6ff";
         ctx.font = "13px 'Segoe UI', Arial, sans-serif";
         ctx.fillText("Shop config is loaded from skinshop.txt", CANVAS_W / 2, 88);
+        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.fillStyle = "#8fb0e6";
+        ctx.fillText(
+            `Asset telemetry  ok:${skinAssetTelemetry.loadSuccess}  missing:${skinAssetTelemetry.loadFailed}  fallback retries:${skinAssetTelemetry.fallbackRetries}  placeholders:${skinAssetTelemetry.placeholderRenders}`,
+            CANVAS_W / 2,
+            104
+        );
 
         drawRoundRect(CANVAS_W - 230, 28, 200, 44, 8);
         ctx.fillStyle = "rgba(0,0,0,0.35)";
@@ -4546,6 +4644,13 @@ const game = {
             const priceLabel = s.cost <= 0 ? "Free" : `${s.cost} shards`;
             const stateLabel = s.unlocked ? (s.selected ? "Selected" : "Owned") : priceLabel;
             ctx.fillText(stateLabel, x + cardW / 2, cardY + 100, cardW - 14);
+
+            const featureAssetStatus = SkinAssets.getStatus(s.asset || "");
+            if (featureAssetStatus.state === "missing") {
+                ctx.fillStyle = "#ffb366";
+                ctx.font = "10px 'Segoe UI', Arial, sans-serif";
+                ctx.fillText("Placeholder art", x + cardW / 2, cardY + 114, cardW - 14);
+            }
 
             const btnW = cardW - 22;
             const btnH = 32;
@@ -4617,7 +4722,10 @@ const game = {
             ctx.fillText(s.name, x + 30, y + 18, itemW - 34);
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(s.unlocked ? (s.selected ? "Selected" : "Owned") : `${s.cost} shards`, x + 30, y + 34, itemW - 34);
+            const assetStatus = SkinAssets.getStatus(s.asset || "");
+            const ownershipLabel = s.unlocked ? (s.selected ? "Selected" : "Owned") : `${s.cost} shards`;
+            const secondaryLabel = assetStatus.state === "missing" ? "  Placeholder" : "";
+            ctx.fillText(`${ownershipLabel}${secondaryLabel}`, x + 30, y + 34, itemW - 34);
 
             const btnW = 86;
             const btnH = 24;
@@ -4656,6 +4764,7 @@ const game = {
         const backY = CANVAS_H - 58;
         const backHover = Mouse.inRect(backX, backY, backW, backH);
         if (drawButton("← BACK TO MENU", backX, backY, backW, backH, backHover, 17)) {
+            this.shopTelemetryLogged = false;
             this.state = STATE.START_MENU;
         }
 

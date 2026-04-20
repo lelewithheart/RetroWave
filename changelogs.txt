@@ -3,6 +3,13 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:02
+- Completed Phase 2 (content-first): skin asset and shop stabilization
+- Added skin asset telemetry counters (requests, cache hits, successful loads, failed loads, fallback retries, placeholder renders)
+- Shop now logs skin asset telemetry when opened for easier QA tracking
+- Added explicit placeholder visuals for missing/unloaded skin icons
+- Featured and all-skins cards now label missing assets as "Placeholder" while keeping skins visible in the catalog
+
 beta 20.04:01
 - Phase 1 started: baseline stability and correctness hardening
 - Added boot diagnostics summary for env, changelog, skin shop, and progression initialization
