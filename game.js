@@ -183,7 +183,6 @@ const MAX_LIGHTNING_BOLTS = 20;
 const PERF_LOW_THRESHOLD = CFG.perf.lowThreshold;
 const PERF_RECOVER_THRESHOLD = CFG.perf.recoverThreshold;
 const PERF_SAMPLE_WINDOW = CFG.perf.sampleWindow;
-const PERF_PROMPT_RETRY_DELAY = 20;
 const TUTORIAL_HINT_DURATION = 8;
 
 // Camera
@@ -4071,7 +4070,7 @@ const game = {
     fpsEma: TARGET_FPS,
     perfSampleTimer: 0,
     lowPerf: false,
-    perfPromptSuppressedUntil: 0,
+    perfPromptDecision: null,
 
     // UX flow state
     tutorialDismissed: false,
@@ -4163,7 +4162,7 @@ const game = {
         this.fpsEma = TARGET_FPS;
         this.perfSampleTimer = 0;
         this.lowPerf = false;
-        this.perfPromptSuppressedUntil = 0;
+        this.perfPromptDecision = null;
         this.tutorialDismissed = false;
         this.revivedThisRun = false;
         this.reviveInProgress = false;
@@ -4217,18 +4216,21 @@ const game = {
         if (this.perfSampleTimer < PERF_SAMPLE_WINDOW) return;
         this.perfSampleTimer = 0;
 
+        // Player accepted performance mode for this run: keep it forced on.
+        if (this.perfPromptDecision === "accept") {
+            this.lowPerf = true;
+            return;
+        }
+
         if (!this.lowPerf && this.fpsEma < PERF_LOW_THRESHOLD) {
-            if (this.timePlayed >= this.perfPromptSuppressedUntil) {
+            if (this.perfPromptDecision !== "decline") {
                 const avgFps = Math.max(1, Math.round(this.fpsEma));
                 const promptText = `Low FPS detected (~${avgFps}). Enable Performance Mode now?`;
                 const wantsPerfMode = typeof window !== "undefined" && typeof window.confirm === "function"
                     ? window.confirm(promptText)
                     : true;
-                if (wantsPerfMode) {
-                    this.lowPerf = true;
-                } else {
-                    this.perfPromptSuppressedUntil = this.timePlayed + PERF_PROMPT_RETRY_DELAY;
-                }
+                this.perfPromptDecision = wantsPerfMode ? "accept" : "decline";
+                if (wantsPerfMode) this.lowPerf = true;
             }
         } else if (this.lowPerf && this.fpsEma > PERF_RECOVER_THRESHOLD) {
             this.lowPerf = false;

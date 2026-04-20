@@ -3,6 +3,15 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:09-3
+- Choosing Yes on the low-FPS prompt now keeps Performance Mode always ON for the rest of that run
+- Performance Mode no longer auto-disables on FPS recovery after opting in during that run
+
+beta 20.04:09-2
+- Low-FPS performance prompt choice is now saved for the full run (single decision per run)
+- Choosing Yes now auto-reapplies Performance Mode on future frame drops in the same run
+- Choosing No now suppresses further low-FPS prompts for the same run
+
 beta 20.04:09-1
 - Balanced upgrade rarity rolls across progression: early waves are mostly common, while rare/epic odds scale up in later waves
 - Epic upgrades are now gated out of normal rolls in very early waves (before wave 6)
