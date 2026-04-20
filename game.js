@@ -6,13 +6,45 @@
 
 "use strict";
 
+const CFG = (typeof window !== "undefined" && window.RogueConfig)
+    ? window.RogueConfig
+    : {
+        perf: {
+            minReadableScale: 0.95,
+            lowThreshold: 48,
+            recoverThreshold: 54,
+            sampleWindow: 1.2,
+        },
+        wave: {
+            baseKills: 10,
+            killsGrowth: 5,
+            baseSpawnCd: 1.5,
+            minSpawnCd: 0.3,
+            spawnCdDecay: 0.92,
+            hpScale: 1.22,
+            speedScale: 1.07,
+            damageScale: 1.10,
+            restTime: 2.5,
+            maxWave: 25,
+        },
+        bosses: {
+            minibossName: "Shard Warden",
+            bigbossName: "Iron Tyrant",
+            bigbossNamesByWave: {
+                10: "Iron Tyrant",
+                20: "Abyss Colossus",
+            },
+            endbossName: "The Null Sovereign",
+        },
+    };
+
 // ─────────────────────────────────────────────
 // §1  CONSTANTS & CONFIGURATION
 // ─────────────────────────────────────────────
 
 const CANVAS_W = 960;
 const CANVAS_H = 640;
-const MIN_READABLE_SCALE = 0.95;
+const MIN_READABLE_SCALE = CFG.perf.minReadableScale;
 const TARGET_FPS = 60;
 const FIXED_DT = 1 / TARGET_FPS;        // Logical step in seconds
 const MAX_DT = 0.1;                      // Cap to avoid spiral of death
@@ -102,10 +134,25 @@ const ENEMY_TYPES = {
 };
 
 const BOSS_NAMES = {
-    miniboss: "Shard Warden",
-    bigboss: "Iron Tyrant",
-    endboss: "The Null Sovereign",
+    miniboss: CFG.bosses.minibossName,
+    bigboss: CFG.bosses.bigbossName,
+    endboss: CFG.bosses.endbossName,
 };
+
+function getBigBossNameForWave(waveNum) {
+    const byWave = CFG.bosses.bigbossNamesByWave || {};
+    const keyed = byWave[String(waveNum)] || byWave[waveNum];
+    return keyed || BOSS_NAMES.bigboss;
+}
+
+function getBossDisplayName(enemy) {
+    if (!enemy) return "";
+    if (enemy.displayName) return enemy.displayName;
+    if (enemy.type === "bigboss") return BOSS_NAMES.bigboss;
+    if (enemy.type === "miniboss") return BOSS_NAMES.miniboss;
+    if (enemy.type === "endboss") return BOSS_NAMES.endboss;
+    return "";
+}
 
 // XP
 const XP_ORB_RADIUS = 6;
@@ -131,9 +178,9 @@ const MAX_PARTICLE_POOL = 240;
 const MAX_DAMAGE_NUMBER_POOL = 120;
 const MAX_FLAME_PATCHES = 50;
 const MAX_LIGHTNING_BOLTS = 20;
-const PERF_LOW_THRESHOLD = 48;
-const PERF_RECOVER_THRESHOLD = 54;
-const PERF_SAMPLE_WINDOW = 1.2;
+const PERF_LOW_THRESHOLD = CFG.perf.lowThreshold;
+const PERF_RECOVER_THRESHOLD = CFG.perf.recoverThreshold;
+const PERF_SAMPLE_WINDOW = CFG.perf.sampleWindow;
 const TUTORIAL_HINT_DURATION = 8;
 
 // Camera
@@ -144,16 +191,16 @@ const SHAKE_DURATION = 0.15;
 const SHAKE_INTENSITY = 6;
 
 // Wave – infinite spawning, kill-target progression
-const WAVE_BASE_KILLS = 10;              // kills needed to complete wave 1
-const WAVE_KILLS_GROWTH = 5;             // additional kills required per wave
-const WAVE_BASE_SPAWN_CD = 1.5;          // spawn cooldown in seconds (wave 1)
-const WAVE_SPAWN_CD_MIN = 0.3;           // minimum spawn cooldown
-const WAVE_SPAWN_CD_DECAY = 0.92;        // multiply cooldown by this each wave
-const WAVE_HP_SCALE = 1.22;
-const WAVE_SPEED_SCALE = 1.07;
-const WAVE_DAMAGE_SCALE = 1.10;          // contact damage grows per wave
-const WAVE_REST_TIME = 2.5;              // seconds between waves
-const WAVE_MAX = 25;                     // completing this wave triggers victory
+const WAVE_BASE_KILLS = CFG.wave.baseKills;              // kills needed to complete wave 1
+const WAVE_KILLS_GROWTH = CFG.wave.killsGrowth;          // additional kills required per wave
+const WAVE_BASE_SPAWN_CD = CFG.wave.baseSpawnCd;         // spawn cooldown in seconds (wave 1)
+const WAVE_SPAWN_CD_MIN = CFG.wave.minSpawnCd;           // minimum spawn cooldown
+const WAVE_SPAWN_CD_DECAY = CFG.wave.spawnCdDecay;       // multiply cooldown by this each wave
+const WAVE_HP_SCALE = CFG.wave.hpScale;
+const WAVE_SPEED_SCALE = CFG.wave.speedScale;
+const WAVE_DAMAGE_SCALE = CFG.wave.damageScale;          // contact damage grows per wave
+const WAVE_REST_TIME = CFG.wave.restTime;                // seconds between waves
+const WAVE_MAX = CFG.wave.maxWave;                       // completing this wave triggers victory
 
 // Upgrade choices per level-up
 const UPGRADE_CHOICES = 3;
@@ -2629,6 +2676,9 @@ class Enemy extends Entity {
         this.contactTimer = 0;
         this.type = type || "normal";
         this.xpMult = typeDef.xpMult;
+        this.displayName = this.type === "bigboss"
+            ? BOSS_NAMES.bigboss
+            : (this.type === "miniboss" ? BOSS_NAMES.miniboss : (this.type === "endboss" ? BOSS_NAMES.endboss : ""));
 
         // Slow effect
         this.slowTimer = 0;
@@ -3136,7 +3186,7 @@ class Enemy extends Entity {
                 ctx.textAlign = "center";
                 ctx.textBaseline = "bottom";
                 ctx.fillStyle = this.type === "bigboss" ? "#ff3333" : "#ff88bb";
-                const bossName = this.type === "bigboss" ? BOSS_NAMES.bigboss : BOSS_NAMES.miniboss;
+                const bossName = getBossDisplayName(this);
                 ctx.fillText(`★ ${bossName} ★`, this.x, by - 2);
             }
         }
@@ -5684,7 +5734,9 @@ const game = {
         // Enemies remaining
         ctx.font = "14px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
-        ctx.fillText(`Kills: ${this.waveKills} / ${this.waveKillsRequired}`, CANVAS_W / 2, pad + 36);
+        if (!this.endbossActive) {
+            ctx.fillText(`Kills: ${this.waveKills} / ${this.waveKillsRequired}`, CANVAS_W / 2, pad + 36);
+        }
 
         // ── Kill count (top-right) ──
         ctx.textAlign = "right";
@@ -5837,7 +5889,7 @@ const game = {
             const bh = isBig ? 14 : 10;
             const bx = CANVAS_W / 2 - bw / 2;
             const by = CANVAS_H - pad - 44;
-            const label = isBig ? `★ ${BOSS_NAMES.bigboss} ★` : `★ ${BOSS_NAMES.miniboss} ★`;
+            const label = `★ ${getBossDisplayName(this.activeBoss)} ★`;
             ctx.textAlign = "center";
             ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
             ctx.fillStyle = isBig ? "#ff3333" : "#ff88bb";
@@ -6014,6 +6066,9 @@ const game = {
                 Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult),
                 ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * mods.enemySpdMult,
                 undefined, bossType);
+            if (bossType === "bigboss") {
+                boss.displayName = getBigBossNameForWave(this.wave);
+            }
             boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
             this.enemies.push(boss);
             this.activeBoss = boss;

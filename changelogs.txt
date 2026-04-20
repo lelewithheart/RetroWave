@@ -3,6 +3,23 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:06-2
+- Hotfix: removed wave kill-progress text during the final boss fight
+- The "Kills: current/required" line now hides while The Null Sovereign encounter is active
+
+beta 20.04:06-1
+- Hotfix: assigned distinct names to both big boss encounters
+- Wave 10 big boss is now Iron Tyrant
+- Wave 20 big boss is now Abyss Colossus
+- Boss labels now read per-encounter display name instead of one shared big boss title
+
+beta 20.04:06
+- Started Phase 5 architecture and extensibility work
+- Added modular config.js as centralized runtime tuning source
+- Moved wave/performance tuning and boss display names to structured config groups
+- Wired game.js to consume config values with safe in-file fallbacks
+- Updated index.html boot order to load config.js before game.js
+
 beta 20.04:05
 - Added new lore-driven boss names across gameplay UI
 - Miniboss renamed to Shard Warden
