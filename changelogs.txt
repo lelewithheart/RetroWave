@@ -3,6 +3,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:09-1
+- Balanced upgrade rarity rolls across progression: early waves are mostly common, while rare/epic odds scale up in later waves
+- Epic upgrades are now gated out of normal rolls in very early waves (before wave 6)
+- Bonus and big-boss reward upgrade rolls now boost rare/epic odds for more meaningful reward moments
+- Added safe fallback fill so upgrade choice count always remains complete even if weighted pools get exhausted
+
 beta 20.04:09
 - Added a low-FPS confirmation prompt before enabling Performance Mode
 - Declining Performance Mode now temporarily suppresses repeat prompts to avoid spam

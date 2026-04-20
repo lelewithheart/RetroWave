@@ -342,12 +342,51 @@ function upgradeRarity(upgrade) {
     return upgrade.rarity || "common";
 }
 
-function upgradeRarityWeight(rarity) {
+function upgradeRarityWeight(rarity, opts = {}) {
+    const wave = opts.wave || 1;
+    const isBonusWave = !!opts.isBonusWave;
+    const bossType = opts.bossType || null;
+
+    let weight;
     switch (rarity) {
-        case "epic": return 5;
-        case "rare": return 16;
-        default: return 100;
+        case "epic":
+            weight = 5;
+            break;
+        case "rare":
+            weight = 16;
+            break;
+        default:
+            weight = 100;
+            break;
     }
+
+    if (rarity === "epic" && wave < 6 && !isBonusWave) {
+        return 0;
+    }
+
+    if (wave >= 8) {
+        if (rarity === "rare") weight *= 1.35;
+        if (rarity === "epic") weight *= 1.5;
+    }
+    if (wave >= 15) {
+        if (rarity === "rare") weight *= 1.7;
+        if (rarity === "epic") weight *= 2.2;
+    }
+    if (wave >= 20) {
+        if (rarity === "rare") weight *= 2.1;
+        if (rarity === "epic") weight *= 3.0;
+    }
+
+    if (isBonusWave) {
+        if (rarity === "rare") weight *= 1.25;
+        if (rarity === "epic") weight *= 1.4;
+    }
+    if (bossType === "bigboss") {
+        if (rarity === "rare") weight *= 1.2;
+        if (rarity === "epic") weight *= 1.35;
+    }
+
+    return weight;
 }
 
 function upgradeRarityColor(rarity) {
@@ -358,20 +397,21 @@ function upgradeRarityColor(rarity) {
     }
 }
 
-function pickUpgradeChoicesByRarity(pool, count) {
+function pickUpgradeChoicesByRarity(pool, count, opts = {}) {
     const picks = [];
     const available = [...pool];
 
     while (available.length > 0 && picks.length < count) {
         let totalWeight = 0;
         for (let i = 0; i < available.length; i++) {
-            totalWeight += upgradeRarityWeight(upgradeRarity(available[i]));
+            totalWeight += upgradeRarityWeight(upgradeRarity(available[i]), opts);
         }
+        if (totalWeight <= 0) break;
 
         let roll = Math.random() * totalWeight;
         let chosenIdx = available.length - 1;
         for (let i = 0; i < available.length; i++) {
-            roll -= upgradeRarityWeight(upgradeRarity(available[i]));
+            roll -= upgradeRarityWeight(upgradeRarity(available[i]), opts);
             if (roll <= 0) {
                 chosenIdx = i;
                 break;
@@ -6377,7 +6417,16 @@ const game = {
             }
             return true;
         });
-        this.upgradeChoices = pickUpgradeChoicesByRarity(pool, numChoices);
+        this.upgradeChoices = pickUpgradeChoicesByRarity(pool, numChoices, {
+            wave: this.wave,
+            isBonusWave,
+            bossType,
+        });
+
+        if (this.upgradeChoices.length < numChoices) {
+            const fallbackPool = shuffle([...pool]).filter((up) => !this.upgradeChoices.includes(up));
+            this.upgradeChoices.push(...fallbackPool.slice(0, numChoices - this.upgradeChoices.length));
+        }
         this.upgradeIsBonusWave = isBonusWave;
         this.state = STATE.UPGRADE_SCREEN;
         this.levelUpFlashTimer = 0.3;
