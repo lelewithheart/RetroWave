@@ -36,6 +36,17 @@ const CFG = (typeof window !== "undefined" && window.RogueConfig)
             },
             endbossName: "The Null Sovereign",
         },
+        skinShop: {
+            skins: [
+                { id: "default", name: "Classic Cyan", player: "#33ccff", glow: "rgba(51,204,255,0.25)", cost: 0, asset: "assets/playerskins/default.png" },
+                { id: "surge", name: "Lime Surge", player: "#66ff99", glow: "rgba(102,255,153,0.25)", cost: 140, asset: "assets/playerskins/surge.png" },
+                { id: "ember", name: "Ember Pulse", player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140, asset: "assets/playerskins/ember.png" },
+                { id: "nova", name: "Nova Gold", player: "#ffd166", glow: "rgba(255,209,102,0.28)", cost: 180, asset: "assets/playerskins/nova.png" },
+                { id: "rainbow", name: "Rainbow", player: "#ff00ff", glow: "rgba(255,0,255,0.4)", cost: 200, asset: "assets/playerskins/rainbow.png" },
+                { id: "spiderman", name: "Spiderman Skin", player: "#d32f2f", glow: "rgba(30,90,200,0.35)", cost: 240, asset: "assets/playerskins/SpidermanSkin.png" },
+            ],
+            featuredIds: ["rainbow", "nova", "spiderman"],
+        },
     };
 
 // ─────────────────────────────────────────────
@@ -73,17 +84,28 @@ const APP_CONFIG = {
     monetization: false,
 };
 
+function cloneSkinShopConfig(raw) {
+    const src = raw || {};
+    const skins = Array.isArray(src.skins)
+        ? src.skins.map((s) => ({
+            id: String(s.id || "").trim(),
+            name: String(s.name || "").trim(),
+            player: String(s.player || "").trim(),
+            glow: String(s.glow || "").trim(),
+            cost: Math.max(0, Math.floor(Number(s.cost) || 0)),
+            asset: String(s.asset || "").trim(),
+        }))
+        : [];
+    const featuredIds = Array.isArray(src.featuredIds)
+        ? src.featuredIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+    return { skins, featuredIds };
+}
+
+const DEFAULT_SKIN_SHOP_CONFIG = cloneSkinShopConfig(CFG.skinShop);
+
 // Skin shop config (loaded from skinshop.txt at boot)
-let SKIN_SHOP_CONFIG = {
-    skins: [
-        { id: "default", name: "Classic Cyan", player: "#33ccff", glow: "rgba(51,204,255,0.25)", cost: 0, asset: "assets/playerskins/default.png" },
-        { id: "surge",   name: "Lime Surge",   player: "#66ff99", glow: "rgba(102,255,153,0.25)", cost: 140, asset: "assets/playerskins/surge.png" },
-        { id: "ember",   name: "Ember Pulse",  player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140, asset: "assets/playerskins/ember.png" },
-        { id: "nova",    name: "Nova Gold",    player: "#ffd166", glow: "rgba(255,209,102,0.28)", cost: 180, asset: "assets/playerskins/nova.png" },
-        { id: "spiderman", name: "Spiderman Skin", player: "#d32f2f", glow: "rgba(30,90,200,0.35)", cost: 240, asset: "assets/playerskins/SpidermanSkin.png" },
-    ],
-    featuredIds: ["ember", "nova", "spiderman"],
-};
+let SKIN_SHOP_CONFIG = cloneSkinShopConfig(DEFAULT_SKIN_SHOP_CONFIG);
 
 // Game-state identifiers
 const STATE = {
@@ -635,13 +657,14 @@ function parseSkinShopText(text) {
         }
     }
     if (!hasDefault) {
+        const defaultFromConfig = (DEFAULT_SKIN_SHOP_CONFIG.skins || []).find((s) => s.id === "default");
         skins.unshift({
             id: "default",
-            name: "Classic Cyan",
-            player: "#33ccff",
-            glow: "rgba(51,204,255,0.25)",
+            name: defaultFromConfig ? defaultFromConfig.name : "Classic Cyan",
+            player: defaultFromConfig ? defaultFromConfig.player : "#33ccff",
+            glow: defaultFromConfig ? defaultFromConfig.glow : "rgba(51,204,255,0.25)",
             cost: 0,
-            asset: "assets/playerskins/default.png",
+            asset: defaultFromConfig ? defaultFromConfig.asset : "assets/playerskins/default.png",
         });
     }
 
