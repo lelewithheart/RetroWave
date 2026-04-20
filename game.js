@@ -1738,6 +1738,7 @@ const Mouse = {
 
         // Touch support – map touches to mouse position & click
         canvas.addEventListener("touchstart", (e) => {
+            if (isMobile && game.state === STATE.GAMEPLAY) return;
             e.preventDefault();
             // During gameplay on mobile, TouchControls handles all touches (move + aim joysticks).
             // Don't update Mouse position from gameplay touches to avoid absolute-position aiming.
@@ -1765,6 +1766,7 @@ const Mouse = {
             }
         }, { passive: false });
         canvas.addEventListener("touchmove", (e) => {
+            if (isMobile && game.state === STATE.GAMEPLAY) return;
             e.preventDefault();
             const rect = canvas.getBoundingClientRect();
             for (const t of e.changedTouches) {
@@ -1786,6 +1788,7 @@ const Mouse = {
             }
         }, { passive: false });
         canvas.addEventListener("touchend", (e) => {
+            if (isMobile && game.state === STATE.GAMEPLAY) return;
             e.preventDefault();
             for (const t of e.changedTouches) {
                 if (t.identifier === this.touchDragId) {
@@ -1796,6 +1799,7 @@ const Mouse = {
             }
         }, { passive: false });
         canvas.addEventListener("touchcancel", (e) => {
+            if (isMobile && game.state === STATE.GAMEPLAY) return;
             e.preventDefault();
             for (const t of e.changedTouches) {
                 if (t.identifier === this.touchDragId) {
@@ -1855,15 +1859,16 @@ const TouchControls = {
 
     getPauseButtonRect() {
         if (isPortraitMobile()) {
-            return { x: CANVAS_W - 70, y: 10, w: 60, h: 40 };
+            return { x: CANVAS_W - 78, y: 8, w: 70, h: 46 };
         }
-        return { x: CANVAS_W - 52, y: 8, w: 44, h: 36 };
+        return { x: CANVAS_W - 58, y: 8, w: 50, h: 44 };
     },
 
     init() {
         if (!isMobile) return;
 
         canvas.addEventListener("touchstart", (e) => {
+            e.preventDefault();
             for (const t of e.changedTouches) {
                 const pos = this._toCanvas(t);
                 const pauseBtn = this.getPauseButtonRect();
@@ -1904,6 +1909,7 @@ const TouchControls = {
         }, { passive: false });
 
         canvas.addEventListener("touchmove", (e) => {
+            e.preventDefault();
             for (const t of e.changedTouches) {
                 if (this.moveActive && t.identifier === this.moveId) {
                     const pos = this._toCanvas(t);
@@ -1946,6 +1952,7 @@ const TouchControls = {
         }, { passive: false });
 
         const endTouch = (e) => {
+            e.preventDefault();
             for (const t of e.changedTouches) {
                 if (this.moveActive && t.identifier === this.moveId) {
                     this.moveActive = false;
@@ -2072,7 +2079,8 @@ const TouchControls = {
 
         // Pause icon (two bars)
         ctx.fillStyle = "rgba(255,255,255,0.6)";
-        const barW = 5, barH = 16;
+        const barW = Math.max(5, Math.floor(w * 0.12));
+        const barH = Math.max(16, Math.floor(h * 0.45));
         const cx = x + w / 2, cy = y + h / 2;
         ctx.fillRect(cx - barW - 2, cy - barH / 2, barW, barH);
         ctx.fillRect(cx + 2,         cy - barH / 2, barW, barH);
