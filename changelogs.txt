@@ -2,6 +2,10 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 20.04:20-1
+- HOTFIX: Prestige skin requirements now use a built-in fallback threshold map when config skinThresholds is missing
+- Fixes zero-prestige profiles incorrectly retaining or unlocking prestige skins due to missing runtime threshold data
+
 beta 20.04:20
 - Added procedural fallback emblems for prestige skins (B/S/G/D/P/E tier marks) when image assets are missing
 - Prestige placeholders now render as intentional tier icons instead of generic '?' circles

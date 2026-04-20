@@ -477,9 +477,20 @@ const PRESTIGE_ENABLED = PRESTIGE_CFG.enabled !== false;
 const PRESTIGE_GAIN_PER_CLEAR = Math.max(1, Math.floor(Number(PRESTIGE_CFG.gainPerClear) || 1));
 const PRESTIGE_RESET_SHARDS = PRESTIGE_CFG.resetShards !== false;
 const PRESTIGE_RESET_META = PRESTIGE_CFG.resetMeta !== false;
+const PRESTIGE_FALLBACK_SKIN_THRESHOLDS = [
+    { prestigeLevel: 1, skinId: "prestige_bronze" },
+    { prestigeLevel: 2, skinId: "prestige_silver" },
+    { prestigeLevel: 3, skinId: "prestige_gold" },
+    { prestigeLevel: 5, skinId: "prestige_diamond" },
+    { prestigeLevel: 7, skinId: "prestige_platinum" },
+    { prestigeLevel: 10, skinId: "prestige_emerald" },
+];
 const PRESTIGE_SKIN_THRESHOLDS = Array.isArray(PRESTIGE_CFG.skinThresholds)
-    ? PRESTIGE_CFG.skinThresholds.sort((a, b) => (a.prestigeLevel || 0) - (b.prestigeLevel || 0))
+    ? [...PRESTIGE_CFG.skinThresholds].sort((a, b) => (a.prestigeLevel || 0) - (b.prestigeLevel || 0))
     : [];
+const RESOLVED_PRESTIGE_SKIN_THRESHOLDS = PRESTIGE_SKIN_THRESHOLDS.length > 0
+    ? PRESTIGE_SKIN_THRESHOLDS
+    : PRESTIGE_FALLBACK_SKIN_THRESHOLDS;
 
 
 function upgradeRarityWeight(rarity, opts = {}) {
@@ -1771,10 +1782,10 @@ const Progression = (() => {
     }
 
     function applyPrestigeSkinUnlocks() {
-        if (!PRESTIGE_ENABLED || PRESTIGE_SKIN_THRESHOLDS.length === 0) return;
+        if (!PRESTIGE_ENABLED || RESOLVED_PRESTIGE_SKIN_THRESHOLDS.length === 0) return;
         
         const currentPrestige = Math.max(0, Math.floor(data.prestige?.count || 0));
-        for (const threshold of PRESTIGE_SKIN_THRESHOLDS) {
+        for (const threshold of RESOLVED_PRESTIGE_SKIN_THRESHOLDS) {
             if (currentPrestige >= threshold.prestigeLevel && SKINS[threshold.skinId]) {
                 if (!data.skins.unlocked.includes(threshold.skinId)) {
                     data.skins.unlocked.push(threshold.skinId);
@@ -1784,10 +1795,10 @@ const Progression = (() => {
     }
 
     function getUnlockedSkinsForPrestige(prestigeLevel) {
-        if (!PRESTIGE_ENABLED || PRESTIGE_SKIN_THRESHOLDS.length === 0) return [];
+        if (!PRESTIGE_ENABLED || RESOLVED_PRESTIGE_SKIN_THRESHOLDS.length === 0) return [];
         const prestigeLevel_ = Math.max(0, Math.floor(prestigeLevel || 0));
         const unlockedIds = [];
-        for (const threshold of PRESTIGE_SKIN_THRESHOLDS) {
+        for (const threshold of RESOLVED_PRESTIGE_SKIN_THRESHOLDS) {
             if (prestigeLevel_ >= threshold.prestigeLevel && SKINS[threshold.skinId]) {
                 unlockedIds.push(threshold.skinId);
             }
@@ -1796,8 +1807,8 @@ const Progression = (() => {
     }
 
     function getPrestigeSkinRequirement(id) {
-        if (!PRESTIGE_ENABLED || PRESTIGE_SKIN_THRESHOLDS.length === 0) return 0;
-        const threshold = PRESTIGE_SKIN_THRESHOLDS.find((entry) => entry.skinId === id);
+        if (!PRESTIGE_ENABLED || RESOLVED_PRESTIGE_SKIN_THRESHOLDS.length === 0) return 0;
+        const threshold = RESOLVED_PRESTIGE_SKIN_THRESHOLDS.find((entry) => entry.skinId === id);
         return threshold ? Math.max(0, Math.floor(threshold.prestigeLevel || 0)) : 0;
     }
 
