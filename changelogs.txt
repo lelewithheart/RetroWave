@@ -3,6 +3,19 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:05
+- Added new lore-driven boss names across gameplay UI
+- Miniboss renamed to Shard Warden
+- Big boss renamed to Iron Tyrant
+- Final boss renamed to The Null Sovereign
+- Added story.txt with the RogueWave storyline and world context
+
+beta 20.04:04-2
+- Hotfix: further improved small-window readability and boss reward timing
+- Raised minimum canvas display scale so text remains readable on tiny windows
+- Switched canvas scaling to non-pixelated rendering for clearer text and UI
+- Miniboss and bigboss rewards are now awarded instantly on boss kill instead of waiting for wave completion
+
 beta 20.04:04-1
 - Hotfix: improved readability in very small windows
 - Added minimum canvas display scale to prevent UI/text from shrinking to illegible sizes

@@ -12,7 +12,7 @@
 
 const CANVAS_W = 960;
 const CANVAS_H = 640;
-const MIN_READABLE_SCALE = 0.72;
+const MIN_READABLE_SCALE = 0.95;
 const TARGET_FPS = 60;
 const FIXED_DT = 1 / TARGET_FPS;        // Logical step in seconds
 const MAX_DT = 0.1;                      // Cap to avoid spiral of death
@@ -99,6 +99,12 @@ const ENEMY_TYPES = {
     miniboss: { hpMult: 12,  spdMult: 0.55, radius: 38, contactDmg: 30, color: "#dd2277", xpMult: 12  },
     bigboss:  { hpMult: 30,  spdMult: 0.35, radius: 56, contactDmg: 50, color: "#cc0000", xpMult: 30  },
     endboss:  { hpMult: 80,  spdMult: 0.3,  radius: 72, contactDmg: 40, color: "#ff00ff", xpMult: 100 },
+};
+
+const BOSS_NAMES = {
+    miniboss: "Shard Warden",
+    bigboss: "Iron Tyrant",
+    endboss: "The Null Sovereign",
 };
 
 // XP
@@ -3124,13 +3130,14 @@ class Enemy extends Entity {
                 ctx.textAlign = "center";
                 ctx.textBaseline = "bottom";
                 ctx.fillStyle = "#ff00ff";
-                ctx.fillText(`☠ VOID HERALD ${phaseName ? "— " + phaseName : ""} ☠`, this.x, by - 4);
+                ctx.fillText(`☠ ${BOSS_NAMES.endboss} ${phaseName ? "— " + phaseName : ""} ☠`, this.x, by - 4);
             } else if (this.type === "miniboss" || this.type === "bigboss") {
                 ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "bottom";
                 ctx.fillStyle = this.type === "bigboss" ? "#ff3333" : "#ff88bb";
-                ctx.fillText(this.type === "bigboss" ? "★ BIG BOSS ★" : "★ MINIBOSS ★", this.x, by - 2);
+                const bossName = this.type === "bigboss" ? BOSS_NAMES.bigboss : BOSS_NAMES.miniboss;
+                ctx.fillText(`★ ${bossName} ★`, this.x, by - 2);
             }
         }
     }
@@ -5654,7 +5661,7 @@ const game = {
         ctx.font = "bold 22px 'Segoe UI', Arial, sans-serif";
         if (this.endbossActive) {
             ctx.fillStyle = "#ff00ff";
-            ctx.fillText("☠ VOID HERALD ☠", CANVAS_W / 2, pad + 14);
+            ctx.fillText(`☠ ${BOSS_NAMES.endboss} ☠`, CANVAS_W / 2, pad + 14);
             // Endboss HP bar (full width at top)
             if (this.activeBoss && this.activeBoss.alive) {
                 const ebHpW = 300, ebHpH = 12;
@@ -5830,7 +5837,7 @@ const game = {
             const bh = isBig ? 14 : 10;
             const bx = CANVAS_W / 2 - bw / 2;
             const by = CANVAS_H - pad - 44;
-            const label = isBig ? "★ BIG BOSS ★" : "★ MINIBOSS ★";
+            const label = isBig ? `★ ${BOSS_NAMES.bigboss} ★` : `★ ${BOSS_NAMES.miniboss} ★`;
             ctx.textAlign = "center";
             ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
             ctx.fillStyle = isBig ? "#ff3333" : "#ff88bb";
@@ -5965,7 +5972,7 @@ const game = {
 
         // Boss intro banner
         this.waveBannerTimer = 3.0;
-        this.waveBannerText = "☠ VOID HERALD APPROACHES ☠";
+        this.waveBannerText = `☠ ${BOSS_NAMES.endboss} APPROACHES ☠`;
         this.camera.shake();
         Audio.sfxExplosion();
     },
@@ -6109,10 +6116,11 @@ const game = {
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
         Audio.sfxEnemyDeath();
-        // Boss kill rewards: free upgrade
+        // Boss kill rewards: grant instantly on miniboss/bigboss death.
         if (enemy.type === "miniboss" || enemy.type === "bigboss") {
-            this.pendingBonusUpgrade = true;
-            this.pendingBossType = enemy.type;
+            this.pendingBonusUpgrade = false;
+            this.pendingBossType = null;
+            this.triggerUpgrade(true, enemy.type);
         }
     },
 
@@ -6685,7 +6693,7 @@ const game = {
 
         ctx.fillStyle = COLOR.text;
         ctx.font = "22px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("The Void Herald has been vanquished!", CANVAS_W / 2, CANVAS_H / 2 - 60);
+        ctx.fillText(`${BOSS_NAMES.endboss} has been vanquished!`, CANVAS_W / 2, CANVAS_H / 2 - 60);
 
         ctx.fillStyle = COLOR.accent;
         ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";

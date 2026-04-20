@@ -1,0 +1,28 @@
+RogueWave Storyline
+===================
+
+The city used to breathe in light.
+Neon District was loud, Acid Grid was alive, and Crimson Core powered every tower in the skyline.
+Then the signal came: a silent wave from the deep lattice below the city.
+Street drones failed first, then defense arrays, then the sky itself started to flicker.
+
+You are one of the last Wavebreakers, an arena pilot wired to a reactive combat frame.
+Your frame adapts during combat, learning from every close call, every shard, every level.
+The more you survive, the stronger and stranger your build becomes.
+
+The corrupted network does not send armies. It sends wardens.
+At key breach points, the signal manifests as bosses:
+
+- Shard Warden: a fast strike commander that anchors local corruption loops.
+- Iron Tyrant: a siege engine wrapped in plated geometry and brute force.
+- The Null Sovereign: the source entity, a reality-eating monarch buried in the core.
+
+Your objective is simple to state and brutal to execute:
+hold the arena, break each wave, cut down the wardens, and reach the core alive.
+
+If Shard Warden falls, the first lock opens.
+If Iron Tyrant falls, the city grid can breathe again.
+If The Null Sovereign falls, the signal ends.
+
+Every run writes another line in the same war:
+Survive. Adapt. Overwhelm the wave.
