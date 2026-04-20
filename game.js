@@ -6038,23 +6038,26 @@ const game = {
             ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
         }
 
-        if (this.eventFlashTimer > 0) {
-            const flashAlpha = clamp(this.eventFlashTimer / 0.26, 0, 0.24);
-            ctx.globalAlpha = flashAlpha;
-            ctx.fillStyle = this.eventFlashColor || "#ffffff";
-            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-            ctx.globalAlpha = 1;
-        }
+        // Event feedback (flash & toast) - skip on low-perf for reduced overhead
+        if (!this.lowPerf) {
+            if (this.eventFlashTimer > 0) {
+                const flashAlpha = clamp(this.eventFlashTimer / 0.26, 0, 0.24);
+                ctx.globalAlpha = flashAlpha;
+                ctx.fillStyle = this.eventFlashColor || "#ffffff";
+                ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+                ctx.globalAlpha = 1;
+            }
 
-        if (this.eventToastTimer > 0) {
-            const t = clamp(this.eventToastTimer / 1.1, 0, 1);
-            const y = 172 - (1 - t) * 10;
-            ctx.textAlign = "center";
-            ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";
-            ctx.fillStyle = this.eventToastColor;
-            ctx.globalAlpha = t;
-            ctx.fillText(this.eventToastText, CANVAS_W / 2, y);
-            ctx.globalAlpha = 1;
+            if (this.eventToastTimer > 0) {
+                const t = clamp(this.eventToastTimer / 1.1, 0, 1);
+                const y = 172 - (1 - t) * 10;
+                ctx.textAlign = "center";
+                ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";
+                ctx.fillStyle = this.eventToastColor;
+                ctx.globalAlpha = t;
+                ctx.fillText(this.eventToastText, CANVAS_W / 2, y);
+                ctx.globalAlpha = 1;
+            }
         }
 
         // HUD (screen-space)

@@ -2,6 +2,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 20.04:18
+- Performance optimization: Event feedback system (flash & toast) now skips rendering on lowPerf mode to reduce overhead
+- Defensive guard added for event VFX: renders only when performance headroom available (FPS > 54)
+- Prestige skins, audio cues, and enhanced camera shake integrate within existing particle/effect caps
+- All new effects respect dynamicCap scaling and lowPerf degradation paths
+
 
 beta 20.04:17-2
 - HOTFIX: Fixed game freeze on level up with duplicate upgrade screens appearing
