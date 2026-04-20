@@ -10,6 +10,17 @@
             width: 100vw;
             font-family: 'Segoe UI', Arial, sans-serif;
         }
+        html.canvas-scroll-mode,
+        body.canvas-scroll-mode {
+            overflow: auto;
+        }
+        body.canvas-scroll-mode {
+            justify-content: flex-start;
+            align-items: flex-start;
+            padding: 12px;
+            min-height: 100vh;
+            min-width: 100vw;
+        }
         canvas {
             display: block;
             image-rendering: pixelated;

@@ -12,6 +12,7 @@
 
 const CANVAS_W = 960;
 const CANVAS_H = 640;
+const MIN_READABLE_SCALE = 0.72;
 const TARGET_FPS = 60;
 const FIXED_DT = 1 / TARGET_FPS;        // Logical step in seconds
 const MAX_DT = 0.1;                      // Cap to avoid spiral of death
@@ -216,7 +217,13 @@ const canvas = document.getElementById("gameCanvas");
 const ctx    = canvas.getContext("2d");
 
 function resizeCanvas() {
-    const scale = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
+    const fitScale = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
+    const scale = Math.max(MIN_READABLE_SCALE, fitScale);
+
+    const scrollMode = scale > fitScale;
+    document.documentElement.classList.toggle("canvas-scroll-mode", scrollMode);
+    document.body.classList.toggle("canvas-scroll-mode", scrollMode);
+
     canvas.style.width  = (CANVAS_W * scale) + "px";
     canvas.style.height = (CANVAS_H * scale) + "px";
     canvas.width  = CANVAS_W;

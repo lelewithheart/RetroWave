@@ -3,6 +3,11 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:04-1
+- Hotfix: improved readability in very small windows
+- Added minimum canvas display scale to prevent UI/text from shrinking to illegible sizes
+- Added automatic scroll mode for tiny viewports so the game remains readable and reachable
+
 beta 20.04:04
 - Completed Phase 4 mobile UX and accessibility pass
 - Relaxed viewport policy to allow browser zoom for better readability on small screens
