@@ -2,6 +2,14 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 20.04:20
+- Added procedural fallback emblems for prestige skins (B/S/G/D/P/E tier marks) when image assets are missing
+- Prestige placeholders now render as intentional tier icons instead of generic '?' circles
+
+beta 20.04:19
+- Added prestige track previews to start menu and victory screen so the next unlock target is visible
+- Prestige skin rewards now read as a progression path instead of only a shop state
+
 beta 20.04:18-1
 - HOTFIX: Prestige skins are now achievement-locked and cannot be bought with shards
 - Load/save normalization strips invalid prestige unlocks unless the prestige threshold is met

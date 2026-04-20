@@ -1072,6 +1072,53 @@ function drawSkinIcon(x, y, radius, skin) {
     const img = SkinAssets.get(skin.asset || "");
     if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) {
         SkinAssets.markPlaceholderRendered(skin.asset || "");
+        const skinId = String(skin.id || "");
+        const isPrestigeSkin = skinId.startsWith("prestige_");
+        if (isPrestigeSkin) {
+            const tierLabelMap = {
+                prestige_bronze: "B",
+                prestige_silver: "S",
+                prestige_gold: "G",
+                prestige_diamond: "D",
+                prestige_platinum: "P",
+                prestige_emerald: "E",
+            };
+            const glyph = tierLabelMap[skinId] || "P";
+            const ringColor = withAlpha(skin.glow || "rgba(255,255,255,0.35)", 0.65);
+            const innerRing = withAlpha(skin.glow || "rgba(255,255,255,0.35)", 0.3);
+
+            ctx.strokeStyle = ringColor;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.arc(x, y, Math.max(2, radius - 1.8), 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = innerRing;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(x, y, Math.max(2, radius - 4), 0, Math.PI * 2);
+            ctx.stroke();
+
+            const starR = Math.max(1.8, radius * 0.34);
+            ctx.fillStyle = "rgba(255,255,255,0.78)";
+            ctx.beginPath();
+            ctx.moveTo(x, y - starR);
+            for (let i = 1; i < 5; i++) {
+                const a = -Math.PI / 2 + i * (Math.PI * 2 / 5);
+                const p = (i % 2 === 0) ? starR : starR * 0.45;
+                ctx.lineTo(x + Math.cos(a) * p, y + Math.sin(a) * p);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = "rgba(10,14,26,0.9)";
+            ctx.font = `bold ${Math.max(6, Math.floor(radius * 0.88))}px 'Segoe UI', Arial, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(glyph, x, y + 0.5);
+            return;
+        }
+
         ctx.strokeStyle = "rgba(255,255,255,0.55)";
         ctx.lineWidth = 1.1;
         ctx.beginPath();
@@ -1091,6 +1138,19 @@ function drawSkinIcon(x, y, radius, skin) {
     const size = radius * 2;
     ctx.drawImage(img, x - radius, y - radius, size, size);
     ctx.restore();
+}
+
+function getNextPrestigeSkinPreview(skins, prestigeCount) {
+    if (!Array.isArray(skins) || skins.length === 0) return null;
+    const currentPrestige = Math.max(0, Math.floor(prestigeCount || 0));
+    const next = skins
+        .filter((s) => s && s.prestigeSkin && !s.unlocked && Number.isFinite(s.prestigeRequirement) && s.prestigeRequirement > currentPrestige)
+        .sort((a, b) => a.prestigeRequirement - b.prestigeRequirement)[0] || null;
+    if (!next) return null;
+    return {
+        name: next.name,
+        requirement: next.prestigeRequirement,
+    };
 }
 
 // ── Spatial grid for broadphase collision ──
@@ -4716,6 +4776,7 @@ const game = {
         const portrait = isPortraitMobile();
         const compactMobile = portrait;
         const profile = Progression.get();
+        const allSkins = Progression.getSkinCatalog();
         const daily = Progression.getDailyView();
 
         // Atmosphere backdrop for menu readability
@@ -4914,6 +4975,17 @@ const game = {
         ctx.fillStyle = "#ffd166";
         ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`✦ PRESTIGE: ${profile.prestige?.count || 0}`, mpX + 12, mpY + 38);
+        const nextPrestigeSkin = getNextPrestigeSkinPreview(allSkins, profile.prestige?.count || 0);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(
+            nextPrestigeSkin
+                ? `Next reward: ${nextPrestigeSkin.name} at Prestige ${nextPrestigeSkin.requirement}`
+                : "Prestige track complete",
+            mpX + 12,
+            mpY + 54,
+            mpW - 24
+        );
 
         const metaRows = [
             { key: "hp", label: "Vital Core", bonus: "+10 max HP" },
@@ -7401,12 +7473,20 @@ const game = {
             CANVAS_W / 2, CANVAS_H / 2 + 24);
         ctx.fillText(`Prestige reset applied: Shards ${PRESTIGE_RESET_SHARDS ? "reset" : "kept"}  •  Meta ${PRESTIGE_RESET_META ? "reset" : "kept"}`,
             CANVAS_W / 2, CANVAS_H / 2 + 44);
+        const victoryNextPrestige = getNextPrestigeSkinPreview(Progression.getSkinCatalog(), this.lastPrestigeTotal);
+        ctx.fillText(
+            victoryNextPrestige
+                ? `Next prestige reward: ${victoryNextPrestige.name} at Prestige ${victoryNextPrestige.requirement}`
+                : "Prestige track complete",
+            CANVAS_W / 2,
+            CANVAS_H / 2 + 64
+        );
 
         const accuracy = this.runShotsFired > 0
             ? Math.round((this.runShotsHit / this.runShotsFired) * 100)
             : 0;
         ctx.fillText(`Summary: Accuracy ${accuracy}%  •  Upgrades ${this.runUpgradesTaken}  •  Bosses ${this.runBossesDefeated}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 64);
+            CANVAS_W / 2, CANVAS_H / 2 + 84);
 
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
