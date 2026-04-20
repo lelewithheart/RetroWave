@@ -47,6 +47,61 @@ const CFG = (typeof window !== "undefined" && window.RogueConfig)
             ],
             featuredIds: ["rainbow", "nova", "spiderman"],
         },
+        upgrades: {
+            rarityBaseWeights: {
+                common: 100,
+                rare: 16,
+                epic: 5,
+            },
+            rarityColors: {
+                common: "#cfd9e6",
+                rare: "#66ddff",
+                epic: "#c38bff",
+            },
+            epicUnlockWave: 6,
+            waveBoosts: [
+                { wave: 8, rare: 1.35, epic: 1.5 },
+                { wave: 15, rare: 1.7, epic: 2.2 },
+                { wave: 20, rare: 2.1, epic: 3.0 },
+            ],
+            bonusWaveBoost: {
+                rare: 1.25,
+                epic: 1.4,
+            },
+            bigbossBoost: {
+                rare: 1.2,
+                epic: 1.35,
+            },
+            tuning: {
+                damage1: 5,
+                damage2: 10,
+                moveSpeedMult1: 1.15,
+                moveSpeedMult2: 1.25,
+                fireRateMult1: 0.8,
+                fireRateMult2: 0.65,
+                maxHp1: 25,
+                maxHp2: 50,
+                healPercent: 0.3,
+                xpMagnetRange: 40,
+                armor1: 3,
+                armor2: 6,
+                hpRegen1: 2,
+                hpRegen2: 5,
+                piercing: 1,
+                multiShot: 1,
+                critChanceAdd: 0.1,
+                critDamageAdd: 0.5,
+                bulletSizeMult: 1.3,
+                rangeMult1: 1.2,
+                rangeMult2: 1.4,
+                xpGainMult1: 1.25,
+                xpGainMult2: 1.5,
+                executeAdd1: 0.08,
+                executeAdd2: 0.12,
+                executeCap: 0.5,
+                weaponLevelAdd: 1,
+            },
+        },
     };
 
 // ─────────────────────────────────────────────
@@ -364,59 +419,85 @@ function upgradeRarity(upgrade) {
     return upgrade.rarity || "common";
 }
 
+const UPGRADE_RARITY_BASE_WEIGHTS = {
+    common: Number(CFG.upgrades?.rarityBaseWeights?.common) || 100,
+    rare: Number(CFG.upgrades?.rarityBaseWeights?.rare) || 16,
+    epic: Number(CFG.upgrades?.rarityBaseWeights?.epic) || 5,
+};
+
+const UPGRADE_RARITY_COLORS = {
+    common: CFG.upgrades?.rarityColors?.common || "#cfd9e6",
+    rare: CFG.upgrades?.rarityColors?.rare || "#66ddff",
+    epic: CFG.upgrades?.rarityColors?.epic || "#c38bff",
+};
+
+const UPGRADE_EPIC_UNLOCK_WAVE = Number(CFG.upgrades?.epicUnlockWave) || 6;
+const UPGRADE_WAVE_BOOSTS = Array.isArray(CFG.upgrades?.waveBoosts) ? CFG.upgrades.waveBoosts : [];
+const UPGRADE_BONUS_WAVE_BOOST = CFG.upgrades?.bonusWaveBoost || { rare: 1.25, epic: 1.4 };
+const UPGRADE_BIGBOSS_BOOST = CFG.upgrades?.bigbossBoost || { rare: 1.2, epic: 1.35 };
+const UPGRADE_TUNING_CFG = CFG.upgrades?.tuning || {};
+const UPGRADE_TUNING = {
+    damage1: Number(UPGRADE_TUNING_CFG.damage1) || 5,
+    damage2: Number(UPGRADE_TUNING_CFG.damage2) || 10,
+    moveSpeedMult1: Number(UPGRADE_TUNING_CFG.moveSpeedMult1) || 1.15,
+    moveSpeedMult2: Number(UPGRADE_TUNING_CFG.moveSpeedMult2) || 1.25,
+    fireRateMult1: Number(UPGRADE_TUNING_CFG.fireRateMult1) || 0.8,
+    fireRateMult2: Number(UPGRADE_TUNING_CFG.fireRateMult2) || 0.65,
+    maxHp1: Number(UPGRADE_TUNING_CFG.maxHp1) || 25,
+    maxHp2: Number(UPGRADE_TUNING_CFG.maxHp2) || 50,
+    healPercent: Number(UPGRADE_TUNING_CFG.healPercent) || 0.3,
+    xpMagnetRange: Number(UPGRADE_TUNING_CFG.xpMagnetRange) || 40,
+    armor1: Number(UPGRADE_TUNING_CFG.armor1) || 3,
+    armor2: Number(UPGRADE_TUNING_CFG.armor2) || 6,
+    hpRegen1: Number(UPGRADE_TUNING_CFG.hpRegen1) || 2,
+    hpRegen2: Number(UPGRADE_TUNING_CFG.hpRegen2) || 5,
+    piercing: Number(UPGRADE_TUNING_CFG.piercing) || 1,
+    multiShot: Number(UPGRADE_TUNING_CFG.multiShot) || 1,
+    critChanceAdd: Number(UPGRADE_TUNING_CFG.critChanceAdd) || 0.1,
+    critDamageAdd: Number(UPGRADE_TUNING_CFG.critDamageAdd) || 0.5,
+    bulletSizeMult: Number(UPGRADE_TUNING_CFG.bulletSizeMult) || 1.3,
+    rangeMult1: Number(UPGRADE_TUNING_CFG.rangeMult1) || 1.2,
+    rangeMult2: Number(UPGRADE_TUNING_CFG.rangeMult2) || 1.4,
+    xpGainMult1: Number(UPGRADE_TUNING_CFG.xpGainMult1) || 1.25,
+    xpGainMult2: Number(UPGRADE_TUNING_CFG.xpGainMult2) || 1.5,
+    executeAdd1: Number(UPGRADE_TUNING_CFG.executeAdd1) || 0.08,
+    executeAdd2: Number(UPGRADE_TUNING_CFG.executeAdd2) || 0.12,
+    executeCap: Number(UPGRADE_TUNING_CFG.executeCap) || 0.5,
+    weaponLevelAdd: Number(UPGRADE_TUNING_CFG.weaponLevelAdd) || 1,
+};
+
 function upgradeRarityWeight(rarity, opts = {}) {
     const wave = opts.wave || 1;
     const isBonusWave = !!opts.isBonusWave;
     const bossType = opts.bossType || null;
 
-    let weight;
-    switch (rarity) {
-        case "epic":
-            weight = 5;
-            break;
-        case "rare":
-            weight = 16;
-            break;
-        default:
-            weight = 100;
-            break;
-    }
+    let weight = UPGRADE_RARITY_BASE_WEIGHTS[rarity] || UPGRADE_RARITY_BASE_WEIGHTS.common;
 
-    if (rarity === "epic" && wave < 6 && !isBonusWave) {
+    if (rarity === "epic" && wave < UPGRADE_EPIC_UNLOCK_WAVE && !isBonusWave) {
         return 0;
     }
 
-    if (wave >= 8) {
-        if (rarity === "rare") weight *= 1.35;
-        if (rarity === "epic") weight *= 1.5;
-    }
-    if (wave >= 15) {
-        if (rarity === "rare") weight *= 1.7;
-        if (rarity === "epic") weight *= 2.2;
-    }
-    if (wave >= 20) {
-        if (rarity === "rare") weight *= 2.1;
-        if (rarity === "epic") weight *= 3.0;
+    for (let i = 0; i < UPGRADE_WAVE_BOOSTS.length; i++) {
+        const b = UPGRADE_WAVE_BOOSTS[i];
+        if (!b || wave < (Number(b.wave) || 0)) continue;
+        if (rarity === "rare") weight *= Number(b.rare) || 1;
+        if (rarity === "epic") weight *= Number(b.epic) || 1;
     }
 
     if (isBonusWave) {
-        if (rarity === "rare") weight *= 1.25;
-        if (rarity === "epic") weight *= 1.4;
+        if (rarity === "rare") weight *= Number(UPGRADE_BONUS_WAVE_BOOST.rare) || 1;
+        if (rarity === "epic") weight *= Number(UPGRADE_BONUS_WAVE_BOOST.epic) || 1;
     }
     if (bossType === "bigboss") {
-        if (rarity === "rare") weight *= 1.2;
-        if (rarity === "epic") weight *= 1.35;
+        if (rarity === "rare") weight *= Number(UPGRADE_BIGBOSS_BOOST.rare) || 1;
+        if (rarity === "epic") weight *= Number(UPGRADE_BIGBOSS_BOOST.epic) || 1;
     }
 
     return weight;
 }
 
 function upgradeRarityColor(rarity) {
-    switch (rarity) {
-        case "epic": return "#c38bff";
-        case "rare": return "#66ddff";
-        default: return "#cfd9e6";
-    }
+    return UPGRADE_RARITY_COLORS[rarity] || UPGRADE_RARITY_COLORS.common;
 }
 
 function pickUpgradeChoicesByRarity(pool, count, opts = {}) {
@@ -1176,6 +1257,56 @@ const Audio = (() => {
         playTone(660, "square", 0.08, 0.12, sfxGain, t + 0.06);
     }
 
+    function sfxCrit() {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        playTone(880, "triangle", 0.06, 0.13, sfxGain, t);
+        playTone(1320, "square", 0.08, 0.12, sfxGain, t + 0.04);
+    }
+
+    function sfxExecute() {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        playNoise(0.05, 0.18, sfxGain, t);
+        playTone(220, "sawtooth", 0.08, 0.16, sfxGain, t);
+        playTone(140, "triangle", 0.1, 0.1, sfxGain, t + 0.03);
+    }
+
+    function sfxComboMilestone(comboCount) {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        const isBig = comboCount >= 25;
+        const base = isBig ? 784 : 659;
+        playTone(base, "square", 0.09, 0.14, sfxGain, t);
+        playTone(base * 1.25, "square", 0.1, 0.13, sfxGain, t + 0.06);
+        if (isBig) playTone(base * 1.6, "triangle", 0.12, 0.11, sfxGain, t + 0.12);
+    }
+
+    function sfxWaveClear() {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        playTone(392, "triangle", 0.09, 0.12, sfxGain, t);
+        playTone(523, "triangle", 0.11, 0.13, sfxGain, t + 0.08);
+        playTone(659, "square", 0.14, 0.14, sfxGain, t + 0.16);
+    }
+
+    function sfxBossDefeat(type) {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        const isFinal = type === "endboss";
+        playNoise(isFinal ? 0.16 : 0.1, isFinal ? 0.24 : 0.18, sfxGain, t);
+        playTone(isFinal ? 220 : 330, "sawtooth", isFinal ? 0.2 : 0.14, 0.16, sfxGain, t);
+        playTone(isFinal ? 330 : 494, "square", isFinal ? 0.2 : 0.13, 0.14, sfxGain, t + 0.1);
+        if (isFinal) {
+            playTone(659, "triangle", 0.22, 0.13, sfxGain, t + 0.22);
+        }
+    }
+
     function sfxExplosion() {
         if (!Settings.soundEnabled) return;
         const ctx = ensureContext();
@@ -1414,8 +1545,13 @@ const Audio = (() => {
         sfxXPPickup,
         sfxLevelUp,
         sfxWaveStart,
+        sfxWaveClear,
         sfxGameOver,
         sfxUpgradeSelect,
+        sfxCrit,
+        sfxExecute,
+        sfxComboMilestone,
+        sfxBossDefeat,
         sfxExplosion,
         sfxNewHighScore,
         startMusic,
@@ -2276,6 +2412,8 @@ class Camera {
         this.targetX = 0;
         this.targetY = 0;
         this.shakeTimer = 0;
+        this.shakeDuration = SHAKE_DURATION;
+        this.shakeIntensity = SHAKE_INTENSITY;
         this.shakeOffsetX = 0;
         this.shakeOffsetY = 0;
     }
@@ -2298,7 +2436,8 @@ class Camera {
         // Screen shake
         if (this.shakeTimer > 0) {
             this.shakeTimer -= dt;
-            const intensity = SHAKE_INTENSITY * (this.shakeTimer / SHAKE_DURATION);
+            const safeDuration = Math.max(0.0001, this.shakeDuration);
+            const intensity = this.shakeIntensity * (this.shakeTimer / safeDuration);
             this.shakeOffsetX = randRange(-intensity, intensity);
             this.shakeOffsetY = randRange(-intensity, intensity);
         } else {
@@ -2307,9 +2446,11 @@ class Camera {
         }
     }
 
-    shake() {
+    shake(intensity = SHAKE_INTENSITY, duration = SHAKE_DURATION) {
         if (!Settings.shakeEnabled) return;
-        this.shakeTimer = SHAKE_DURATION;
+        this.shakeIntensity = Math.max(1, Number(intensity) || SHAKE_INTENSITY);
+        this.shakeDuration = Math.max(0.03, Number(duration) || SHAKE_DURATION);
+        this.shakeTimer = this.shakeDuration;
     }
 
     /** Apply camera transform before drawing world objects */
@@ -3601,40 +3742,40 @@ const Starfield = (() => {
 
 const UPGRADES = [
     // ── Stat upgrades ──
-    { id: "dmg1",   name: "+5 Damage",          icon: "⚔️",  cat: "stat", apply(p) { p.damage += 5; } },
-    { id: "dmg2",   name: "+10 Damage",         icon: "🗡️",  rarity: "rare", cat: "stat", apply(p) { p.damage += 10; } },
-    { id: "spd1",   name: "+15% Move Speed",    icon: "👟",  cat: "stat", apply(p) { p.speed *= 1.15; } },
-    { id: "spd2",   name: "+25% Move Speed",    icon: "💨",  rarity: "rare", cat: "stat", apply(p) { p.speed *= 1.25; } },
-    { id: "rate1",  name: "+20% Fire Rate",     icon: "🔫",  cat: "stat", apply(p) { p.fireRate *= 0.80; } },
-    { id: "rate2",  name: "+35% Fire Rate",     icon: "💥",  rarity: "rare", cat: "stat", apply(p) { p.fireRate *= 0.65; } },
-    { id: "hp1",    name: "+25 Max HP",         icon: "❤️",  cat: "stat", apply(p) { p.maxHp += 25; p.hp = Math.min(p.hp + 25, p.maxHp); } },
-    { id: "hp2",    name: "+50 Max HP",         icon: "💖",  rarity: "rare", cat: "stat", apply(p) { p.maxHp += 50; p.hp = Math.min(p.hp + 50, p.maxHp); } },
-    { id: "heal",   name: "Heal 30%",           icon: "🩹",  cat: "stat", apply(p) { p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3); } },
-    { id: "magnet", name: "+XP Magnet Range",   icon: "🧲",  cat: "stat", apply()  { game.xpMagnetBonus += 40; } },
-    { id: "armor1", name: "+3 Armor",           icon: "🛡️",  cat: "stat", apply(p) { p.armor += 3; },
-        desc: "Reduces all damage taken by 3" },
-    { id: "armor2", name: "+6 Armor",           icon: "🏰",  rarity: "rare", cat: "stat", apply(p) { p.armor += 6; },
-        desc: "Reduces all damage taken by 6" },
-    { id: "regen1", name: "+2 HP/sec Regen",    icon: "💚",  cat: "stat", apply(p) { p.hpRegen += 2; } },
-    { id: "regen2", name: "+5 HP/sec Regen",    icon: "🌿",  rarity: "rare", cat: "stat", apply(p) { p.hpRegen += 5; } },
-    { id: "pierce", name: "Piercing +1",          icon: "📌",  cat: "stat", apply(p) { p.piercing += 1; },
-        desc(p) { return `Bullets pierce through ${p.piercing + 1} enemies`; } },
-    { id: "multi",  name: "+1 Multi-Shot",      icon: "🎯",  cat: "stat", apply(p) { p.multiShot += 1; } },
-    { id: "crit1",  name: "+10% Crit Chance",   icon: "🎲",  cat: "stat", apply(p) { p.critChance = Math.min(1, p.critChance + 0.10); } },
-    { id: "crit2",  name: "+0.5x Crit Damage",  icon: "💎",  rarity: "rare", cat: "stat", apply(p) { p.critMult += 0.5; } },
-    { id: "bigBullet", name: "+30% Bullet Size", icon: "⭕",  cat: "stat", apply(p) { p.bulletSize *= 1.3; } },
-    { id: "range1", name: "+20% Range",        icon: "📡",  cat: "stat", apply(p) { p.range *= 1.20; } },
-    { id: "range2", name: "+40% Range",        icon: "🔭",  rarity: "rare", cat: "stat", apply(p) { p.range *= 1.40; } },
-    { id: "xpgain1", name: "+25% XP Gain",    icon: "✨",  cat: "stat", apply(p) { p.xpGainMult *= 1.25; } },
-    { id: "xpgain2", name: "+50% XP Gain",    icon: "⭐",  rarity: "rare", cat: "stat", apply(p) { p.xpGainMult *= 1.50; } },
-    { id: "execute1", name: "+8% Execute Threshold", icon: "⚰️", rarity: "rare", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.5, p.executeThreshold + 0.08); } },
-    { id: "execute2", name: "+12% Execute Threshold", icon: "🩸", rarity: "epic", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.5, p.executeThreshold + 0.12); } },
+    { id: "dmg1",   name: "+5 Damage",          icon: "⚔️",  cat: "stat", apply(p) { p.damage += UPGRADE_TUNING.damage1; } },
+    { id: "dmg2",   name: "+10 Damage",         icon: "🗡️",  rarity: "rare", cat: "stat", apply(p) { p.damage += UPGRADE_TUNING.damage2; } },
+    { id: "spd1",   name: "+15% Move Speed",    icon: "👟",  cat: "stat", apply(p) { p.speed *= UPGRADE_TUNING.moveSpeedMult1; } },
+    { id: "spd2",   name: "+25% Move Speed",    icon: "💨",  rarity: "rare", cat: "stat", apply(p) { p.speed *= UPGRADE_TUNING.moveSpeedMult2; } },
+    { id: "rate1",  name: "+20% Fire Rate",     icon: "🔫",  cat: "stat", apply(p) { p.fireRate *= UPGRADE_TUNING.fireRateMult1; } },
+    { id: "rate2",  name: "+35% Fire Rate",     icon: "💥",  rarity: "rare", cat: "stat", apply(p) { p.fireRate *= UPGRADE_TUNING.fireRateMult2; } },
+    { id: "hp1",    name: "+25 Max HP",         icon: "❤️",  cat: "stat", apply(p) { p.maxHp += UPGRADE_TUNING.maxHp1; p.hp = Math.min(p.hp + UPGRADE_TUNING.maxHp1, p.maxHp); } },
+    { id: "hp2",    name: "+50 Max HP",         icon: "💖",  rarity: "rare", cat: "stat", apply(p) { p.maxHp += UPGRADE_TUNING.maxHp2; p.hp = Math.min(p.hp + UPGRADE_TUNING.maxHp2, p.maxHp); } },
+    { id: "heal",   name: "Heal 30%",           icon: "🩹",  cat: "stat", apply(p) { p.hp = Math.min(p.maxHp, p.hp + p.maxHp * UPGRADE_TUNING.healPercent); } },
+    { id: "magnet", name: "+XP Magnet Range",   icon: "🧲",  cat: "stat", apply()  { game.xpMagnetBonus += UPGRADE_TUNING.xpMagnetRange; } },
+    { id: "armor1", name: "+3 Armor",           icon: "🛡️",  cat: "stat", apply(p) { p.armor += UPGRADE_TUNING.armor1; },
+        desc: `Reduces all damage taken by ${UPGRADE_TUNING.armor1}` },
+    { id: "armor2", name: "+6 Armor",           icon: "🏰",  rarity: "rare", cat: "stat", apply(p) { p.armor += UPGRADE_TUNING.armor2; },
+        desc: `Reduces all damage taken by ${UPGRADE_TUNING.armor2}` },
+    { id: "regen1", name: "+2 HP/sec Regen",    icon: "💚",  cat: "stat", apply(p) { p.hpRegen += UPGRADE_TUNING.hpRegen1; } },
+    { id: "regen2", name: "+5 HP/sec Regen",    icon: "🌿",  rarity: "rare", cat: "stat", apply(p) { p.hpRegen += UPGRADE_TUNING.hpRegen2; } },
+    { id: "pierce", name: "Piercing +1",          icon: "📌",  cat: "stat", apply(p) { p.piercing += UPGRADE_TUNING.piercing; },
+        desc(p) { return `Bullets pierce through ${p.piercing + UPGRADE_TUNING.piercing} enemies`; } },
+    { id: "multi",  name: "+1 Multi-Shot",      icon: "🎯",  cat: "stat", apply(p) { p.multiShot += UPGRADE_TUNING.multiShot; } },
+    { id: "crit1",  name: "+10% Crit Chance",   icon: "🎲",  cat: "stat", apply(p) { p.critChance = Math.min(1, p.critChance + UPGRADE_TUNING.critChanceAdd); } },
+    { id: "crit2",  name: "+0.5x Crit Damage",  icon: "💎",  rarity: "rare", cat: "stat", apply(p) { p.critMult += UPGRADE_TUNING.critDamageAdd; } },
+    { id: "bigBullet", name: "+30% Bullet Size", icon: "⭕",  cat: "stat", apply(p) { p.bulletSize *= UPGRADE_TUNING.bulletSizeMult; } },
+    { id: "range1", name: "+20% Range",        icon: "📡",  cat: "stat", apply(p) { p.range *= UPGRADE_TUNING.rangeMult1; } },
+    { id: "range2", name: "+40% Range",        icon: "🔭",  rarity: "rare", cat: "stat", apply(p) { p.range *= UPGRADE_TUNING.rangeMult2; } },
+    { id: "xpgain1", name: "+25% XP Gain",    icon: "✨",  cat: "stat", apply(p) { p.xpGainMult *= UPGRADE_TUNING.xpGainMult1; } },
+    { id: "xpgain2", name: "+50% XP Gain",    icon: "⭐",  rarity: "rare", cat: "stat", apply(p) { p.xpGainMult *= UPGRADE_TUNING.xpGainMult2; } },
+    { id: "execute1", name: "+8% Execute Threshold", icon: "⚰️", rarity: "rare", cat: "stat", apply(p) { p.executeThreshold = Math.min(UPGRADE_TUNING.executeCap, p.executeThreshold + UPGRADE_TUNING.executeAdd1); } },
+    { id: "execute2", name: "+12% Execute Threshold", icon: "🩸", rarity: "epic", cat: "stat", apply(p) { p.executeThreshold = Math.min(UPGRADE_TUNING.executeCap, p.executeThreshold + UPGRADE_TUNING.executeAdd2); } },
 
     // ── Weapon upgrades ──
-    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level++; } },
-    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", apply(p) { p.weapons.lightningAura.level++; } },
-    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", apply(p) { p.weapons.frostNova.level++; } },
-    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", apply(p) { p.weapons.flameTrail.level++; } },
+    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level += UPGRADE_TUNING.weaponLevelAdd; } },
+    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", apply(p) { p.weapons.lightningAura.level += UPGRADE_TUNING.weaponLevelAdd; } },
+    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", apply(p) { p.weapons.frostNova.level += UPGRADE_TUNING.weaponLevelAdd; } },
+    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", apply(p) { p.weapons.flameTrail.level += UPGRADE_TUNING.weaponLevelAdd; } },
 ];
 
 // Groups of stat upgrades shown in the bottom-right HUD, one icon per family
@@ -4069,6 +4210,14 @@ const game = {
     comboCount: 0,
     comboTimer: 0,
     bestCombo: 0,
+    comboSfxCooldown: 0,
+
+    // Moment-to-moment polish feedback
+    eventFlashTimer: 0,
+    eventFlashColor: "rgba(255,255,255,0.2)",
+    eventToastTimer: 0,
+    eventToastText: "",
+    eventToastColor: COLOR.accent,
 
     // Level up flash
     levelUpFlashTimer: 0,
@@ -4171,6 +4320,12 @@ const game = {
         this.comboCount = 0;
         this.comboTimer = 0;
         this.bestCombo = 0;
+        this.comboSfxCooldown = 0;
+        this.eventFlashTimer = 0;
+        this.eventFlashColor = "rgba(255,255,255,0.2)";
+        this.eventToastTimer = 0;
+        this.eventToastText = "";
+        this.eventToastColor = COLOR.accent;
         this.levelUpFlashTimer = 0;
         this.waveBannerTimer = 0;
         this.waveBannerText = "";
@@ -5197,7 +5352,9 @@ const game = {
                     if (b.collidesWith(e)) {
                         this.runShotsHit++;
                         e.takeDamage(b.damage, b.isCrit);
+                        if (b.isCrit) Audio.sfxCrit();
 
+                        let didExecute = false;
                         if (
                             e.alive &&
                             this.player.executeThreshold > 0 &&
@@ -5208,10 +5365,13 @@ const game = {
                             const hpRatio = e.maxHp > 0 ? (e.hp / e.maxHp) : 1;
                             if (hpRatio <= this.player.executeThreshold) {
                                 e.takeDamage(e.hp, false);
+                                didExecute = true;
+                                Audio.sfxExecute();
                             }
                         }
 
                         this.spawnParticles(e.x, e.y, COLOR.enemyA, isMobile ? 2 : 5);
+                        if (didExecute) this.spawnParticles(e.x, e.y, "#ff5577", isMobile ? 4 : 10);
                         Audio.sfxHit();
 
                         // Piercing: increment hit count, kill bullet when exceeded
@@ -5264,6 +5424,9 @@ const game = {
                 this.comboCount = 0;
             }
         }
+        if (this.comboSfxCooldown > 0) this.comboSfxCooldown -= speedDt;
+        if (this.eventFlashTimer > 0) this.eventFlashTimer -= speedDt;
+        if (this.eventToastTimer > 0) this.eventToastTimer -= speedDt;
 
         // Level-up flash timer
         if (this.levelUpFlashTimer > 0) this.levelUpFlashTimer -= speedDt;
@@ -5792,6 +5955,25 @@ const game = {
             ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
         }
 
+        if (this.eventFlashTimer > 0) {
+            const flashAlpha = clamp(this.eventFlashTimer / 0.26, 0, 0.24);
+            ctx.globalAlpha = flashAlpha;
+            ctx.fillStyle = this.eventFlashColor || "#ffffff";
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+            ctx.globalAlpha = 1;
+        }
+
+        if (this.eventToastTimer > 0) {
+            const t = clamp(this.eventToastTimer / 1.1, 0, 1);
+            const y = 172 - (1 - t) * 10;
+            ctx.textAlign = "center";
+            ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = this.eventToastColor;
+            ctx.globalAlpha = t;
+            ctx.fillText(this.eventToastText, CANVAS_W / 2, y);
+            ctx.globalAlpha = 1;
+        }
+
         // HUD (screen-space)
         if (this.state === STATE.GAMEPLAY) {
             this.drawHUD();
@@ -5831,6 +6013,17 @@ const game = {
         const p = this.player;
         const portrait = isPortraitMobile();
         const pad = portrait ? 12 : 16;
+
+        // Soft panel anchors to improve HUD legibility under heavy effects.
+        drawRoundRect(pad - 6, pad - 6, (portrait ? 250 : 280), 68, 8);
+        ctx.fillStyle = "rgba(8,10,24,0.72)";
+        ctx.fill();
+        drawRoundRect(CANVAS_W / 2 - 125, pad - 8, 250, this.endbossActive ? 58 : 54, 8);
+        ctx.fillStyle = "rgba(8,10,24,0.68)";
+        ctx.fill();
+        drawRoundRect(CANVAS_W - 150, pad - 8, 136, 58, 8);
+        ctx.fillStyle = "rgba(8,10,24,0.68)";
+        ctx.fill();
 
         // ── Low HP danger vignette ──
         const hpPct = p.hp / p.maxHp;
@@ -5895,7 +6088,7 @@ const game = {
         // ── Wave counter (top-center) ──
         ctx.textAlign = "center";
         ctx.fillStyle = COLOR.text;
-        ctx.font = "bold 22px 'Segoe UI', Arial, sans-serif";
+        ctx.font = "bold 24px 'Segoe UI', Arial, sans-serif";
         if (this.endbossActive) {
             ctx.fillStyle = "#ff00ff";
             ctx.fillText(`☠ ${BOSS_NAMES.endboss} ☠`, CANVAS_W / 2, pad + 14);
@@ -5919,8 +6112,8 @@ const game = {
         }
 
         // Enemies remaining
-        ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.fillStyle = "#b5c2d3";
         if (!this.endbossActive) {
             ctx.fillText(`Kills: ${this.waveKills} / ${this.waveKillsRequired}`, CANVAS_W / 2, pad + 36);
         }
@@ -5932,8 +6125,8 @@ const game = {
         ctx.fillText(`☠ ${this.killCount}`, CANVAS_W - pad, pad + 16);
 
         // ── Time ──
-        ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.fillStyle = "#b5c2d3";
         ctx.fillText(formatTime(this.timePlayed), CANVAS_W - pad, pad + 38);
 
         // ── Mode badge (top-right, below time) ──
@@ -6153,6 +6346,12 @@ const game = {
                 this.waveActive = false;
                 const mods = modeModifiers();
                 this.waveRestTimer = WAVE_REST_TIME * mods.waveRestMult;
+                Audio.sfxWaveClear();
+                this.camera.shake(4, 0.12);
+                this.waveBannerTimer = Math.max(this.waveBannerTimer, 1.3);
+                this.waveBannerText = `WAVE ${this.wave} CLEARED!`;
+                this.triggerEventFlash("#77ccff", 0.2);
+                this.triggerEventToast(`Wave ${this.wave} Clear`, "#77ccff", 1.0);
                 // Wave 25 triggers endboss instead of pending victory
                 if (this.wave === WAVE_MAX) {
                     this.pendingEndboss = true;
@@ -6331,6 +6530,13 @@ const game = {
         this.comboCount++;
         this.comboTimer = COMBO_TIMEOUT;
         if (this.comboCount > this.bestCombo) this.bestCombo = this.comboCount;
+        const comboMilestone = this.comboCount === 5 || this.comboCount === 10 || this.comboCount === 25 || (this.comboCount > 25 && this.comboCount % 25 === 0);
+        if (comboMilestone && this.comboSfxCooldown <= 0) {
+            Audio.sfxComboMilestone(this.comboCount);
+            this.comboSfxCooldown = 0.55;
+            this.triggerEventFlash("#66ddff", 0.18);
+            this.triggerEventToast(`${this.comboCount}x COMBO!`, "#66ddff", 0.9);
+        }
 
         // Type-specific death effects
         const particleCount = isMobile ? 4 : 12;
@@ -6341,13 +6547,20 @@ const game = {
         } else if (enemy.type === "miniboss" || enemy.type === "bigboss") {
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
+            Audio.sfxBossDefeat(enemy.type);
+            this.camera.shake(6, 0.16);
+            this.triggerEventFlash("#ffd166", 0.24);
+            this.triggerEventToast(`${getBossDisplayName(enemy)} defeated!`, "#ffd166", 1.2);
         } else if (enemy.type === "endboss") {
             // Endboss death: massive explosion of particles
             this.spawnParticles(enemy.x, enemy.y, "#ff00ff", isMobile ? 10 : 30);
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 8 : 25);
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
+            Audio.sfxBossDefeat(enemy.type);
             this.camera.shake();
             Audio.sfxExplosion();
+            this.triggerEventFlash("#ff55cc", 0.32);
+            this.triggerEventToast("FINAL BOSS SLAIN!", "#ff66dd", 1.5);
             // Trigger victory!
             this.endbossActive = false;
             this.activeBoss = null;
@@ -6438,7 +6651,7 @@ const game = {
         // Pick upgrade choices: 4 for bigboss kill, 3 otherwise
         const numChoices = (isBonusWave && bossType === "bigboss") ? 4 : UPGRADE_CHOICES;
         const pool = [...UPGRADES].filter((up) => {
-            if ((up.id === "execute1" || up.id === "execute2") && this.player.executeThreshold >= 0.5) {
+            if ((up.id === "execute1" || up.id === "execute2") && this.player.executeThreshold >= UPGRADE_TUNING.executeCap) {
                 return false;
             }
             return true;
@@ -6489,6 +6702,17 @@ const game = {
         }
     },
 
+    triggerEventFlash(color, duration = 0.26) {
+        this.eventFlashColor = color || "rgba(255,255,255,0.22)";
+        this.eventFlashTimer = Math.max(this.eventFlashTimer, duration);
+    },
+
+    triggerEventToast(text, color = COLOR.accent, duration = 1.1) {
+        this.eventToastText = text || "";
+        this.eventToastColor = color || COLOR.accent;
+        this.eventToastTimer = Math.max(this.eventToastTimer, duration);
+    },
+
     drawUpgradeOverlay() {
         // Dim overlay with gradient
         const overlayGrad = ctx.createRadialGradient(CANVAS_W / 2, 250, 100, CANVAS_W / 2, 250, CANVAS_W);
@@ -6523,7 +6747,7 @@ const game = {
         ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`LV ${this.player.level}`, CANVAS_W / 2, 175);
 
-        const cardW = 200, cardH = 172, gap = 24;
+        const cardW = 210, cardH = 194, gap = 20;
         const totalW = this.upgradeChoices.length * cardW + (this.upgradeChoices.length - 1) * gap;
         let startX = CANVAS_W / 2 - totalW / 2;
 
@@ -6537,50 +6761,72 @@ const game = {
             const rarity = upgradeRarity(up);
             const rarityLabel = rarity.toUpperCase();
             const rarityColor = upgradeRarityColor(rarity);
+            const pulse = 0.5 + 0.5 * Math.sin(frameNow * 0.01 + i * 0.6);
+            const rarityGlow = rarity === "epic"
+                ? `rgba(195,139,255,${0.18 + pulse * 0.14})`
+                : (rarity === "rare" ? `rgba(102,221,255,${0.15 + pulse * 0.12})` : "rgba(0,0,0,0)");
+            const lift = hovered ? (6 + Math.sin(frameNow * 0.018) * 2) : 0;
+            const drawY = cy - lift;
+
+            ctx.save();
+            ctx.translate(cx + cardW / 2, drawY + cardH / 2);
+            const scale = hovered ? 1.03 : 1;
+            ctx.scale(scale, scale);
+            const cardX = -cardW / 2;
+            const cardY = -cardH / 2;
 
             // Card background with hover lift effect
-            drawRoundRect(cx, cy, cardW, cardH, 12);
+            drawRoundRect(cardX, cardY, cardW, cardH, 12);
             if (hovered) {
                 ctx.fillStyle = isWeapon ? "rgba(255,204,0,0.15)" : "rgba(51,204,255,0.18)";
             } else {
                 ctx.fillStyle = "rgba(8,10,30,0.92)";
             }
             ctx.fill();
+
+            if (rarity !== "common") {
+                ctx.shadowColor = rarityGlow;
+                ctx.shadowBlur = 18;
+            }
             // Card border
-            ctx.strokeStyle = hovered ? (isWeapon ? "#ffcc66" : COLOR.accent) : "rgba(60,70,100,0.6)";
+            ctx.strokeStyle = hovered
+                ? (isWeapon ? "#ffcc66" : COLOR.accent)
+                : (rarity !== "common" ? rarityColor : "rgba(60,70,100,0.6)");
             ctx.lineWidth = hovered ? 2.5 : 1.5;
             ctx.stroke();
+            ctx.shadowBlur = 0;
 
             // Category tag
-            const tagY = cy + 12;
+            const tagY = cardY + 14;
             const tagLabel = isWeapon ? "WEAPON" : "STAT";
             const tagColor = isWeapon ? "#ffcc66" : "#66ddff";
             ctx.fillStyle = tagColor;
             ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(tagLabel, cx + cardW / 2, tagY);
+            ctx.fillText(tagLabel, 0, tagY);
 
             // Icon
             ctx.font = "40px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
             ctx.fillStyle = COLOR.text;
-            ctx.fillText(up.icon, cx + cardW / 2, cy + 60);
+            ctx.fillText(up.icon, 0, cardY + 58);
 
             // Name
             ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.text;
-            ctx.fillText(up.name, cx + cardW / 2, cy + 95);
+            ctx.fillText(up.name, 0, cardY + 90);
 
             // Rarity
-            ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = rarityColor;
-            ctx.fillText(rarityLabel, cx + cardW / 2, cy + 112);
+            ctx.fillText(rarityLabel, 0, cardY + 108);
 
-            // Description (if available)
-            if (up.desc) {
-                ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-                ctx.fillStyle = COLOR.textDim;
-                const descText = typeof up.desc === "function" ? up.desc(this.player) : up.desc;
-                ctx.fillText(descText, cx + cardW / 2, cy + 128);
+            // Description (always visible)
+            const descText = upgradeDescriptionText(up, this.player);
+            const descLines = splitTextLines(descText, 28);
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = COLOR.textDim;
+            for (let li = 0; li < Math.min(2, descLines.length); li++) {
+                ctx.fillText(descLines[li], 0, cardY + 126 + li * 13);
             }
 
             // Current count if already taken
@@ -6588,13 +6834,15 @@ const game = {
             if (taken > 0) {
                 ctx.font = "11px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = "#66ff99";
-                ctx.fillText(`(owned ×${taken})`, cx + cardW / 2, cy + 144);
+                ctx.fillText(`(owned ×${taken})`, 0, cardY + 160);
             }
 
             // Number hint
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.textDim;
-            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, cx + cardW / 2, cy + 160);
+            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, 0, cardY + 178);
+
+            ctx.restore();
 
             if (hovered && Mouse.clicked) {
                 this.applyUpgrade(i);

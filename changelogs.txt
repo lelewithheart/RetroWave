@@ -3,6 +3,35 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:15
+- Continued polish with visual fanfare overlays for combo milestones, wave clears, and boss defeats
+- Added transient event flash + toast messaging layer for punchier combat feedback moments
+- Added combo milestone anti-spam cooldown so milestone audio/visual feedback stays impactful
+- Improved camera shake system to support custom intensity/duration per event trigger
+
+beta 20.04:14
+- Continued polish with new event-specific SFX for crit hits, execute finishes, combo milestones, wave clears, and boss defeats
+- Wired crit and execute audio feedback directly into bullet-hit combat resolution
+- Added combo milestone audio triggers at 5/10/25 and every +25 combo thereafter
+- Added wave-clear fanfare with clear banner feedback and impact feel before next-wave rest window
+- Added boss-defeat fanfare hooks for miniboss, bigboss, and final boss kills
+
+beta 20.04:13
+- Started polish/refinement implementation with a readability-focused upgrade screen pass
+- Upgrade cards now show always-visible descriptions (including default descriptions for upgrades without custom text)
+- Added rarity-driven card glow/pulse styling and hover tween lift/scale for punchier card interaction
+- Improved in-run HUD readability with soft backdrop panels and stronger hierarchy for wave/kills/time labels
+
+beta 20.04:12
+- Continued modularization by moving concrete upgrade effect tuning values into config.js under upgrades.tuning
+- Upgrade effect math now reads config values for damage, speed, fire rate, HP, armor, regen, crit, range, XP gain, execute, and weapon level increments
+- Execute upgrade-offer filtering now uses config-driven execute cap instead of a hardcoded threshold
+
+beta 20.04:11
+- Continued modularization by moving upgrade rarity tuning into config.js under upgrades
+- Upgrade rarity base weights, wave scaling boosts, bonus/bigboss boosts, and epic unlock wave are now config-driven
+- Upgrade rarity card colors are now sourced from config instead of hardcoded values in game logic
+
 beta 20.04:10
 - Continued modularization by moving skin-shop fallback defaults into config.js under skinShop
 - Added runtime cloning for skin-shop config to separate immutable defaults from mutable loaded state
