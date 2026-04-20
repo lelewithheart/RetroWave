@@ -102,6 +102,12 @@ const CFG = (typeof window !== "undefined" && window.RogueConfig)
                 weaponLevelAdd: 1,
             },
         },
+        prestige: {
+            enabled: true,
+            gainPerClear: 1,
+            resetShards: true,
+            resetMeta: true,
+        },
     };
 
 // ─────────────────────────────────────────────
@@ -465,6 +471,12 @@ const UPGRADE_TUNING = {
     executeCap: Number(UPGRADE_TUNING_CFG.executeCap) || 0.5,
     weaponLevelAdd: Number(UPGRADE_TUNING_CFG.weaponLevelAdd) || 1,
 };
+
+const PRESTIGE_CFG = CFG.prestige || {};
+const PRESTIGE_ENABLED = PRESTIGE_CFG.enabled !== false;
+const PRESTIGE_GAIN_PER_CLEAR = Math.max(1, Math.floor(Number(PRESTIGE_CFG.gainPerClear) || 1));
+const PRESTIGE_RESET_SHARDS = PRESTIGE_CFG.resetShards !== false;
+const PRESTIGE_RESET_META = PRESTIGE_CFG.resetMeta !== false;
 
 function upgradeRarityWeight(rarity, opts = {}) {
     const wave = opts.wave || 1;
@@ -1641,7 +1653,7 @@ const HighScores = (() => {
 // ─────────────────────────────────────────────
 
 const Progression = (() => {
-    const STORAGE_KEY = "roguewave_profile_v2";
+    const STORAGE_KEY = "roguewave_profile_v3";
     const META_MAX = 8;
     let SKIN_CATALOG = [...SKIN_SHOP_CONFIG.skins];
     let FEATURED_SKIN_IDS = [...SKIN_SHOP_CONFIG.featuredIds];
@@ -1651,6 +1663,7 @@ const Progression = (() => {
         shards: 0,
         meta: { hp: 0, dmg: 0, xp: 0, speed: 0 },
         gameSpeedIndex: 0,
+        prestige: { count: 0 },
         skins: { unlocked: ["default"], selected: "default" },
         daily: {
             key: "",
@@ -1711,6 +1724,9 @@ const Progression = (() => {
         base.gameSpeedIndex = Number.isFinite(loaded.gameSpeedIndex)
             ? clamp(Math.floor(loaded.gameSpeedIndex), 0, maxSpeedIdx)
             : 0;
+
+        const lp = loaded.prestige || {};
+        base.prestige.count = Number.isFinite(lp.count) ? Math.max(0, Math.floor(lp.count)) : 0;
 
         const ls = loaded.skins || {};
         const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
@@ -1902,6 +1918,28 @@ const Progression = (() => {
         return { ok: true };
     }
 
+    function getPrestigeCount() {
+        return Math.max(0, Math.floor(data.prestige?.count || 0));
+    }
+
+    function applyPrestigeFromFinalBoss() {
+        const gain = PRESTIGE_ENABLED ? PRESTIGE_GAIN_PER_CLEAR : 0;
+        if (!data.prestige) data.prestige = { count: 0 };
+        data.prestige.count = Math.max(0, Math.floor(data.prestige.count || 0)) + gain;
+
+        if (PRESTIGE_RESET_SHARDS) data.shards = 0;
+        if (PRESTIGE_RESET_META) {
+            data.meta.hp = 0;
+            data.meta.dmg = 0;
+            data.meta.xp = 0;
+            data.meta.speed = 0;
+            data.gameSpeedIndex = 0;
+        }
+
+        save();
+        return { gain, total: data.prestige.count };
+    }
+
     return {
         init,
         get,
@@ -1915,6 +1953,8 @@ const Progression = (() => {
         getGameSpeedIndex,
         getGameSpeedMultiplier,
         setGameSpeedIndex,
+        getPrestigeCount,
+        applyPrestigeFromFinalBoss,
         getSkinCatalog,
         getFeaturedSkinCatalog,
         getSelectedSkin,
@@ -4201,6 +4241,8 @@ const game = {
     lastHighScoreRank: 0,  // rank achieved on last game over (0 = not a high score)
     lastRunShardGain: 0,
     lastDailyReward: 0,
+    lastPrestigeGain: 0,
+    lastPrestigeTotal: 0,
     runShotsFired: 0,
     runShotsHit: 0,
     runUpgradesTaken: 0,
@@ -4313,6 +4355,8 @@ const game = {
         this.lastHighScoreRank = 0;
         this.lastRunShardGain = 0;
         this.lastDailyReward = 0;
+        this.lastPrestigeGain = 0;
+        this.lastPrestigeTotal = 0;
         this.runShotsFired = 0;
         this.runShotsHit = 0;
         this.runUpgradesTaken = 0;
@@ -4800,6 +4844,9 @@ const game = {
         ctx.font = "bold 15px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "left";
         ctx.fillText(`◆ SHARDS: ${profile.shards}`, mpX + 12, mpY + 20);
+        ctx.fillStyle = "#ffd166";
+        ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`✦ PRESTIGE: ${profile.prestige?.count || 0}`, mpX + 12, mpY + 38);
 
         const metaRows = [
             { key: "hp", label: "Vital Core", bonus: "+10 max HP" },
@@ -4807,7 +4854,7 @@ const game = {
             { key: "xp", label: "Data Magnet", bonus: "+10% XP gain" },
             { key: "speed", label: "Game Speed", bonus: "Each level unlocks next speed tier", max: GAME_SPEED_UNLOCK_MAX },
         ];
-        const metaStartY = compactMobile ? mpY + 36 : mpY + 44;
+        const metaStartY = compactMobile ? mpY + 52 : mpY + 60;
         const metaStepY = compactMobile ? 38 : 66;
         for (let i = 0; i < metaRows.length; i++) {
             const row = metaRows[i];
@@ -7185,7 +7232,11 @@ const game = {
         CrazyGamesSDK.happyTime();
         CrazyGamesSDK.gameplayStop();
         this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, true);
-        this.finalizeRun(true);
+        const prestigeResult = Progression.applyPrestigeFromFinalBoss();
+        this.lastPrestigeGain = prestigeResult.gain;
+        this.lastPrestigeTotal = prestigeResult.total;
+        this.lastRunShardGain = 0;
+        this.lastDailyReward = 0;
         CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, true);
         this.runFinalized = true;
     },
@@ -7231,14 +7282,16 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "15px 'Segoe UI', Arial, sans-serif";
         ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, CANVAS_H / 2 + 2);
-        ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
+        ctx.fillText(`Prestige gained: +${this.lastPrestigeGain}  •  Total Prestige: ${this.lastPrestigeTotal}`,
             CANVAS_W / 2, CANVAS_H / 2 + 24);
+        ctx.fillText(`Prestige reset applied: Shards ${PRESTIGE_RESET_SHARDS ? "reset" : "kept"}  •  Meta ${PRESTIGE_RESET_META ? "reset" : "kept"}`,
+            CANVAS_W / 2, CANVAS_H / 2 + 44);
 
         const accuracy = this.runShotsFired > 0
             ? Math.round((this.runShotsHit / this.runShotsFired) * 100)
             : 0;
         ctx.fillText(`Summary: Accuracy ${accuracy}%  •  Upgrades ${this.runUpgradesTaken}  •  Bosses ${this.runBossesDefeated}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 46);
+            CANVAS_W / 2, CANVAS_H / 2 + 64);
 
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;

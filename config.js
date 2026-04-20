@@ -94,4 +94,10 @@ window.RogueConfig = {
             weaponLevelAdd: 1,
         },
     },
+    prestige: {
+        enabled: true,
+        gainPerClear: 1,
+        resetShards: true,
+        resetMeta: true,
+    },
 };

@@ -3,6 +3,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:16
+- Added prestige foundation with persistent prestige count in progression storage
+- Final boss victory now grants prestige and applies reset policy: shards and meta upgrades reset while owned skins remain
+- Added config-driven prestige controls in config.js (enabled, gainPerClear, resetShards, resetMeta)
+- Updated UI to show current prestige on start menu and detailed prestige gain/reset summary on victory screen
+
 beta 20.04:15
 - Continued polish with visual fanfare overlays for combo milestones, wave clears, and boss defeats
 - Added transient event flash + toast messaging layer for punchier combat feedback moments
