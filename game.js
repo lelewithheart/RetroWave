@@ -127,6 +127,7 @@ const ENEMY_TYPES = {
     tank:     { hpMult: 3.5, spdMult: 0.45, radius: 24, contactDmg: 25, color: "#44bb44", xpMult: 2.5 },
     speedy:   { hpMult: 0.5, spdMult: 2.2,  radius: 10, contactDmg: 8,  color: "#ffdd33", xpMult: 1.2 },
     ranged:   { hpMult: 0.8, spdMult: 0.7,  radius: 13, contactDmg: 6,  color: "#bb55ff", xpMult: 1.8 },
+    phaser:   { hpMult: 0.95, spdMult: 1.05, radius: 13, contactDmg: 12, color: "#66aaff", xpMult: 2.0 },
     exploder: { hpMult: 0.9, spdMult: 1.1,  radius: 15, contactDmg: 5,  color: "#ff8800", xpMult: 1.5 },
     miniboss: { hpMult: 12,  spdMult: 0.55, radius: 38, contactDmg: 30, color: "#dd2277", xpMult: 12  },
     bigboss:  { hpMult: 30,  spdMult: 0.35, radius: 56, contactDmg: 50, color: "#cc0000", xpMult: 30  },
@@ -243,6 +244,7 @@ const COLOR = {
     tank:        "#44bb44",
     speedy:      "#ffdd33",
     ranged:      "#bb55ff",
+    phaser:      "#66aaff",
     exploder:    "#ff8800",
 };
 
@@ -2267,6 +2269,7 @@ class Player extends Entity {
         this.bulletSize   = 1.0;  // multiplier on bullet radius
         this.range        = PLAYER_BASE_RANGE; // max targeting distance
         this.xpGainMult   = 1.0;              // multiplier on XP gained from kills
+        this.executeThreshold = 0;            // instant-kill non-boss enemies below this HP ratio
 
         // Tracks how many times each stat upgrade id has been taken (for HUD display)
         this.upgradeCounts = {};
@@ -2694,6 +2697,7 @@ class Enemy extends Entity {
         // Ranged enemy
         this.fireTimer = 0;
         this.preferredDist = 200; // ranged enemies try to maintain distance
+        this.blinkTimer = randRange(1.6, 2.6);
 
         // Exploder
         this.exploded = false;
@@ -2753,6 +2757,32 @@ class Enemy extends Entity {
                 // Intentional slight inaccuracy
                 const spread = randRange(-0.15, 0.15);
                 game.bullets.push(new Projectile(this.x, this.y, angle + spread, this.contactDamage, 0, 0.8, false, true));
+            }
+        } else if (this.type === "phaser") {
+            // Phaser: pressure movement + blink reposition + short burst shots.
+            if (d > 1) {
+                this.x += (dx / d) * currentSpeed * 1.15 * dt;
+                this.y += (dy / d) * currentSpeed * 1.15 * dt;
+            }
+
+            this.blinkTimer -= dt;
+            if (this.blinkTimer <= 0 && d > 120) {
+                this.blinkTimer = randRange(1.6, 2.6);
+                const blinkAngle = randRange(0, Math.PI * 2);
+                const blinkDist = randRange(130, 210);
+                this.x = clamp(target.x + Math.cos(blinkAngle) * blinkDist, this.radius, WORLD_W - this.radius);
+                this.y = clamp(target.y + Math.sin(blinkAngle) * blinkDist, this.radius, WORLD_H - this.radius);
+                game.spawnParticles(this.x, this.y, COLOR.phaser, isMobile ? 3 : 8);
+            }
+
+            this.fireTimer -= dt;
+            if (this.fireTimer <= 0 && d < 420) {
+                this.fireTimer = 1.25;
+                const angle = Math.atan2(dy, dx);
+                for (let i = -1; i <= 1; i++) {
+                    const spread = i * 0.12;
+                    game.bullets.push(new Projectile(this.x, this.y, angle + spread, Math.floor(this.contactDamage * 0.7), 0, 0.75, false, true));
+                }
             }
         } else {
             // All other types chase the player
@@ -3485,6 +3515,8 @@ const UPGRADES = [
     { id: "range2", name: "+40% Range",        icon: "🔭",  cat: "stat", apply(p) { p.range *= 1.40; } },
     { id: "xpgain1", name: "+25% XP Gain",    icon: "✨",  cat: "stat", apply(p) { p.xpGainMult *= 1.25; } },
     { id: "xpgain2", name: "+50% XP Gain",    icon: "⭐",  cat: "stat", apply(p) { p.xpGainMult *= 1.50; } },
+    { id: "execute1", name: "+8% Execute Threshold", icon: "⚰️", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.4, p.executeThreshold + 0.08); } },
+    { id: "execute2", name: "+12% Execute Threshold", icon: "🩸", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.4, p.executeThreshold + 0.12); } },
 
     // ── Weapon upgrades ──
     { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", cat: "weapon", apply(p) { p.weapons.orbitShield.level++; } },
@@ -3508,6 +3540,7 @@ const STAT_GROUPS = [
     { icon: "📡",  ids: ["range1", "range2"]      },
     { icon: "🧲",  ids: ["magnet"]                },
     { icon: "✨",  ids: ["xpgain1", "xpgain2"]   },
+    { icon: "⚰️",  ids: ["execute1", "execute2"] },
 ];
 
 // ─────────────────────────────────────────────
@@ -5025,6 +5058,20 @@ const game = {
                     if (!e.alive) continue;
                     if (b.collidesWith(e)) {
                         e.takeDamage(b.damage, b.isCrit);
+
+                        if (
+                            e.alive &&
+                            this.player.executeThreshold > 0 &&
+                            e.type !== "miniboss" &&
+                            e.type !== "bigboss" &&
+                            e.type !== "endboss"
+                        ) {
+                            const hpRatio = e.maxHp > 0 ? (e.hp / e.maxHp) : 1;
+                            if (hpRatio <= this.player.executeThreshold) {
+                                e.takeDamage(e.hp, false);
+                            }
+                        }
+
                         this.spawnParticles(e.x, e.y, COLOR.enemyA, isMobile ? 2 : 5);
                         Audio.sfxHit();
 
@@ -5306,6 +5353,7 @@ const game = {
         p.bulletSize = 1.0;
         p.range = PLAYER_BASE_RANGE;
         p.xpGainMult = 1.0;
+        p.executeThreshold = 0;
         p.upgradeCounts = {};
 
         p.weapons.orbitShield.level = 0;
@@ -6089,6 +6137,7 @@ const game = {
         if (this.wave >= 5) typePool.push("tank");
         if (this.wave >= 7) typePool.push("ranged");
         if (this.wave >= 9) typePool.push("exploder");
+        if (this.wave >= 12) typePool.push("phaser");
 
         const specialChance = Math.min(0.9, (0.1 + this.wave * 0.04) * mods.specialChanceMult);
 

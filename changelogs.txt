@@ -3,6 +3,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:07
+- Added new enemy type: Phaser (blink-reposition behavior with burst shots)
+- Phaser enemies begin appearing in later waves
+- Added new Execute upgrade family (+8% / +12% execute threshold)
+- Execute effect now instantly finishes non-boss enemies when they fall below threshold HP
+
 beta 20.04:06-2
 - Hotfix: removed wave kill-progress text during the final boss fight
 - The "Kills: current/required" line now hides while The Null Sovereign encounter is active
@@ -14,7 +20,6 @@ beta 20.04:06-1
 - Boss labels now read per-encounter display name instead of one shared big boss title
 
 beta 20.04:06
-- Started Phase 5 architecture and extensibility work
 - Added modular config.js as centralized runtime tuning source
 - Moved wave/performance tuning and boss display names to structured config groups
 - Wired game.js to consume config values with safe in-file fallbacks
@@ -39,7 +44,6 @@ beta 20.04:04-1
 - Added automatic scroll mode for tiny viewports so the game remains readable and reachable
 
 beta 20.04:04
-- Completed Phase 4 mobile UX and accessibility pass
 - Relaxed viewport policy to allow browser zoom for better readability on small screens
 - Increased mobile in-game pause button hit area to improve touch usability
 - Scaled pause icon to match enlarged button sizes across portrait and landscape
@@ -47,21 +51,18 @@ beta 20.04:04
 - Added preventDefault in TouchControls touch handlers for cleaner mobile input behavior
 
 beta 20.04:03
-- Completed Phase 3 performance pass (stability-first)
 - Optimized nearest-enemy targeting to use spatial-grid candidates with safe fallback to full enemy scan
 - Added lightweight object pooling for particles and damage numbers to reduce allocation/GC churn during heavy combat
 - Added reusable reset paths for pooled Particle and DamageNumber objects
 - Tuned low-performance mode thresholds for smoother quality switching (enter/exit hysteresis adjusted)
 
 beta 20.04:02
-- Completed Phase 2 (content-first): skin asset and shop stabilization
 - Added skin asset telemetry counters (requests, cache hits, successful loads, failed loads, fallback retries, placeholder renders)
 - Shop now logs skin asset telemetry when opened for easier QA tracking
 - Added explicit placeholder visuals for missing/unloaded skin icons
 - Featured and all-skins cards now label missing assets as "Placeholder" while keeping skins visible in the catalog
 
 beta 20.04:01
-- Phase 1 started: baseline stability and correctness hardening
 - Added boot diagnostics summary for env, changelog, skin shop, and progression initialization
 - Added runtime configuration validation warnings for key boot assumptions
 - Added safety guards for endboss update flow and cheat configuration application
