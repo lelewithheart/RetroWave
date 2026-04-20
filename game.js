@@ -90,6 +90,7 @@ const STATE = {
     CHANGELOGS:     "CHANGELOGS",
     SHOP:           "SHOP",
     GAMEPLAY:       "GAMEPLAY",
+    PAUSED:         "PAUSED",
     CHEAT_MENU:     "CHEAT_MENU",
     UPGRADE_SCREEN: "UPGRADE_SCREEN",
     SETTINGS:       "SETTINGS",
@@ -182,6 +183,7 @@ const MAX_LIGHTNING_BOLTS = 20;
 const PERF_LOW_THRESHOLD = CFG.perf.lowThreshold;
 const PERF_RECOVER_THRESHOLD = CFG.perf.recoverThreshold;
 const PERF_SAMPLE_WINDOW = CFG.perf.sampleWindow;
+const PERF_PROMPT_RETRY_DELAY = 20;
 const TUTORIAL_HINT_DURATION = 8;
 
 // Camera
@@ -334,6 +336,53 @@ function shuffle(arr) {
         [arr[i], arr[j]] = [arr[j], arr[i]];
     }
     return arr;
+}
+
+function upgradeRarity(upgrade) {
+    return upgrade.rarity || "common";
+}
+
+function upgradeRarityWeight(rarity) {
+    switch (rarity) {
+        case "epic": return 5;
+        case "rare": return 16;
+        default: return 100;
+    }
+}
+
+function upgradeRarityColor(rarity) {
+    switch (rarity) {
+        case "epic": return "#c38bff";
+        case "rare": return "#66ddff";
+        default: return "#cfd9e6";
+    }
+}
+
+function pickUpgradeChoicesByRarity(pool, count) {
+    const picks = [];
+    const available = [...pool];
+
+    while (available.length > 0 && picks.length < count) {
+        let totalWeight = 0;
+        for (let i = 0; i < available.length; i++) {
+            totalWeight += upgradeRarityWeight(upgradeRarity(available[i]));
+        }
+
+        let roll = Math.random() * totalWeight;
+        let chosenIdx = available.length - 1;
+        for (let i = 0; i < available.length; i++) {
+            roll -= upgradeRarityWeight(upgradeRarity(available[i]));
+            if (roll <= 0) {
+                chosenIdx = i;
+                break;
+            }
+        }
+
+        picks.push(available[chosenIdx]);
+        available.splice(chosenIdx, 1);
+    }
+
+    return picks;
 }
 
 /** Format number with K suffix */
@@ -3490,39 +3539,39 @@ const Starfield = (() => {
 const UPGRADES = [
     // ── Stat upgrades ──
     { id: "dmg1",   name: "+5 Damage",          icon: "⚔️",  cat: "stat", apply(p) { p.damage += 5; } },
-    { id: "dmg2",   name: "+10 Damage",         icon: "🗡️",  cat: "stat", apply(p) { p.damage += 10; } },
+    { id: "dmg2",   name: "+10 Damage",         icon: "🗡️",  rarity: "rare", cat: "stat", apply(p) { p.damage += 10; } },
     { id: "spd1",   name: "+15% Move Speed",    icon: "👟",  cat: "stat", apply(p) { p.speed *= 1.15; } },
-    { id: "spd2",   name: "+25% Move Speed",    icon: "💨",  cat: "stat", apply(p) { p.speed *= 1.25; } },
+    { id: "spd2",   name: "+25% Move Speed",    icon: "💨",  rarity: "rare", cat: "stat", apply(p) { p.speed *= 1.25; } },
     { id: "rate1",  name: "+20% Fire Rate",     icon: "🔫",  cat: "stat", apply(p) { p.fireRate *= 0.80; } },
-    { id: "rate2",  name: "+35% Fire Rate",     icon: "💥",  cat: "stat", apply(p) { p.fireRate *= 0.65; } },
+    { id: "rate2",  name: "+35% Fire Rate",     icon: "💥",  rarity: "rare", cat: "stat", apply(p) { p.fireRate *= 0.65; } },
     { id: "hp1",    name: "+25 Max HP",         icon: "❤️",  cat: "stat", apply(p) { p.maxHp += 25; p.hp = Math.min(p.hp + 25, p.maxHp); } },
-    { id: "hp2",    name: "+50 Max HP",         icon: "💖",  cat: "stat", apply(p) { p.maxHp += 50; p.hp = Math.min(p.hp + 50, p.maxHp); } },
+    { id: "hp2",    name: "+50 Max HP",         icon: "💖",  rarity: "rare", cat: "stat", apply(p) { p.maxHp += 50; p.hp = Math.min(p.hp + 50, p.maxHp); } },
     { id: "heal",   name: "Heal 30%",           icon: "🩹",  cat: "stat", apply(p) { p.hp = Math.min(p.maxHp, p.hp + p.maxHp * 0.3); } },
     { id: "magnet", name: "+XP Magnet Range",   icon: "🧲",  cat: "stat", apply()  { game.xpMagnetBonus += 40; } },
     { id: "armor1", name: "+3 Armor",           icon: "🛡️",  cat: "stat", apply(p) { p.armor += 3; },
         desc: "Reduces all damage taken by 3" },
-    { id: "armor2", name: "+6 Armor",           icon: "🏰",  cat: "stat", apply(p) { p.armor += 6; },
+    { id: "armor2", name: "+6 Armor",           icon: "🏰",  rarity: "rare", cat: "stat", apply(p) { p.armor += 6; },
         desc: "Reduces all damage taken by 6" },
     { id: "regen1", name: "+2 HP/sec Regen",    icon: "💚",  cat: "stat", apply(p) { p.hpRegen += 2; } },
-    { id: "regen2", name: "+5 HP/sec Regen",    icon: "🌿",  cat: "stat", apply(p) { p.hpRegen += 5; } },
+    { id: "regen2", name: "+5 HP/sec Regen",    icon: "🌿",  rarity: "rare", cat: "stat", apply(p) { p.hpRegen += 5; } },
     { id: "pierce", name: "Piercing +1",          icon: "📌",  cat: "stat", apply(p) { p.piercing += 1; },
         desc(p) { return `Bullets pierce through ${p.piercing + 1} enemies`; } },
     { id: "multi",  name: "+1 Multi-Shot",      icon: "🎯",  cat: "stat", apply(p) { p.multiShot += 1; } },
     { id: "crit1",  name: "+10% Crit Chance",   icon: "🎲",  cat: "stat", apply(p) { p.critChance = Math.min(1, p.critChance + 0.10); } },
-    { id: "crit2",  name: "+0.5x Crit Damage",  icon: "💎",  cat: "stat", apply(p) { p.critMult += 0.5; } },
+    { id: "crit2",  name: "+0.5x Crit Damage",  icon: "💎",  rarity: "rare", cat: "stat", apply(p) { p.critMult += 0.5; } },
     { id: "bigBullet", name: "+30% Bullet Size", icon: "⭕",  cat: "stat", apply(p) { p.bulletSize *= 1.3; } },
     { id: "range1", name: "+20% Range",        icon: "📡",  cat: "stat", apply(p) { p.range *= 1.20; } },
-    { id: "range2", name: "+40% Range",        icon: "🔭",  cat: "stat", apply(p) { p.range *= 1.40; } },
+    { id: "range2", name: "+40% Range",        icon: "🔭",  rarity: "rare", cat: "stat", apply(p) { p.range *= 1.40; } },
     { id: "xpgain1", name: "+25% XP Gain",    icon: "✨",  cat: "stat", apply(p) { p.xpGainMult *= 1.25; } },
-    { id: "xpgain2", name: "+50% XP Gain",    icon: "⭐",  cat: "stat", apply(p) { p.xpGainMult *= 1.50; } },
-    { id: "execute1", name: "+8% Execute Threshold", icon: "⚰️", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.4, p.executeThreshold + 0.08); } },
-    { id: "execute2", name: "+12% Execute Threshold", icon: "🩸", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.4, p.executeThreshold + 0.12); } },
+    { id: "xpgain2", name: "+50% XP Gain",    icon: "⭐",  rarity: "rare", cat: "stat", apply(p) { p.xpGainMult *= 1.50; } },
+    { id: "execute1", name: "+8% Execute Threshold", icon: "⚰️", rarity: "rare", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.5, p.executeThreshold + 0.08); } },
+    { id: "execute2", name: "+12% Execute Threshold", icon: "🩸", rarity: "epic", cat: "stat", apply(p) { p.executeThreshold = Math.min(0.5, p.executeThreshold + 0.12); } },
 
     // ── Weapon upgrades ──
-    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", cat: "weapon", apply(p) { p.weapons.orbitShield.level++; } },
-    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", cat: "weapon", apply(p) { p.weapons.lightningAura.level++; } },
-    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  cat: "weapon", apply(p) { p.weapons.frostNova.level++; } },
-    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", cat: "weapon", apply(p) { p.weapons.flameTrail.level++; } },
+    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level++; } },
+    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", apply(p) { p.weapons.lightningAura.level++; } },
+    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", apply(p) { p.weapons.frostNova.level++; } },
+    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", apply(p) { p.weapons.flameTrail.level++; } },
 ];
 
 // Groups of stat upgrades shown in the bottom-right HUD, one icon per family
@@ -3948,6 +3997,10 @@ const game = {
     lastHighScoreRank: 0,  // rank achieved on last game over (0 = not a high score)
     lastRunShardGain: 0,
     lastDailyReward: 0,
+    runShotsFired: 0,
+    runShotsHit: 0,
+    runUpgradesTaken: 0,
+    runBossesDefeated: 0,
 
     // Kill combo
     comboCount: 0,
@@ -3978,6 +4031,7 @@ const game = {
     fpsEma: TARGET_FPS,
     perfSampleTimer: 0,
     lowPerf: false,
+    perfPromptSuppressedUntil: 0,
 
     // UX flow state
     tutorialDismissed: false,
@@ -4047,6 +4101,10 @@ const game = {
         this.lastHighScoreRank = 0;
         this.lastRunShardGain = 0;
         this.lastDailyReward = 0;
+        this.runShotsFired = 0;
+        this.runShotsHit = 0;
+        this.runUpgradesTaken = 0;
+        this.runBossesDefeated = 0;
         this.comboCount = 0;
         this.comboTimer = 0;
         this.bestCombo = 0;
@@ -4065,6 +4123,7 @@ const game = {
         this.fpsEma = TARGET_FPS;
         this.perfSampleTimer = 0;
         this.lowPerf = false;
+        this.perfPromptSuppressedUntil = 0;
         this.tutorialDismissed = false;
         this.revivedThisRun = false;
         this.reviveInProgress = false;
@@ -4119,7 +4178,18 @@ const game = {
         this.perfSampleTimer = 0;
 
         if (!this.lowPerf && this.fpsEma < PERF_LOW_THRESHOLD) {
-            this.lowPerf = true;
+            if (this.timePlayed >= this.perfPromptSuppressedUntil) {
+                const avgFps = Math.max(1, Math.round(this.fpsEma));
+                const promptText = `Low FPS detected (~${avgFps}). Enable Performance Mode now?`;
+                const wantsPerfMode = typeof window !== "undefined" && typeof window.confirm === "function"
+                    ? window.confirm(promptText)
+                    : true;
+                if (wantsPerfMode) {
+                    this.lowPerf = true;
+                } else {
+                    this.perfPromptSuppressedUntil = this.timePlayed + PERF_PROMPT_RETRY_DELAY;
+                }
+            }
         } else if (this.lowPerf && this.fpsEma > PERF_RECOVER_THRESHOLD) {
             this.lowPerf = false;
         }
@@ -4254,6 +4324,7 @@ const game = {
             case STATE.CHANGELOGS:   this.updateChangelogs(dt); break;
             case STATE.SHOP:         this.updateShop(dt); break;
             case STATE.GAMEPLAY:     this.updateGameplay(dt);  break;
+            case STATE.PAUSED:       this.updatePaused(dt);  break;
             case STATE.CHEAT_MENU:   this.updateCheatMenu(dt); break;
             case STATE.UPGRADE_SCREEN: this.updateUpgrade(dt); break;
             case STATE.SETTINGS:     this.updateSettings(dt);  break;
@@ -4274,6 +4345,7 @@ const game = {
             case STATE.CHANGELOGS:   this.drawChangelogs();  break;
             case STATE.SHOP:         this.drawShop();         break;
             case STATE.GAMEPLAY:     this.drawGameplay();     break;
+            case STATE.PAUSED:       this.drawSettings();     break;
             case STATE.CHEAT_MENU:
                 this.drawGameplay();
                 this.drawCheatMenuOverlay();
@@ -5057,6 +5129,7 @@ const game = {
                     const e = nearby[i];
                     if (!e.alive) continue;
                     if (b.collidesWith(e)) {
+                        this.runShotsHit++;
                         e.takeDamage(b.damage, b.isCrit);
 
                         if (
@@ -5181,7 +5254,7 @@ const game = {
 
         // Settings shortcut
         if (Input.just("Escape") || Input.just("KeyP") || TouchControls.pauseTapped) {
-            this.state = STATE.SETTINGS;
+            this.state = STATE.PAUSED;
         }
     },
 
@@ -6184,6 +6257,10 @@ const game = {
         this.killCount++;
         this.waveKills++;
 
+        if (enemy.type === "miniboss" || enemy.type === "bigboss" || enemy.type === "endboss") {
+            this.runBossesDefeated++;
+        }
+
         // Kill combo tracking
         this.comboCount++;
         this.comboTimer = COMBO_TIMEOUT;
@@ -6241,6 +6318,7 @@ const game = {
 
     spawnBullet(x, y, angle, damage, piercing, sizeMultiplier, isCrit, lifetime) {
         this.bullets.push(new Projectile(x, y, angle, damage, piercing, sizeMultiplier, isCrit, false, lifetime));
+        this.runShotsFired++;
         Audio.sfxShoot();
     },
 
@@ -6293,8 +6371,13 @@ const game = {
     triggerUpgrade(isBonusWave = false, bossType = null) {
         // Pick upgrade choices: 4 for bigboss kill, 3 otherwise
         const numChoices = (isBonusWave && bossType === "bigboss") ? 4 : UPGRADE_CHOICES;
-        const pool = shuffle([...UPGRADES]);
-        this.upgradeChoices = pool.slice(0, numChoices);
+        const pool = [...UPGRADES].filter((up) => {
+            if ((up.id === "execute1" || up.id === "execute2") && this.player.executeThreshold >= 0.5) {
+                return false;
+            }
+            return true;
+        });
+        this.upgradeChoices = pickUpgradeChoicesByRarity(pool, numChoices);
         this.upgradeIsBonusWave = isBonusWave;
         this.state = STATE.UPGRADE_SCREEN;
         this.levelUpFlashTimer = 0.3;
@@ -6315,12 +6398,19 @@ const game = {
         const up = this.upgradeChoices[index];
         if (up) {
             up.apply(this.player);
+            this.runUpgradesTaken++;
             if (up.cat === "stat") {
                 const c = this.player.upgradeCounts;
                 c[up.id] = (c[up.id] || 0) + 1;
             }
             this.state = STATE.GAMEPLAY;
             Audio.sfxUpgradeSelect();
+        }
+    },
+
+    updatePaused() {
+        if (Input.just("Escape") || Input.just("KeyP") || TouchControls.pauseTapped) {
+            this.state = STATE.GAMEPLAY;
         }
     },
 
@@ -6358,7 +6448,7 @@ const game = {
         ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`LV ${this.player.level}`, CANVAS_W / 2, 175);
 
-        const cardW = 200, cardH = 160, gap = 24;
+        const cardW = 200, cardH = 172, gap = 24;
         const totalW = this.upgradeChoices.length * cardW + (this.upgradeChoices.length - 1) * gap;
         let startX = CANVAS_W / 2 - totalW / 2;
 
@@ -6369,6 +6459,9 @@ const game = {
             const hovered = Mouse.inRect(cx, cy, cardW, cardH);
             const isStat = up.cat === "stat";
             const isWeapon = up.cat === "weapon";
+            const rarity = upgradeRarity(up);
+            const rarityLabel = rarity.toUpperCase();
+            const rarityColor = upgradeRarityColor(rarity);
 
             // Card background with hover lift effect
             drawRoundRect(cx, cy, cardW, cardH, 12);
@@ -6402,12 +6495,17 @@ const game = {
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.text;
             ctx.fillText(up.name, cx + cardW / 2, cy + 95);
 
+            // Rarity
+            ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = rarityColor;
+            ctx.fillText(rarityLabel, cx + cardW / 2, cy + 112);
+
             // Description (if available)
             if (up.desc) {
                 ctx.font = "11px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = COLOR.textDim;
                 const descText = typeof up.desc === "function" ? up.desc(this.player) : up.desc;
-                ctx.fillText(descText, cx + cardW / 2, cy + 114);
+                ctx.fillText(descText, cx + cardW / 2, cy + 128);
             }
 
             // Current count if already taken
@@ -6415,13 +6513,13 @@ const game = {
             if (taken > 0) {
                 ctx.font = "11px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = "#66ff99";
-                ctx.fillText(`(owned ×${taken})`, cx + cardW / 2, cy + 130);
+                ctx.fillText(`(owned ×${taken})`, cx + cardW / 2, cy + 144);
             }
 
             // Number hint
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.textDim;
-            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, cx + cardW / 2, cy + 148);
+            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, cx + cardW / 2, cy + 160);
 
             if (hovered && Mouse.clicked) {
                 this.applyUpgrade(i);
@@ -6434,8 +6532,7 @@ const game = {
 
     updateSettings() {
         if (Input.just("Escape")) {
-            this.state = this.player && this.player.alive && this.wave > 0
-                ? STATE.GAMEPLAY : STATE.START_MENU;
+            this.state = STATE.START_MENU;
         }
     },
 
@@ -6450,7 +6547,7 @@ const game = {
         ctx.fillStyle = COLOR.panel;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        const isPausedMidRun = !!(this.player && this.player.alive && this.wave > 0);
+        const isPausedMidRun = this.state === STATE.PAUSED;
 
         // ── Compute total content height first, then center vertically ──
         const bw = 280, bh = 44;
@@ -6590,7 +6687,7 @@ const game = {
             y += lineGap;
             ctx.fillText("1 / 2 / 3 — Select upgrade", CANVAS_W / 2, y);
             y += lineGap;
-            ctx.fillText("ESC — Settings / Back", CANVAS_W / 2, y);
+            ctx.fillText(isPausedMidRun ? "ESC — Resume" : "ESC — Back", CANVAS_W / 2, y);
             y += lineGap;
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
             ctx.fillText("Layout-agnostic: works on QWERTY, AZERTY, QWERTZ, etc.", CANVAS_W / 2, y);
@@ -6606,9 +6703,8 @@ const game = {
         // ── Back button ──
         y += sectionGap;
         const backHover = Mouse.inRect(bx, y, bw, bh);
-        if (drawButton("← BACK", bx, y, bw, bh, backHover)) {
-            this.state = this.player && this.player.alive && this.wave > 0
-                ? STATE.GAMEPLAY : STATE.START_MENU;
+        if (drawButton(isPausedMidRun ? "▶ RESUME" : "← BACK", bx, y, bw, bh, backHover)) {
+            this.state = isPausedMidRun ? STATE.GAMEPLAY : STATE.START_MENU;
         }
 
         // ── Abandon run button ──
@@ -6673,12 +6769,18 @@ const game = {
         ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
             CANVAS_W / 2, CANVAS_H / 2 + 6);
 
+        const accuracy = this.runShotsFired > 0
+            ? Math.round((this.runShotsHit / this.runShotsFired) * 100)
+            : 0;
+        ctx.fillText(`Summary: Accuracy ${accuracy}%  •  Upgrades ${this.runUpgradesTaken}  •  Bosses ${this.runBossesDefeated}`,
+            CANVAS_W / 2, CANVAS_H / 2 + 26);
+
         // Best score comparison
         const best = HighScores.getBest();
         if (best && this.lastHighScoreRank !== 1) {
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(`Best: Wave ${best.wave}  •  ☠${best.kills}  •  ${formatTime(best.time)}`, CANVAS_W / 2, CANVAS_H / 2 + 26);
+            ctx.fillText(`Best: Wave ${best.wave}  •  ☠${best.kills}  •  ${formatTime(best.time)}`, CANVAS_W / 2, CANVAS_H / 2 + 46);
         }
 
         const bw = 220, bh = 48;
@@ -6808,6 +6910,12 @@ const game = {
         ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, CANVAS_H / 2 + 2);
         ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
             CANVAS_W / 2, CANVAS_H / 2 + 24);
+
+        const accuracy = this.runShotsFired > 0
+            ? Math.round((this.runShotsHit / this.runShotsFired) * 100)
+            : 0;
+        ctx.fillText(`Summary: Accuracy ${accuracy}%  •  Upgrades ${this.runUpgradesTaken}  •  Bosses ${this.runBossesDefeated}`,
+            CANVAS_W / 2, CANVAS_H / 2 + 46);
 
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;

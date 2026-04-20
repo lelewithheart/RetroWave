@@ -3,6 +3,19 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:09
+- Added a low-FPS confirmation prompt before enabling Performance Mode
+- Declining Performance Mode now temporarily suppresses repeat prompts to avoid spam
+- Added upgrade rarity tiers (common/rare/epic) and weighted rarity-based upgrade rolls
+- Execute upgrades are now rarity-tagged and capped at 50% execute threshold
+- Upgrade cards now display a visible rarity label
+
+beta 20.04:08
+- Added a dedicated PAUSED state for in-run pause flow (separate from main-menu settings)
+- Escape/P now resumes directly from pause and settings from start menu return to menu
+- Added run summary metrics tracking: shots fired, shots hit, upgrades taken, bosses defeated
+- Added accuracy/upgrades/bosses summary lines to both game-over and victory screens
+
 beta 20.04:07
 - Added new enemy type: Phaser (blink-reposition behavior with burst shots)
 - Phaser enemies begin appearing in later waves
