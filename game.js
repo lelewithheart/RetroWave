@@ -80,8 +80,9 @@ let SKIN_SHOP_CONFIG = {
         { id: "surge",   name: "Lime Surge",   player: "#66ff99", glow: "rgba(102,255,153,0.25)", cost: 140, asset: "assets/playerskins/surge.png" },
         { id: "ember",   name: "Ember Pulse",  player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140, asset: "assets/playerskins/ember.png" },
         { id: "nova",    name: "Nova Gold",    player: "#ffd166", glow: "rgba(255,209,102,0.28)", cost: 180, asset: "assets/playerskins/nova.png" },
+        { id: "spiderman", name: "Spiderman Skin", player: "#d32f2f", glow: "rgba(30,90,200,0.35)", cost: 240, asset: "assets/playerskins/SpidermanSkin.png" },
     ],
-    featuredIds: ["surge", "ember", "nova"],
+    featuredIds: ["ember", "nova", "spiderman"],
 };
 
 // Game-state identifiers

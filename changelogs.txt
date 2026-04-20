@@ -3,6 +3,11 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:09-4
+- Added new Spiderman Skin to the shop using assets/playerskins/SpidermanSkin.png
+- Defined Spiderman skin colors: player color #d32f2f and glow color rgba(30,90,200,0.35)
+- Added Spiderman skin to featured shop entries
+
 beta 20.04:09-3
 - Choosing Yes on the low-FPS prompt now keeps Performance Mode always ON for the rest of that run
 - Performance Mode no longer auto-disables on FPS recovery after opting in during that run
