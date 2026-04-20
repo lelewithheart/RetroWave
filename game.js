@@ -6731,6 +6731,9 @@ const game = {
     // ────── UPGRADE SCREEN ──────
 
     triggerUpgrade(isBonusWave = false, bossType = null) {
+        // Guard: don't interrupt an active upgrade screen
+        if (this.state === STATE.UPGRADE_SCREEN) return;
+        
         // Pick upgrade choices: 4 for bigboss kill, 3 otherwise
         const numChoices = (isBonusWave && bossType === "bigboss") ? 4 : UPGRADE_CHOICES;
         const pool = [...UPGRADES].filter((up) => {
@@ -7262,6 +7265,7 @@ const game = {
     // ────── VICTORY ──────
 
     onVictory() {
+        if (this.runFinalized) return;
         this.state = STATE.VICTORY;
         Audio.stopMusic();
         Audio.sfxNewHighScore();

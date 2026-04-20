@@ -3,6 +3,14 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:17-2
+- HOTFIX: Fixed game freeze on level up with duplicate upgrade screens appearing
+- Added guard to triggerUpgrade() to prevent multiple upgrade overlays from stacking when multiple bosses die simultaneously
+
+beta 20.04:17-1
+- HOTFIX: Fixed double score submission to leaderboard on final boss victory
+- Added guard check to onVictory() to prevent duplicate leaderboard submissions (same pattern as commitLossIfNeeded)
+
 beta 20.04:17
 - Added prestige skin unlock system: 6 placeholder skins unlock at prestige milestones (bronze @1, silver @2, gold @3, diamond @5, platinum @7, emerald @10)
 - Prestige skins are automatically granted upon reaching thresholds; cost 0 shards, purely achievement-based
