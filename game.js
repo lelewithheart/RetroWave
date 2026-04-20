@@ -477,6 +477,10 @@ const PRESTIGE_ENABLED = PRESTIGE_CFG.enabled !== false;
 const PRESTIGE_GAIN_PER_CLEAR = Math.max(1, Math.floor(Number(PRESTIGE_CFG.gainPerClear) || 1));
 const PRESTIGE_RESET_SHARDS = PRESTIGE_CFG.resetShards !== false;
 const PRESTIGE_RESET_META = PRESTIGE_CFG.resetMeta !== false;
+const PRESTIGE_SKIN_THRESHOLDS = Array.isArray(PRESTIGE_CFG.skinThresholds)
+    ? PRESTIGE_CFG.skinThresholds.sort((a, b) => (a.prestigeLevel || 0) - (b.prestigeLevel || 0))
+    : [];
+
 
 function upgradeRarityWeight(rarity, opts = {}) {
     const wave = opts.wave || 1;
@@ -1706,6 +1710,31 @@ const Progression = (() => {
         data.daily.rewardClaimed = false;
     }
 
+    function applyPrestigeSkinUnlocks() {
+        if (!PRESTIGE_ENABLED || PRESTIGE_SKIN_THRESHOLDS.length === 0) return;
+        
+        const currentPrestige = Math.max(0, Math.floor(data.prestige?.count || 0));
+        for (const threshold of PRESTIGE_SKIN_THRESHOLDS) {
+            if (currentPrestige >= threshold.prestigeLevel && SKINS[threshold.skinId]) {
+                if (!data.skins.unlocked.includes(threshold.skinId)) {
+                    data.skins.unlocked.push(threshold.skinId);
+                }
+            }
+        }
+    }
+
+    function getUnlockedSkinsForPrestige(prestigeLevel) {
+        if (!PRESTIGE_ENABLED || PRESTIGE_SKIN_THRESHOLDS.length === 0) return [];
+        const prestigeLevel_ = Math.max(0, Math.floor(prestigeLevel || 0));
+        const unlockedIds = [];
+        for (const threshold of PRESTIGE_SKIN_THRESHOLDS) {
+            if (prestigeLevel_ >= threshold.prestigeLevel && SKINS[threshold.skinId]) {
+                unlockedIds.push(threshold.skinId);
+            }
+        }
+        return unlockedIds;
+    }
+
     function normalize(loaded) {
         SKIN_CATALOG = [...SKIN_SHOP_CONFIG.skins];
         FEATURED_SKIN_IDS = [...SKIN_SHOP_CONFIG.featuredIds];
@@ -1730,6 +1759,10 @@ const Progression = (() => {
 
         const ls = loaded.skins || {};
         const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
+        const prestigeUnlocked = getUnlockedSkinsForPrestige(base.prestige.count);
+        for (const skinId of prestigeUnlocked) {
+            if (!unlocked.includes(skinId)) unlocked.push(skinId);
+        }
         if (!unlocked.includes("default")) unlocked.push("default");
         base.skins.unlocked = unlocked;
         base.skins.selected = unlocked.includes(ls.selected) ? ls.selected : "default";
@@ -1935,6 +1968,9 @@ const Progression = (() => {
             data.meta.speed = 0;
             data.gameSpeedIndex = 0;
         }
+
+        // Unlock prestige skins based on new prestige level
+        applyPrestigeSkinUnlocks();
 
         save();
         return { gain, total: data.prestige.count };

@@ -99,5 +99,13 @@ window.RogueConfig = {
         gainPerClear: 1,
         resetShards: true,
         resetMeta: true,
+        skinThresholds: [
+            { prestigeLevel: 1, skinId: "prestige_bronze" },
+            { prestigeLevel: 2, skinId: "prestige_silver" },
+            { prestigeLevel: 3, skinId: "prestige_gold" },
+            { prestigeLevel: 5, skinId: "prestige_diamond" },
+            { prestigeLevel: 7, skinId: "prestige_platinum" },
+            { prestigeLevel: 10, skinId: "prestige_emerald" },
+        ],
     },
 };

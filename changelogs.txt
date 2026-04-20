@@ -3,6 +3,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:17
+- Added prestige skin unlock system: 6 placeholder skins unlock at prestige milestones (bronze @1, silver @2, gold @3, diamond @5, platinum @7, emerald @10)
+- Prestige skins are automatically granted upon reaching thresholds; cost 0 shards, purely achievement-based
+- Config.js now includes skinThresholds array for prestige leveling customization
+- Skin unlock logic runs on game load (Progression.init) and after prestige gain (Final Boss victory)
+
 beta 20.04:16
 - Added prestige foundation with persistent prestige count in progression storage
 - Final boss victory now grants prestige and applies reset policy: shards and meta upgrades reset while owned skins remain
