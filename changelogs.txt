@@ -3,6 +3,13 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
 
+beta 20.04:03
+- Completed Phase 3 performance pass (stability-first)
+- Optimized nearest-enemy targeting to use spatial-grid candidates with safe fallback to full enemy scan
+- Added lightweight object pooling for particles and damage numbers to reduce allocation/GC churn during heavy combat
+- Added reusable reset paths for pooled Particle and DamageNumber objects
+- Tuned low-performance mode thresholds for smoother quality switching (enter/exit hysteresis adjusted)
+
 beta 20.04:02
 - Completed Phase 2 (content-first): skin asset and shop stabilization
 - Added skin asset telemetry counters (requests, cache hits, successful loads, failed loads, fallback retries, placeholder renders)

@@ -119,10 +119,13 @@ const COMBO_TIMEOUT = 1.5;            // seconds until combo resets
 const MAX_PARTICLES = 150;
 const MAX_ENEMIES = 80;
 const MAX_XP_ORBS = 150;
+const MAX_DAMAGE_NUMBERS = 60;
+const MAX_PARTICLE_POOL = 240;
+const MAX_DAMAGE_NUMBER_POOL = 120;
 const MAX_FLAME_PATCHES = 50;
 const MAX_LIGHTNING_BOLTS = 20;
-const PERF_LOW_THRESHOLD = 52;
-const PERF_RECOVER_THRESHOLD = 57;
+const PERF_LOW_THRESHOLD = 48;
+const PERF_RECOVER_THRESHOLD = 54;
 const PERF_SAMPLE_WINDOW = 1.2;
 const TUTORIAL_HINT_DURATION = 8;
 
@@ -642,6 +645,20 @@ function compactInPlace(arr, isAlive) {
         if (isAlive(arr[read])) {
             if (read !== write) arr[write] = arr[read];
             write++;
+        }
+    }
+    arr.length = write;
+}
+
+function compactInPlaceWithPool(arr, isAlive, pool, poolCap) {
+    let write = 0;
+    for (let read = 0; read < arr.length; read++) {
+        const item = arr[read];
+        if (isAlive(item)) {
+            if (read !== write) arr[write] = item;
+            write++;
+        } else if (pool && pool.length < poolCap) {
+            pool.push(item);
         }
     }
     arr.length = write;
@@ -3211,6 +3228,10 @@ class XPOrb extends Entity {
 
 class Particle {
     constructor(x, y, color) {
+        this.reset(x, y, color);
+    }
+
+    reset(x, y, color) {
         this.x = x;
         this.y = y;
         const angle = Math.random() * Math.PI * 2;
@@ -3222,6 +3243,7 @@ class Particle {
         this.color = color;
         this.radius = randRange(2, 5);
         this.alive = true;
+        return this;
     }
 
     update(dt) {
@@ -3250,6 +3272,10 @@ class Particle {
 
 class DamageNumber {
     constructor(x, y, amount, color, isCrit) {
+        this.reset(x, y, amount, color, isCrit);
+    }
+
+    reset(x, y, amount, color, isCrit) {
         this.x = x + randRange(-8, 8);
         this.y = y;
         this.amount = amount;
@@ -3259,6 +3285,7 @@ class DamageNumber {
         this.maxLife = DAMAGE_NUMBER_LIFETIME;
         this.alive = true;
         this.scale = isCrit ? 1.4 : 1.0;
+        return this;
     }
 
     update(dt) {
@@ -3784,6 +3811,8 @@ const game = {
     flamePatches: [],     // flame trail damage zones
     damageNumbers: [],    // floating damage numbers
     trailParticles: [],   // player movement trail
+    particlePool: [],
+    damageNumberPool: [],
     camera: new Camera(),
 
     // Wave tracking
@@ -3889,6 +3918,8 @@ const game = {
         this.flamePatches = [];
         this.damageNumbers = [];
         this.trailParticles = [];
+        this.particlePool = [];
+        this.damageNumberPool = [];
         this.camera = new Camera();
         this.wave = 0;
         this.waveKills = 0;
@@ -4948,11 +4979,11 @@ const game = {
 
         // Particles
         for (const p of this.particles) p.update(speedDt);
-        compactInPlace(this.particles, p => p.alive);
+        compactInPlaceWithPool(this.particles, p => p.alive, this.particlePool, MAX_PARTICLE_POOL);
 
         // Damage numbers
         for (const d of this.damageNumbers) d.update(speedDt);
-        compactInPlace(this.damageNumbers, d => d.alive);
+        compactInPlaceWithPool(this.damageNumbers, d => d.alive, this.damageNumberPool, MAX_DAMAGE_NUMBER_POOL);
 
         // Trail particles
         for (const t of this.trailParticles) t.update(speedDt);
@@ -6090,23 +6121,40 @@ const game = {
         const room = dynamicCap(MAX_PARTICLES) - this.particles.length;
         const n = Math.min(count, room);
         for (let i = 0; i < n; i++) {
-            this.particles.push(new Particle(x, y, color));
+            const p = this.particlePool.length > 0
+                ? this.particlePool.pop().reset(x, y, color)
+                : new Particle(x, y, color);
+            this.particles.push(p);
         }
     },
 
     spawnDamageNumber(x, y, amount, color, isCrit) {
-        if (this.damageNumbers.length < 60) {
-            this.damageNumbers.push(new DamageNumber(x, y, amount, color, isCrit));
+        if (this.damageNumbers.length < MAX_DAMAGE_NUMBERS) {
+            const dn = this.damageNumberPool.length > 0
+                ? this.damageNumberPool.pop().reset(x, y, amount, color, isCrit)
+                : new DamageNumber(x, y, amount, color, isCrit);
+            this.damageNumbers.push(dn);
         }
     },
 
     findNearestEnemy(x, y, maxRange) {
         let nearest = null;
-        let bestDist = maxRange !== undefined ? maxRange : Infinity;
-        for (const e of this.enemies) {
-            const d = dist(x, y, e.x, e.y);
-            if (d < bestDist) {
-                bestDist = d;
+        let bestDistSq = maxRange !== undefined ? maxRange * maxRange : Infinity;
+
+        let candidates = this.enemies;
+        if (maxRange !== undefined && Number.isFinite(maxRange)) {
+            const nearby = gridQuery(x, y, maxRange + COLLISION_QUERY_BUFFER);
+            if (nearby.length > 0) candidates = nearby;
+        }
+
+        for (let i = 0; i < candidates.length; i++) {
+            const e = candidates[i];
+            if (!e || !e.alive) continue;
+            const dx = e.x - x;
+            const dy = e.y - y;
+            const dSq = dx * dx + dy * dy;
+            if (dSq < bestDistSq) {
+                bestDistSq = dSq;
                 nearest = e;
             }
         }
