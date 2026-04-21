@@ -2,6 +2,15 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 20.04:21
+- Fixed pointer/touch to canvas coordinate mapping for reliable clicks/taps in resized and windowed modes
+- Added responsive layout foundation helpers (compact/narrow/normal modes) and dynamic readable-scale floor logic
+- Added missing upgrade text helpers (splitTextLines and upgradeDescriptionText) to stabilize upgrade card rendering
+- Start menu received first responsive geometry pass for narrow windows (panel widths, spacing, and button sizing adjusted to reduce crowding)
+- Shop received adaptive layout pass: responsive columns (2/3/4 by viewport mode), compact spacing/panel sizing, and safer label/button fitting
+- Upgrade overlay now adapts card sizing/layout by viewport mode, including multi-row grids and compact text hierarchy to avoid clipping
+- HUD top bars now adapt by viewport mode (panel widths, font scales, and text width guards) to reduce overlap in non-fullscreen layouts
+
 beta 20.04:20-1
 - HOTFIX: Prestige skin requirements now use a built-in fallback threshold map when config skinThresholds is missing
 - Fixes zero-prestige profiles incorrectly retaining or unlocking prestige skins due to missing runtime threshold data

@@ -356,9 +356,38 @@ const GAME_SPEED_UNLOCK_MAX = GAME_SPEED_OPTIONS.length - 1;
 const canvas = document.getElementById("gameCanvas");
 const ctx    = canvas.getContext("2d");
 
+const LAYOUT_BREAKPOINTS = {
+    compact: 700,
+    narrow: 900,
+};
+
+function getViewportLayoutMode() {
+    const w = window.innerWidth || CANVAS_W;
+    if (w <= LAYOUT_BREAKPOINTS.compact) return "compact";
+    if (w <= LAYOUT_BREAKPOINTS.narrow) return "narrow";
+    return "normal";
+}
+
+function getDynamicMinReadableScale() {
+    const mode = getViewportLayoutMode();
+    if (mode === "compact") return Math.min(MIN_READABLE_SCALE, 0.62);
+    if (mode === "narrow") return Math.min(MIN_READABLE_SCALE, 0.78);
+    return MIN_READABLE_SCALE;
+}
+
+function toCanvasCoords(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const displayWidth = canvas.clientWidth || rect.width || CANVAS_W;
+    const displayHeight = canvas.clientHeight || rect.height || CANVAS_H;
+    return {
+        x: (clientX - rect.left) * (CANVAS_W / displayWidth),
+        y: (clientY - rect.top) * (CANVAS_H / displayHeight),
+    };
+}
+
 function resizeCanvas() {
     const fitScale = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
-    const scale = Math.max(MIN_READABLE_SCALE, fitScale);
+    const scale = Math.max(getDynamicMinReadableScale(), fitScale);
 
     const scrollMode = scale > fitScale;
     document.documentElement.classList.toggle("canvas-scroll-mode", scrollMode);
@@ -381,6 +410,67 @@ function lerp(a, b, t) { return a + (b - a) * t; }
 
 /** Clamp value between min and max */
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function splitTextLines(text, maxCharsPerLine = 28) {
+    const raw = String(text || "").trim();
+    if (!raw) return [""];
+    const words = raw.split(/\s+/g);
+    const lines = [];
+    let line = "";
+    for (const word of words) {
+        const candidate = line ? `${line} ${word}` : word;
+        if (candidate.length <= maxCharsPerLine || line.length === 0) {
+            line = candidate;
+        } else {
+            lines.push(line);
+            line = word;
+        }
+    }
+    if (line) lines.push(line);
+    return lines.length > 0 ? lines : [raw];
+}
+
+function upgradeDescriptionText(upgrade, player) {
+    if (!upgrade) return "";
+    if (typeof upgrade.desc === "function") {
+        return String(upgrade.desc(player || null));
+    }
+    if (typeof upgrade.desc === "string" && upgrade.desc.trim()) {
+        return upgrade.desc.trim();
+    }
+
+    const fallback = {
+        dmg1: "Increase base damage.",
+        dmg2: "Significant base damage boost.",
+        spd1: "Move faster around the arena.",
+        spd2: "Large movement speed boost.",
+        rate1: "Fire bullets more frequently.",
+        rate2: "Major fire rate increase.",
+        hp1: "Increase max HP and heal.",
+        hp2: "Large max HP increase and heal.",
+        heal: "Restore part of your HP now.",
+        magnet: "XP orbs are pulled from farther away.",
+        regen1: "Regenerate HP each second.",
+        regen2: "Strong HP regeneration.",
+        pierce: "Bullets pass through more enemies.",
+        multi: "Shoot one extra projectile.",
+        crit1: "Crit chance increased.",
+        crit2: "Critical hits deal more damage.",
+        bigBullet: "Increase bullet collision size.",
+        range1: "Increase effective attack range.",
+        range2: "Large range increase.",
+        xpgain1: "Gain more XP from kills.",
+        xpgain2: "Greatly increase XP gain.",
+        execute1: "Finish low-health enemies faster.",
+        execute2: "Strong execute threshold boost.",
+        orbit: "Level up Orbit Shield weapon.",
+        lightning: "Level up Lightning Aura weapon.",
+        frost: "Level up Frost Nova weapon.",
+        flame: "Level up Flame Trail weapon.",
+    };
+
+    return fallback[upgrade.id] || "Enhance your build this run.";
+}
 
 /** Distance between two points */
 function dist(x1, y1, x2, y2) {
@@ -2214,9 +2304,9 @@ const Mouse = {
 
     init() {
         canvas.addEventListener("mousemove", (e) => {
-            const rect = canvas.getBoundingClientRect();
-            this.x = (e.clientX - rect.left) * (CANVAS_W / rect.width);
-            this.y = (e.clientY - rect.top) * (CANVAS_H / rect.height);
+            const pos = toCanvasCoords(e.clientX, e.clientY);
+            this.x = pos.x;
+            this.y = pos.y;
         });
         canvas.addEventListener("mousedown", () => { this.clicked = true; });
         canvas.addEventListener("wheel", (e) => {
@@ -2230,10 +2320,10 @@ const Mouse = {
             e.preventDefault();
             // During gameplay on mobile, TouchControls handles all touches (move + aim joysticks).
             // Don't update Mouse position from gameplay touches to avoid absolute-position aiming.
-            const rect = canvas.getBoundingClientRect();
             for (const t of e.changedTouches) {
-                const cx = (t.clientX - rect.left) * (CANVAS_W / rect.width);
-                const cy = (t.clientY - rect.top)  * (CANVAS_H / rect.height);
+                const pos = toCanvasCoords(t.clientX, t.clientY);
+                const cx = pos.x;
+                const cy = pos.y;
                 if (isMobile && game.state === STATE.GAMEPLAY) continue;
                 this.x = cx;
                 this.y = cy;
@@ -2248,18 +2338,19 @@ const Mouse = {
             // Fallback: if no valid touch was found (e.g. all on left side), still mark clicked for menus
             if (!this.clicked && game.state !== STATE.GAMEPLAY) {
                 const t = e.changedTouches[0];
-                this.x = (t.clientX - rect.left) * (CANVAS_W / rect.width);
-                this.y = (t.clientY - rect.top)  * (CANVAS_H / rect.height);
+                const pos = toCanvasCoords(t.clientX, t.clientY);
+                this.x = pos.x;
+                this.y = pos.y;
                 this.clicked = true;
             }
         }, { passive: false });
         canvas.addEventListener("touchmove", (e) => {
             if (isMobile && game.state === STATE.GAMEPLAY) return;
             e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
             for (const t of e.changedTouches) {
-                const cx = (t.clientX - rect.left) * (CANVAS_W / rect.width);
-                const cy = (t.clientY - rect.top)  * (CANVAS_H / rect.height);
+                const pos = toCanvasCoords(t.clientX, t.clientY);
+                const cx = pos.x;
+                const cy = pos.y;
                 if (isMobile && game.state === STATE.GAMEPLAY) continue;
                 this.x = cx;
                 this.y = cy;
@@ -2462,11 +2553,7 @@ const TouchControls = {
 
     /** Convert a Touch to canvas-logical coordinates */
     _toCanvas(touch) {
-        const rect = canvas.getBoundingClientRect();
-        return {
-            x: (touch.clientX - rect.left) * (CANVAS_W / rect.width),
-            y: (touch.clientY - rect.top)  * (CANVAS_H / rect.height),
-        };
+        return toCanvasCoords(touch.clientX, touch.clientY);
     },
 
     /** Draw the virtual joystick overlay (call from drawHUD) */
@@ -4785,7 +4872,9 @@ const game = {
 
     drawStartMenu() {
         const portrait = isPortraitMobile();
-        const compactMobile = portrait;
+        const layoutMode = getViewportLayoutMode();
+        const compactMobile = portrait || layoutMode === "compact";
+        const narrowLayout = !compactMobile && layoutMode === "narrow";
         const profile = Progression.get();
         const allSkins = Progression.getSkinCatalog();
         const daily = Progression.getDailyView();
@@ -4818,12 +4907,12 @@ const game = {
         ctx.font = compactMobile ? "13px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 114 : 114);
 
-        const uiTop = compactMobile ? 148 : 172;
-        const leftX = compactMobile ? 16 : 22;
-        const leftW = compactMobile ? 270 : 248;
-        const rightW = compactMobile ? 260 : 248;
-        const rightX = compactMobile ? CANVAS_W - rightW - 16 : CANVAS_W - rightW - 22;
-        const centerPad = compactMobile ? 0 : 24;
+        const uiTop = compactMobile ? 148 : (narrowLayout ? 164 : 172);
+        const leftX = compactMobile ? 16 : (narrowLayout ? 14 : 22);
+        const leftW = compactMobile ? 270 : (narrowLayout ? 214 : 248);
+        const rightW = compactMobile ? 260 : (narrowLayout ? 214 : 248);
+        const rightX = compactMobile ? CANVAS_W - rightW - 16 : CANVAS_W - rightW - (narrowLayout ? 14 : 22);
+        const centerPad = compactMobile ? 0 : (narrowLayout ? 14 : 24);
         const centerX = compactMobile ? 0 : leftX + leftW + centerPad;
         const centerW = compactMobile ? CANVAS_W : (rightX - centerPad - centerX);
 
@@ -4833,13 +4922,17 @@ const game = {
             { id: "normal",  label: "⚔️ NORMAL",   desc: "Auto-aim"              },
             { id: "hard",    label: "💀 HARD",    desc: isMobile ? "Manual aim (touch)" : "Manual aim (mouse)" },
         ];
-        const mw = compactMobile ? 260 : 112, mh = compactMobile ? 36 : 46, mgap = compactMobile ? 7 : 8;
+        const mw = compactMobile ? 260 : (narrowLayout ? 104 : 112);
+        const mh = compactMobile ? 36 : (narrowLayout ? 42 : 46);
+        const mgap = compactMobile ? 7 : (narrowLayout ? 6 : 8);
         const totalMW = compactMobile ? mw : modes.length * mw + (modes.length - 1) * mgap;
         const mx0 = compactMobile ? (CANVAS_W / 2 - totalMW / 2) : (centerX + (centerW - totalMW) / 2);
         const my = uiTop;
 
         if (!compactMobile) {
-            drawRoundRect(centerX, 148, centerW, 414, 12);
+            const centerPanelY = narrowLayout ? 142 : 148;
+            const centerPanelH = narrowLayout ? 400 : 414;
+            drawRoundRect(centerX, centerPanelY, centerW, centerPanelH, 12);
             ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
             ctx.fill();
             ctx.strokeStyle = "rgba(102,204,255,0.35)";
@@ -4892,9 +4985,9 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
         ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 8);
-        const cW = compactMobile ? 260 : 112;
-        const cH = compactMobile ? 30 : 38;
-        const cGap = compactMobile ? 5 : 8;
+        const cW = compactMobile ? 260 : (narrowLayout ? 104 : 112);
+        const cH = compactMobile ? 30 : (narrowLayout ? 36 : 38);
+        const cGap = compactMobile ? 5 : (narrowLayout ? 6 : 8);
         const cTotal = compactMobile ? cW : CHALLENGE_MODES.length * cW + (CHALLENGE_MODES.length - 1) * cGap;
         const cStartX = CANVAS_W / 2 - cTotal / 2;
         for (let i = 0; i < CHALLENGE_MODES.length; i++) {
@@ -4919,7 +5012,9 @@ const game = {
         }
 
         // Play button
-        const bw = compactMobile ? 260 : Math.min(270, centerW - 20), bh = compactMobile ? 36 : 44, bhPlay = compactMobile ? 44 : 56;
+        const bw = compactMobile ? 260 : Math.min(narrowLayout ? 244 : 270, centerW - (narrowLayout ? 12 : 20));
+        const bh = compactMobile ? 36 : (narrowLayout ? 40 : 44);
+        const bhPlay = compactMobile ? 44 : (narrowLayout ? 50 : 56);
         const bx = compactMobile ? (CANVAS_W / 2 - bw / 2) : (centerX + (centerW - bw) / 2);
         const challengeEnd = compactMobile
             ? cY + CHALLENGE_MODES.length * (cH + 5) - 5
@@ -4970,9 +5065,9 @@ const game = {
 
         // Meta progression panel
         const mpX = leftX;
-        const mpY = compactMobile ? 42 : 148;
+        const mpY = compactMobile ? 42 : (narrowLayout ? 142 : 148);
         const mpW = leftW;
-        const mpH = compactMobile ? 274 : 432;
+        const mpH = compactMobile ? 274 : (narrowLayout ? 400 : 432);
         drawRoundRect(mpX, mpY, mpW, mpH, 10);
         ctx.fillStyle = "rgba(8, 10, 22, 0.92)";
         ctx.fill();
@@ -5064,9 +5159,9 @@ const game = {
 
         // Daily panel
         const dpW = rightW;
-        const dpH = compactMobile ? 90 : 132;
+        const dpH = compactMobile ? 90 : (narrowLayout ? 118 : 132);
         const dpX = rightX;
-        const dpY = compactMobile ? CANVAS_H - dpH - 14 : 148;
+        const dpY = compactMobile ? CANVAS_H - dpH - 14 : (narrowLayout ? 142 : 148);
         drawRoundRect(dpX, dpY, dpW, dpH, 9);
         ctx.fillStyle = "rgba(16,8,24,0.92)";
         ctx.fill();
@@ -5178,6 +5273,9 @@ const game = {
     },
 
     drawShop() {
+        const layoutMode = getViewportLayoutMode();
+        const compactLayout = layoutMode === "compact";
+        const narrowLayout = layoutMode === "narrow";
         const profile = Progression.get();
         const featured = Progression.getFeaturedSkinCatalog();
         const allSkins = Progression.getSkinCatalog();
@@ -5212,36 +5310,40 @@ const game = {
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
         ctx.fillStyle = COLOR.accent;
-        ctx.font = "bold 46px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 36px 'Segoe UI', Arial, sans-serif" : (narrowLayout ? "bold 42px 'Segoe UI', Arial, sans-serif" : "bold 46px 'Segoe UI', Arial, sans-serif");
         ctx.textAlign = "center";
-        ctx.fillText("🛍 SKIN SHOP", CANVAS_W / 2, 66);
+        ctx.fillText("🛍 SKIN SHOP", CANVAS_W / 2, compactLayout ? 58 : 66);
         ctx.fillStyle = "#9fc6ff";
-        ctx.font = "13px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Shop config is loaded from skinshop.txt", CANVAS_W / 2, 88);
-        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "12px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText("Shop config is loaded from skinshop.txt", CANVAS_W / 2, compactLayout ? 78 : 88);
+        ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = "#8fb0e6";
         ctx.fillText(
             `Asset telemetry  ok:${skinAssetTelemetry.loadSuccess}  missing:${skinAssetTelemetry.loadFailed}  fallback retries:${skinAssetTelemetry.fallbackRetries}  placeholders:${skinAssetTelemetry.placeholderRenders}  •  Prestige clears:${prestigeCount}/${prestigeSkinsTotal}`,
             CANVAS_W / 2,
-            104
+            compactLayout ? 94 : 104
         );
 
-        drawRoundRect(CANVAS_W - 230, 28, 200, 44, 8);
+        const shardPanelW = compactLayout ? 182 : 200;
+        const shardPanelH = compactLayout ? 38 : 44;
+        const shardPanelX = CANVAS_W - shardPanelW - (compactLayout ? 18 : 30);
+        const shardPanelY = compactLayout ? 24 : 28;
+        drawRoundRect(shardPanelX, shardPanelY, shardPanelW, shardPanelH, 8);
         ctx.fillStyle = "rgba(0,0,0,0.35)";
         ctx.fill();
         ctx.strokeStyle = "#66ff99";
         ctx.lineWidth = 1.3;
         ctx.stroke();
         ctx.fillStyle = "#66ff99";
-        ctx.font = "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 15px 'Segoe UI', Arial, sans-serif" : "bold 18px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "left";
-        ctx.fillText(`◆ SHARDS ${profile.shards}`, CANVAS_W - 214, 56);
+        ctx.fillText(`◆ SHARDS ${profile.shards}`, shardPanelX + 12, shardPanelY + (compactLayout ? 24 : 28));
 
         // Featured section
-        const fX = 44;
-        const fY = 114;
-        const fW = CANVAS_W - 88;
-        const fH = 220;
+        const fX = compactLayout ? 22 : 44;
+        const fY = compactLayout ? 106 : 114;
+        const fW = CANVAS_W - (compactLayout ? 44 : 88);
+        const fH = compactLayout ? 204 : (narrowLayout ? 210 : 220);
         drawRoundRect(fX, fY, fW, fH, 12);
         ctx.fillStyle = "rgba(6,8,22,0.9)";
         ctx.fill();
@@ -5249,14 +5351,14 @@ const game = {
         ctx.lineWidth = 1.4;
         ctx.stroke();
         ctx.fillStyle = "#ffcc66";
-        ctx.font = "bold 18px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 16px 'Segoe UI', Arial, sans-serif" : "bold 18px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "left";
         ctx.fillText("FEATURED", fX + 16, fY + 26);
 
         const fCount = Math.max(1, featured.length);
-        const cardGap = 14;
+        const cardGap = compactLayout ? 10 : 14;
         const cardW = Math.floor((fW - 32 - (fCount - 1) * cardGap) / fCount);
-        const cardH = 162;
+        const cardH = compactLayout ? 150 : 162;
         const cardY = fY + 40;
 
         for (let i = 0; i < featured.length; i++) {
@@ -5278,11 +5380,11 @@ const game = {
 
             ctx.textAlign = "center";
             ctx.fillStyle = COLOR.text;
-            ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(s.name, x + cardW / 2, cardY + 80, cardW - 14);
 
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
-            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "11px 'Segoe UI', Arial, sans-serif" : "12px 'Segoe UI', Arial, sans-serif";
             const priceLabel = s.cost <= 0 ? "Free" : `${s.cost} shards`;
             const stateLabel = s.prestigeLocked
                 ? `Prestige ${s.prestigeRequirement} required`
@@ -5305,7 +5407,7 @@ const game = {
             }
 
             const btnW = cardW - 22;
-            const btnH = 32;
+            const btnH = compactLayout ? 30 : 32;
             const btnX = x + 11;
             const btnY = cardY + cardH - 42;
             const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
@@ -5318,10 +5420,10 @@ const game = {
         }
 
         // All skins section
-        const aX = 44;
-        const aY = 350;
-        const aW = CANVAS_W - 88;
-        const aH = 220;
+        const aX = compactLayout ? 22 : 44;
+        const aY = fY + fH + 16;
+        const aW = CANVAS_W - (compactLayout ? 44 : 88);
+        const aH = Math.max(compactLayout ? 198 : 200, CANVAS_H - aY - 78);
         drawRoundRect(aX, aY, aW, aH, 12);
         ctx.fillStyle = "rgba(6,8,22,0.9)";
         ctx.fill();
@@ -5329,18 +5431,19 @@ const game = {
         ctx.lineWidth = 1.2;
         ctx.stroke();
         ctx.fillStyle = "#66ccff";
-        ctx.font = "bold 16px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 15px 'Segoe UI', Arial, sans-serif" : "bold 16px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "left";
         ctx.fillText("ALL SKINS", aX + 16, aY + 24);
 
-        const cols = 4;
+        const cols = compactLayout ? 2 : (narrowLayout ? 3 : 4);
         const itemGap = 10;
         const itemW = Math.floor((aW - 32 - (cols - 1) * itemGap) / cols);
-        const itemH = 74;
+        const itemH = compactLayout ? 84 : (narrowLayout ? 80 : 74);
         const listStartY = aY + 38;
         const listViewportH = aH - 52;
         const rowCount = Math.ceil(allSkins.length / cols);
-        const contentH = rowCount > 0 ? (rowCount * itemH + (rowCount - 1) * 10) : 0;
+        const rowGap = compactLayout ? 8 : 10;
+        const contentH = rowCount > 0 ? (rowCount * itemH + (rowCount - 1) * rowGap) : 0;
         this.shopMaxScroll = Math.max(0, contentH - listViewportH);
         this.shopScroll = clamp(this.shopScroll, 0, this.shopMaxScroll);
 
@@ -5354,7 +5457,7 @@ const game = {
             const col = i % cols;
             const row = Math.floor(i / cols);
             const x = aX + 16 + col * (itemW + itemGap);
-            const y = listStartY + row * (itemH + 10) - this.shopScroll;
+            const y = listStartY + row * (itemH + rowGap) - this.shopScroll;
 
             const visible = y + itemH >= listStartY && y <= listStartY + listViewportH;
             if (!visible) continue;
@@ -5372,7 +5475,7 @@ const game = {
 
             ctx.textAlign = "left";
             ctx.fillStyle = COLOR.text;
-            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(s.name, x + 30, y + 18, itemW - 34);
             if (s.prestigeSkin) {
                 ctx.fillStyle = s.prestigeLocked ? "#ffcc66" : "#ffd700";
@@ -5380,7 +5483,7 @@ const game = {
                 ctx.fillText("PRESTIGE", x + 30, y + 29, itemW - 34);
             }
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
-            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
             const assetStatus = SkinAssets.getStatus(s.asset || "");
             const ownershipLabel = s.prestigeLocked
                 ? `Prestige ${s.prestigeRequirement} required`
@@ -5390,10 +5493,11 @@ const game = {
             const secondaryLabel = s.prestigeSkin
                 ? (s.prestigeLocked ? "Achievement reward" : "Prestige reward")
                 : (assetStatus.state === "missing" ? "Placeholder" : "");
-            ctx.fillText(`${ownershipLabel}${secondaryLabel}`, x + 30, y + 34, itemW - 34);
+            const labelJoiner = secondaryLabel ? " • " : "";
+            ctx.fillText(`${ownershipLabel}${labelJoiner}${secondaryLabel}`, x + 30, y + 34, itemW - 34);
 
-            const btnW = 86;
-            const btnH = 24;
+            const btnW = compactLayout ? 78 : 86;
+            const btnH = compactLayout ? 22 : 24;
             const btnX = x + itemW - btnW - 8;
             const btnY = y + itemH - btnH - 6;
             const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
@@ -5425,12 +5529,12 @@ const game = {
             ctx.fill();
         }
 
-        const backW = 250;
-        const backH = 44;
+        const backW = compactLayout ? 220 : 250;
+        const backH = compactLayout ? 40 : 44;
         const backX = CANVAS_W / 2 - backW / 2;
-        const backY = CANVAS_H - 58;
+        const backY = CANVAS_H - (compactLayout ? 54 : 58);
         const backHover = Mouse.inRect(backX, backY, backW, backH);
-        if (drawButton("← BACK TO MENU", backX, backY, backW, backH, backHover, 17)) {
+        if (drawButton("← BACK TO MENU", backX, backY, backW, backH, backHover, compactLayout ? 15 : 17)) {
             this.shopTelemetryLogged = false;
             this.state = STATE.START_MENU;
         }
@@ -6253,16 +6357,22 @@ const game = {
     drawHUD() {
         const p = this.player;
         const portrait = isPortraitMobile();
-        const pad = portrait ? 12 : 16;
+        const layoutMode = getViewportLayoutMode();
+        const compactLayout = portrait || layoutMode === "compact";
+        const narrowLayout = !compactLayout && layoutMode === "narrow";
+        const pad = compactLayout ? 10 : (portrait ? 12 : (narrowLayout ? 14 : 16));
+        const leftPanelW = compactLayout ? 228 : (narrowLayout ? 252 : 280);
+        const centerPanelW = compactLayout ? 220 : 250;
+        const rightPanelW = compactLayout ? 126 : (narrowLayout ? 130 : 136);
 
         // Soft panel anchors to improve HUD legibility under heavy effects.
-        drawRoundRect(pad - 6, pad - 6, (portrait ? 250 : 280), 68, 8);
+        drawRoundRect(pad - 6, pad - 6, leftPanelW, compactLayout ? 64 : 68, 8);
         ctx.fillStyle = "rgba(8,10,24,0.72)";
         ctx.fill();
-        drawRoundRect(CANVAS_W / 2 - 125, pad - 8, 250, this.endbossActive ? 58 : 54, 8);
+        drawRoundRect(CANVAS_W / 2 - centerPanelW / 2, pad - 8, centerPanelW, this.endbossActive ? 58 : 54, 8);
         ctx.fillStyle = "rgba(8,10,24,0.68)";
         ctx.fill();
-        drawRoundRect(CANVAS_W - 150, pad - 8, 136, 58, 8);
+        drawRoundRect(CANVAS_W - rightPanelW - pad + 2, pad - 8, rightPanelW, 58, 8);
         ctx.fillStyle = "rgba(8,10,24,0.68)";
         ctx.fill();
 
@@ -6278,7 +6388,8 @@ const game = {
         }
 
         // ── HP bar ──
-        const hpW = portrait ? 190 : 220, hpH = portrait ? 16 : 18;
+        const hpW = compactLayout ? 176 : (portrait ? 190 : (narrowLayout ? 205 : 220));
+        const hpH = compactLayout ? 15 : (portrait ? 16 : 18);
         const hpX = pad, hpY = pad;
         drawRoundRect(hpX, hpY, hpW, hpH, 4);
         ctx.fillStyle = COLOR.hpBarBg;
@@ -6288,7 +6399,7 @@ const game = {
         ctx.fillStyle = hpBarColor;
         ctx.fill();
         ctx.fillStyle = COLOR.text;
-        ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(`HP  ${Math.ceil(p.hp)} / ${p.maxHp}`, hpX + hpW / 2, hpY + hpH / 2);
@@ -6306,13 +6417,13 @@ const game = {
 
         // ── Level badge ──
         ctx.fillStyle = COLOR.accent;
-        ctx.font = "bold 16px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 14px 'Segoe UI', Arial, sans-serif" : "bold 16px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "left";
         ctx.fillText(`LV ${p.level}`, hpX + hpW + 10, hpY + hpH / 2 + 6);
 
         // ── Regen indicator (next to XP bar row, below level badge) ──
         if (p.hpRegen > 0) {
-            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
             ctx.fillStyle = "#55dd88";
             ctx.fillText(`💚 +${p.hpRegen}/s`, hpX + hpW + 10, xpY + hpH / 2 + 2);
@@ -6320,22 +6431,26 @@ const game = {
 
         // ── Armor indicator ──
         if (p.armor > 0) {
-            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 10px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
             ctx.fillStyle = "#88bbff";
-            ctx.fillText(`🛡️ ${p.armor} Armor (−${p.armor} dmg taken)`, hpX, xpY + hpH + 16);
+            const armorText = compactLayout
+                ? `🛡️ Armor ${p.armor}`
+                : `🛡️ ${p.armor} Armor (−${p.armor} dmg taken)`;
+            ctx.fillText(armorText, hpX, xpY + hpH + 16, leftPanelW - 14);
         }
 
         // ── Wave counter (top-center) ──
         ctx.textAlign = "center";
         ctx.fillStyle = COLOR.text;
-        ctx.font = "bold 24px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 20px 'Segoe UI', Arial, sans-serif" : "bold 24px 'Segoe UI', Arial, sans-serif";
         if (this.endbossActive) {
             ctx.fillStyle = "#ff00ff";
             ctx.fillText(`☠ ${BOSS_NAMES.endboss} ☠`, CANVAS_W / 2, pad + 14);
             // Endboss HP bar (full width at top)
             if (this.activeBoss && this.activeBoss.alive) {
-                const ebHpW = 300, ebHpH = 12;
+                const ebHpW = compactLayout ? 240 : 300;
+                const ebHpH = compactLayout ? 10 : 12;
                 const ebX = CANVAS_W / 2 - ebHpW / 2;
                 const ebY = pad + 26;
                 const ebPct = this.activeBoss.hp / this.activeBoss.maxHp;
@@ -6344,7 +6459,7 @@ const game = {
                 const ebColor = this.activeBoss.phase === 3 ? "#ff0044" : (this.activeBoss.phase === 2 ? "#ff44aa" : "#ff00ff");
                 ctx.fillStyle = ebColor;
                 ctx.fillRect(ebX, ebY, ebHpW * clamp(ebPct, 0, 1), ebHpH);
-                ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+                ctx.font = compactLayout ? "bold 10px 'Segoe UI', Arial, sans-serif" : "bold 11px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = "#ffffff";
                 ctx.fillText(`Phase ${this.activeBoss.phase} — ${Math.ceil(ebPct * 100)}%`, CANVAS_W / 2, ebY + ebHpH / 2);
             }
@@ -6353,7 +6468,7 @@ const game = {
         }
 
         // Enemies remaining
-        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = "#b5c2d3";
         if (!this.endbossActive) {
             ctx.fillText(`Kills: ${this.waveKills} / ${this.waveKillsRequired}`, CANVAS_W / 2, pad + 36);
@@ -6362,19 +6477,19 @@ const game = {
         // ── Kill count (top-right) ──
         ctx.textAlign = "right";
         ctx.fillStyle = COLOR.text;
-        ctx.font = "bold 16px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`☠ ${this.killCount}`, CANVAS_W - pad, pad + 16);
+        ctx.font = compactLayout ? "bold 14px 'Segoe UI', Arial, sans-serif" : "bold 16px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`☠ ${this.killCount}`, CANVAS_W - pad, pad + 16, rightPanelW - 12);
 
         // ── Time ──
-        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = "#b5c2d3";
-        ctx.fillText(formatTime(this.timePlayed), CANVAS_W - pad, pad + 38);
+        ctx.fillText(formatTime(this.timePlayed), CANVAS_W - pad, pad + 38, rightPanelW - 12);
 
         // ── Mode badge (top-right, below time) ──
         if (Settings.gameMode !== "normal") {
-            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = Settings.gameMode === "easy" ? "#55ff88" : COLOR.danger;
-            ctx.fillText(Settings.gameMode === "easy" ? "😊 EASY" : "💀 HARD", CANVAS_W - pad, pad + 56);
+            ctx.fillText(Settings.gameMode === "easy" ? "😊 EASY" : "💀 HARD", CANVAS_W - pad, pad + 56, rightPanelW - 12);
         }
 
         if (Progression.isGameSpeedUnlocked()) {
@@ -6958,6 +7073,10 @@ const game = {
     },
 
     drawUpgradeOverlay() {
+        const layoutMode = getViewportLayoutMode();
+        const compactLayout = layoutMode === "compact";
+        const narrowLayout = layoutMode === "narrow";
+
         // Dim overlay with gradient
         const overlayGrad = ctx.createRadialGradient(CANVAS_W / 2, 250, 100, CANVAS_W / 2, 250, CANVAS_W);
         overlayGrad.addColorStop(0, "rgba(0,0,20,0.5)");
@@ -6969,36 +7088,49 @@ const game = {
         const titleText = this.upgradeIsBonusWave ? "🏆 BOSS DEFEATED! FREE UPGRADE!" : "LEVEL UP!";
         const titleColor = this.upgradeIsBonusWave ? "#ffd700" : COLOR.accent;
         ctx.fillStyle = titleColor;
-        ctx.font = "bold 34px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "bold 28px 'Segoe UI', Arial, sans-serif" : (narrowLayout ? "bold 31px 'Segoe UI', Arial, sans-serif" : "bold 34px 'Segoe UI', Arial, sans-serif");
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.shadowColor = titleColor;
         ctx.shadowBlur = 12;
-        ctx.fillText(titleText, CANVAS_W / 2, 115);
+        ctx.fillText(titleText, CANVAS_W / 2, compactLayout ? 100 : 115);
         ctx.shadowBlur = 0;
 
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = "15px 'Segoe UI', Arial, sans-serif";
+        ctx.font = compactLayout ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
         const numKeys = this.upgradeChoices.length;
-        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, CANVAS_W / 2, 150);
+        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, CANVAS_W / 2, compactLayout ? 130 : 150);
 
         // Player level badge
         ctx.fillStyle = "rgba(51,204,255,0.15)";
-        const badgeW = 100, badgeH = 30;
-        drawRoundRect(CANVAS_W / 2 - badgeW / 2, 160, badgeW, badgeH, 15);
+        const badgeW = compactLayout ? 88 : 100;
+        const badgeH = compactLayout ? 26 : 30;
+        const badgeY = compactLayout ? 138 : 160;
+        drawRoundRect(CANVAS_W / 2 - badgeW / 2, badgeY, badgeW, badgeH, 15);
         ctx.fill();
         ctx.fillStyle = COLOR.accent;
-        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`LV ${this.player.level}`, CANVAS_W / 2, 175);
+        ctx.font = compactLayout ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`LV ${this.player.level}`, CANVAS_W / 2, badgeY + badgeH / 2 + 1);
 
-        const cardW = 210, cardH = 194, gap = 20;
-        const totalW = this.upgradeChoices.length * cardW + (this.upgradeChoices.length - 1) * gap;
-        let startX = CANVAS_W / 2 - totalW / 2;
+        const cardW = compactLayout ? 168 : (narrowLayout ? 188 : 210);
+        const cardH = compactLayout ? 178 : (narrowLayout ? 186 : 194);
+        const gap = compactLayout ? 12 : 20;
+        const rowGap = compactLayout ? 12 : 16;
+        const availableW = CANVAS_W - (compactLayout ? 40 : 64);
+        let cols = Math.max(1, Math.min(this.upgradeChoices.length, Math.floor((availableW + gap) / (cardW + gap))));
+        if (compactLayout && this.upgradeChoices.length > 2) cols = Math.min(cols, 2);
+        if (narrowLayout && this.upgradeChoices.length > 3) cols = Math.min(cols, 3);
+        const rows = Math.ceil(this.upgradeChoices.length / cols);
+        const gridW = cols * cardW + (cols - 1) * gap;
+        const startX = CANVAS_W / 2 - gridW / 2;
+        const startY = compactLayout ? 176 : 210;
 
         for (let i = 0; i < this.upgradeChoices.length; i++) {
             const up = this.upgradeChoices[i];
-            const cx = startX + i * (cardW + gap);
-            const cy = 210;
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const cx = startX + col * (cardW + gap);
+            const cy = startY + row * (cardH + rowGap);
             const hovered = Mouse.inRect(cx, cy, cardW, cardH);
             const isStat = up.cat === "stat";
             const isWeapon = up.cat === "weapon";
@@ -7049,42 +7181,44 @@ const game = {
             ctx.fillText(tagLabel, 0, tagY);
 
             // Icon
-            ctx.font = "40px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "32px 'Segoe UI', Arial, sans-serif" : "40px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
             ctx.fillStyle = COLOR.text;
-            ctx.fillText(up.icon, 0, cardY + 58);
+            ctx.fillText(up.icon, 0, compactLayout ? cardY + 50 : cardY + 58);
 
             // Name
-            ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.text;
-            ctx.fillText(up.name, 0, cardY + 90);
+            ctx.fillText(up.name, 0, compactLayout ? cardY + 80 : cardY + 90, cardW - 20);
 
             // Rarity
-            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "bold 10px 'Segoe UI', Arial, sans-serif" : "bold 11px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = rarityColor;
-            ctx.fillText(rarityLabel, 0, cardY + 108);
+            ctx.fillText(rarityLabel, 0, compactLayout ? cardY + 96 : cardY + 108);
 
             // Description (always visible)
             const descText = upgradeDescriptionText(up, this.player);
-            const descLines = splitTextLines(descText, 28);
-            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            const descLines = splitTextLines(descText, compactLayout ? 23 : 28);
+            ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = COLOR.textDim;
-            for (let li = 0; li < Math.min(2, descLines.length); li++) {
-                ctx.fillText(descLines[li], 0, cardY + 126 + li * 13);
+            const maxDescLines = compactLayout ? 1 : 2;
+            for (let li = 0; li < Math.min(maxDescLines, descLines.length); li++) {
+                const descY = compactLayout ? (cardY + 112 + li * 12) : (cardY + 126 + li * 13);
+                ctx.fillText(descLines[li], 0, descY, cardW - 18);
             }
 
             // Current count if already taken
             const taken = this.player.upgradeCounts[up.id] || 0;
             if (taken > 0) {
-                ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+                ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = "#66ff99";
-                ctx.fillText(`(owned ×${taken})`, 0, cardY + 160);
+                ctx.fillText(`(owned ×${taken})`, 0, cardY + cardH - 34);
             }
 
             // Number hint
-            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.font = compactLayout ? "11px 'Segoe UI', Arial, sans-serif" : "12px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = hovered ? COLOR.accent : COLOR.textDim;
-            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, 0, cardY + 178);
+            ctx.fillText(isMobile ? "Tap" : `Press ${i + 1}`, 0, cardY + cardH - 16);
 
             ctx.restore();
 
