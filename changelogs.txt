@@ -2,6 +2,14 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 27.04:2-1
+- HOTFIX: Reduced start-menu overcrowding by fitting mode/challenge cards to available panel width
+- Simplified desktop card copy (secondary mode/challenge descriptions now mobile-only) to improve readability
+- Fixed prestige/meta text overlap in the left progression panel by increasing row spacing
+- Reduced daily panel density and repositioned progress bar for clearer right-panel layout
+- Reduced skin-shop text density (short telemetry header, single-line item status, larger row height)
+- Fixed featured-card label collision when a prestige skin also has missing asset fallback text
+
 beta 27.04:2
 - Started Neon visual-overhaul implementation (Phase 1 foundation)
 - Added centralized UI theme/font tokens in game.js for upcoming HUD/menu styling passes
