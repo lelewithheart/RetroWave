@@ -333,17 +333,135 @@ const COLOR = {
     exploder:    "#ff8800",
 };
 
+// Visual foundation for menu/HUD presentation updates.
+const UI_THEME = {
+    fontFamily: "'Segoe UI', Arial, sans-serif",
+    panelFill: "rgba(8,10,24,0.72)",
+    panelFillStrong: "rgba(8,10,24,0.88)",
+    panelStroke: "rgba(102,204,255,0.42)",
+    panelGlow: "rgba(51,204,255,0.28)",
+    buttonText: "#eaf6ff",
+    buttonTextMuted: "#0b1220",
+    transitionTint: "rgba(8, 14, 36, 1)",
+};
+
+const UI_FONT = {
+    xxs: 9,
+    xs: 10,
+    sm: 12,
+    md: 14,
+    lg: 18,
+    xl: 24,
+    title: 38,
+};
+
+function uiFont(sizePx, weight = "normal") {
+    return `${weight} ${sizePx}px ${UI_THEME.fontFamily}`;
+}
+
 const BIOMES = [
     { name: "Neon District", bg: "#101226", grid: "#1a2448", border: "#33ccff" },
     { name: "Acid Grid", bg: "#131b17", grid: "#1d3a2c", border: "#66ff99" },
     { name: "Crimson Core", bg: "#1d1016", grid: "#3a1d28", border: "#ff6688" },
 ];
 
-const CHALLENGE_MODES = [
-    { id: "none", label: "No Challenge", desc: "Standard run" },
-    { id: "rush", label: "Rush", desc: "Faster enemies, more shards" },
-    { id: "glass", label: "Glass Cannon", desc: "Low HP, high damage" },
+const DEFAULT_CHALLENGE_MODES = [
+    {
+        id: "none",
+        label: "No Challenge",
+        desc: "Standard run",
+        enemySpeedMult: 1,
+        shardRewardMult: 1,
+        playerHpMult: 1,
+        playerDamageMult: 1,
+    },
+    {
+        id: "rush",
+        label: "Rush",
+        desc: "Faster enemies, more shards",
+        enemySpeedMult: 1.22,
+        shardRewardMult: 1.45,
+        playerHpMult: 1,
+        playerDamageMult: 1,
+    },
+    {
+        id: "glass",
+        label: "Glass Cannon",
+        desc: "Low HP, high damage",
+        enemySpeedMult: 1,
+        shardRewardMult: 1.55,
+        playerHpMult: 0.62,
+        playerDamageMult: 1.45,
+    },
+    {
+        id: "permadeath",
+        label: "Permadeath",
+        desc: "No revives, bigger shard payout",
+        enemySpeedMult: 1.08,
+        shardRewardMult: 1.85,
+        playerHpMult: 1,
+        playerDamageMult: 1,
+        allowRevive: false,
+    },
 ];
+
+function normalizeChallengeMode(raw) {
+    const id = String(raw?.id || "").trim();
+    if (!id) return null;
+    return {
+        id,
+        label: String(raw?.label || id).trim() || id,
+        desc: String(raw?.desc || "").trim(),
+        enemySpeedMult: Number(raw?.enemySpeedMult) > 0 ? Number(raw.enemySpeedMult) : 1,
+        shardRewardMult: Number(raw?.shardRewardMult) > 0 ? Number(raw.shardRewardMult) : 1,
+        playerHpMult: Number(raw?.playerHpMult) > 0 ? Number(raw.playerHpMult) : 1,
+        playerDamageMult: Number(raw?.playerDamageMult) > 0 ? Number(raw.playerDamageMult) : 1,
+        allowRevive: raw?.allowRevive !== false,
+    };
+}
+
+function resolveChallengeModes(rawModes) {
+    const fallback = DEFAULT_CHALLENGE_MODES.map((m) => normalizeChallengeMode(m)).filter(Boolean);
+    if (!Array.isArray(rawModes) || rawModes.length === 0) return fallback;
+    const mapped = rawModes.map((m) => normalizeChallengeMode(m)).filter(Boolean);
+    const dedup = [];
+    const seen = new Set();
+    for (let i = 0; i < mapped.length; i++) {
+        const m = mapped[i];
+        if (seen.has(m.id)) continue;
+        dedup.push(m);
+        seen.add(m.id);
+    }
+    if (!seen.has("none")) dedup.unshift(fallback[0]);
+    return dedup;
+}
+
+const CHALLENGE_MODES = resolveChallengeModes(CFG.replay?.challengeModes);
+const CHALLENGE_MODE_BY_ID = Object.fromEntries(CHALLENGE_MODES.map((m) => [m.id, m]));
+
+function getChallengeMode(modeId) {
+    const requested = String(modeId || "").trim() || "none";
+    return CHALLENGE_MODE_BY_ID[requested] || CHALLENGE_MODE_BY_ID.none || CHALLENGE_MODES[0];
+}
+
+function currentChallengeMode() {
+    return getChallengeMode(Settings.challengeMode);
+}
+
+function challengeModeLabel() {
+    const mode = currentChallengeMode();
+    return mode?.label || "No Challenge";
+}
+
+function applyChallengeToRunState(runState, player, challengeMode) {
+    const mode = challengeMode || currentChallengeMode();
+    if (!runState || !player || !mode) return;
+    runState.enemySpeedMult *= mode.enemySpeedMult || 1;
+    runState.shardRewardMult *= mode.shardRewardMult || 1;
+    player.maxHp = Math.max(1, Math.floor(player.maxHp * (mode.playerHpMult || 1)));
+    player.hp = player.maxHp;
+    player.damage = Math.max(1, Math.floor(player.damage * (mode.playerDamageMult || 1)));
+}
 
 const GAME_SPEED_OPTIONS = [1, 1.5, 2, 3, 5, 10];
 const GAME_SPEED_UNLOCK_COST = 75;
@@ -1747,33 +1865,49 @@ const HighScores = (() => {
     const STORAGE_PREFIX = "roguewave_highscores";
     const MAX_ENTRIES = 5;
 
-    function storageKey(mode) {
+    function storageKey(mode, challengeMode) {
         // mode: "easy", "normal", or "hard"
         const m = (mode != null && mode !== "") ? mode : (Settings.gameMode || "normal");
-        return `${STORAGE_PREFIX}_${m}`;
+        const challenge = getChallengeMode(challengeMode != null ? challengeMode : Settings.challengeMode);
+        return challenge.id !== "none"
+            ? `${STORAGE_PREFIX}_${m}__${challenge.id}`
+            : `${STORAGE_PREFIX}_${m}`;
     }
 
-    function load(mode) {
+    function load(mode, challengeMode) {
         try {
-            const raw = localStorage.getItem(storageKey(mode));
+            const raw = localStorage.getItem(storageKey(mode, challengeMode));
             if (raw) return JSON.parse(raw);
         } catch (e) { /* ignore */ }
         return [];
     }
 
-    function save(scores, mode) {
+    function save(scores, mode, challengeMode) {
         try {
-            localStorage.setItem(storageKey(mode), JSON.stringify(scores));
+            localStorage.setItem(storageKey(mode, challengeMode), JSON.stringify(scores));
         } catch (e) { /* ignore */ }
     }
 
     /** Submit a score. Returns the rank (1-based) if it's a top score, or 0 if not. */
     let lastSubmittedId = null;
 
-    function submit(wave, kills, timePlayed, won) {
-        const scores = load();
+    function submit(wave, kills, timePlayed, won, context = {}) {
+        const contextGameMode = context.gameMode || Settings.gameMode;
+        const contextChallenge = getChallengeMode(context.challengeMode || Settings.challengeMode);
+        const scores = load(contextGameMode, contextChallenge.id);
         const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-        const entry = { id, wave, kills, time: timePlayed, won: !!won };
+        const entry = {
+            id,
+            wave,
+            kills,
+            time: timePlayed,
+            won: !!won,
+            gameMode: contextGameMode,
+            challengeMode: contextChallenge.id,
+            challengeLabel: contextChallenge.label,
+            eventId: context.eventId || "",
+            eventLabel: context.eventLabel || "",
+        };
         lastSubmittedId = id;
 
         scores.push(entry);
@@ -1789,7 +1923,7 @@ const HighScores = (() => {
         });
         // Keep only top N
         while (scores.length > MAX_ENTRIES) scores.pop();
-        save(scores);
+        save(scores, contextGameMode, contextChallenge.id);
 
         // Determine rank (0 if not in top list)
         const rank = scores.findIndex(s => s.id === id);
@@ -1801,12 +1935,12 @@ const HighScores = (() => {
     /** Returns true for a winning run (completed all waves). Also handles legacy entries. */
     function isWinningRun(s) { return s.won || s.wave >= WAVE_MAX; }
 
-    function getAll(mode) {
-        return load(mode);
+    function getAll(mode, challengeMode) {
+        return load(mode, challengeMode);
     }
 
-    function getBest(mode) {
-        const scores = load(mode);
+    function getBest(mode, challengeMode) {
+        const scores = load(mode, challengeMode);
         return scores.length > 0 ? scores[0] : null;
     }
 
@@ -4323,7 +4457,7 @@ const CrazyGamesSDK = (() => {
      * Always fires and-forget – the server always returns success to prevent
      * reverse-engineering of anti-cheat validation.
      */
-    async function submitScore(wave, kills, timePlayed, won) {
+    async function submitScore(wave, kills, timePlayed, won, context = {}) {
         if (!sdkAvailable || !currentUser) return;
         const s = sdk();
         if (!s) return;
@@ -4331,7 +4465,8 @@ const CrazyGamesSDK = (() => {
         try {
             const encryptedScore = await encryptScore(score, LEADERBOARD_ENCRYPTION_KEY);
             await s.user.submitScore({ encryptedScore });
-            console.log(`[CrazyGames] Score ${score} submitted to leaderboard`);
+            const runTag = `${context.gameMode || "normal"}/${context.challengeMode || "none"}`;
+            console.log(`[CrazyGames] Score ${score} submitted to leaderboard (${runTag})`);
         } catch (e) {
             console.warn("[CrazyGames] submitScore failed:", e);
         }
@@ -4381,7 +4516,7 @@ const Settings = {
     musicEnabled:  true,
     shakeEnabled:  true,
     gameMode:      "normal",    // "normal" | "easy" | "hard"
-    challengeMode: "none",      // "none" | "rush" | "glass"
+    challengeMode: "none",      // dynamic ids from CHALLENGE_MODES
 };
 
 // ─────────────────────────────────────────────
@@ -4403,15 +4538,39 @@ function drawRoundRect(x, y, w, h, r) {
     ctx.closePath();
 }
 
+function drawPanel(x, y, w, h, r = 8, opts = {}) {
+    drawRoundRect(x, y, w, h, r);
+    ctx.fillStyle = opts.fill || UI_THEME.panelFill;
+    ctx.fill();
+    if (opts.stroke !== false) {
+        ctx.strokeStyle = opts.strokeColor || UI_THEME.panelStroke;
+        ctx.lineWidth = opts.lineWidth || 1.2;
+        ctx.stroke();
+    }
+}
+
 /** Draw a stylised button, returns true if clicked */
 function drawButton(text, x, y, w, h, hovered, fontSize) {
+    const pulse = hovered ? (0.92 + 0.08 * Math.sin(frameNow * 0.012)) : 0.88;
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, hovered ? "#7be6ff" : COLOR.accentHover);
+    grad.addColorStop(1, hovered ? COLOR.accent : "#1f7ea8");
     drawRoundRect(x, y, w, h, 8);
-    ctx.fillStyle = hovered ? COLOR.accentHover : COLOR.accent;
-    ctx.globalAlpha = hovered ? 1 : 0.85;
+    ctx.fillStyle = grad;
+    ctx.globalAlpha = pulse;
     ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#000";
-    ctx.font = `bold ${fontSize || 18}px 'Segoe UI', Arial, sans-serif`;
+    ctx.strokeStyle = hovered ? "rgba(197,247,255,0.95)" : "rgba(132,220,246,0.65)";
+    ctx.lineWidth = hovered ? 1.8 : 1.2;
+    ctx.stroke();
+    if (!hovered) {
+        drawRoundRect(x + 1, y + 1, w - 2, h - 2, 7);
+        ctx.strokeStyle = "rgba(10,16,24,0.35)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+    ctx.fillStyle = UI_THEME.buttonTextMuted;
+    ctx.font = uiFont(fontSize || 18, "bold");
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, x + w / 2, y + h / 2);
@@ -4465,6 +4624,11 @@ const game = {
     timePlayed: 0,
     lastHighScoreRank: 0,  // rank achieved on last game over (0 = not a high score)
     lastRunShardGain: 0,
+    lastRunGameMode: "normal",
+    lastRunChallengeMode: "none",
+    lastRunChallengeLabel: "No Challenge",
+    lastRunEventId: "",
+    lastRunEventLabel: "",
     lastDailyReward: 0,
     lastPrestigeGain: 0,
     lastPrestigeTotal: 0,
@@ -4522,6 +4686,9 @@ const game = {
     expEarlyPacing: "control",
     expGameOverFlow: "reviveFirst",
     expRewardedCopy: "neutral",
+    activeEventId: "",
+    activeEventLabel: "",
+    challengeAllowsRevive: true,
 
     // Shop scrolling
     shopScroll: 0,
@@ -4533,6 +4700,12 @@ const game = {
     cheatRows: [],
     cheatScroll: 0,
     cheatMaxScroll: 0,
+
+    transition: {
+        active: false,
+        timer: 0,
+        duration: 0.22,
+    },
 
     // ────── INITIALISE ──────
 
@@ -4546,6 +4719,8 @@ const game = {
     },
 
     resetGame() {
+        const selectedChallenge = currentChallengeMode();
+        Settings.challengeMode = selectedChallenge.id;
         this.player = new Player();
         this.bullets = [];
         this.enemies = [];
@@ -4579,6 +4754,11 @@ const game = {
         this.timePlayed = 0;
         this.lastHighScoreRank = 0;
         this.lastRunShardGain = 0;
+        this.lastRunGameMode = Settings.gameMode;
+        this.lastRunChallengeMode = selectedChallenge.id;
+        this.lastRunChallengeLabel = selectedChallenge.label;
+        this.lastRunEventId = "";
+        this.lastRunEventLabel = "";
         this.lastDailyReward = 0;
         this.lastPrestigeGain = 0;
         this.lastPrestigeTotal = 0;
@@ -4618,6 +4798,9 @@ const game = {
         this.expEarlyPacing = Experiments.get("earlyPacing");
         this.expGameOverFlow = Experiments.get("gameOverFlow");
         this.expRewardedCopy = Experiments.get("rewardedCopy");
+        this.activeEventId = "";
+        this.activeEventLabel = "";
+        this.challengeAllowsRevive = selectedChallenge.allowRevive !== false;
         this.shopScroll = 0;
         this.shopMaxScroll = 0;
         this.shopTelemetryLogged = false;
@@ -4626,15 +4809,7 @@ const game = {
         this.cheatScroll = 0;
         this.cheatMaxScroll = 0;
 
-        if (Settings.challengeMode === "rush") {
-            this.enemySpeedMult = 1.22;
-            this.shardRewardMult = 1.45;
-        } else if (Settings.challengeMode === "glass") {
-            this.shardRewardMult = 1.55;
-            this.player.maxHp = Math.floor(this.player.maxHp * 0.62);
-            this.player.hp = this.player.maxHp;
-            this.player.damage = Math.floor(this.player.damage * 1.45);
-        }
+        applyChallengeToRunState(this, this.player, selectedChallenge);
 
         if (this.adBoosterPending) {
             this.adBoosterPending = false;
@@ -4687,6 +4862,7 @@ const game = {
 
     async tryRewardedRevive() {
         if (!APP_CONFIG.monetization) return;
+        if (!this.challengeAllowsRevive) return;
         if (this.revivedThisRun || this.reviveInProgress) return;
         this.reviveInProgress = true;
         const ok = await CrazyGamesSDK.requestRewarded();
@@ -4796,19 +4972,31 @@ const game = {
 
     commitLossIfNeeded() {
         if (this.runFinalized) return;
-        this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed);
+        const runContext = this.getRunContext();
+        this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, false, runContext);
         this.finalizeRun(false);
         if (this.lastHighScoreRank === 1) {
             Audio.sfxNewHighScore();
             CrazyGamesSDK.happyTime();
         }
-        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, false);
+        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, false, runContext);
         this.runFinalized = true;
+    },
+
+    getRunContext() {
+        return {
+            gameMode: Settings.gameMode,
+            challengeMode: this.lastRunChallengeMode,
+            challengeLabel: this.lastRunChallengeLabel,
+            eventId: this.lastRunEventId,
+            eventLabel: this.lastRunEventLabel,
+        };
     },
 
     // ────── GAME LOOP ──────
 
     update(dt) {
+        this.updateTransition(dt);
         switch (this.state) {
             case STATE.START_MENU:   this.updateStartMenu(dt); break;
             case STATE.CHANGELOGS:   this.updateChangelogs(dt); break;
@@ -4851,6 +5039,36 @@ const game = {
                 break;
             case STATE.VICTORY:      this.drawVictory();      break;
         }
+
+        this.drawTransitionOverlay();
+    },
+
+    updateTransition(dt) {
+        if (!this.transition.active) return;
+        this.transition.timer = Math.max(0, this.transition.timer - dt);
+        if (this.transition.timer <= 0) {
+            this.transition.active = false;
+        }
+    },
+
+    drawTransitionOverlay() {
+        if (!this.transition.active) return;
+        const t = 1 - (this.transition.timer / this.transition.duration);
+        const alpha = Math.sin(Math.PI * clamp(t, 0, 1)) * 0.26;
+        if (alpha <= 0.001) return;
+        ctx.fillStyle = UI_THEME.transitionTint;
+        ctx.globalAlpha = alpha;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        ctx.globalAlpha = 1;
+    },
+
+    setState(nextState, withTransition = true) {
+        if (this.state === nextState) return;
+        if (withTransition) {
+            this.transition.active = true;
+            this.transition.timer = this.transition.duration;
+        }
+        this.state = nextState;
     },
 
     // ────── START MENU ──────
@@ -4862,7 +5080,7 @@ const game = {
         }
 
         if (Input.just("KeyK")) {
-            this.state = STATE.SHOP;
+            this.setState(STATE.SHOP);
         }
 
         if (Input.just("KeyB")) {
@@ -4895,16 +5113,16 @@ const game = {
 
         // Title
         ctx.fillStyle = COLOR.accent;
-        ctx.font = compactMobile ? "bold 50px 'Segoe UI', Arial, sans-serif" : "bold 60px 'Segoe UI', Arial, sans-serif";
+        ctx.font = uiFont(compactMobile ? 50 : 60, "bold");
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 70 : 66);
 
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = compactMobile ? "18px 'Segoe UI', Arial, sans-serif" : "20px 'Segoe UI', Arial, sans-serif";
+        ctx.font = uiFont(compactMobile ? UI_FONT.lg : 20);
         ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 98 : 96);
 
-        ctx.font = compactMobile ? "13px 'Segoe UI', Arial, sans-serif" : "14px 'Segoe UI', Arial, sans-serif";
+        ctx.font = uiFont(compactMobile ? 13 : UI_FONT.md);
         ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 114 : 114);
 
         const uiTop = compactMobile ? 148 : (narrowLayout ? 164 : 172);
@@ -5044,7 +5262,7 @@ const game = {
         const settingsY = by + bhPlay + btnGap;
         const sHover = Mouse.inRect(bx, settingsY, bw, bh);
         if (drawButton("⚙  SETTINGS", bx, settingsY, bw, bh, sHover)) {
-            this.state = STATE.SETTINGS;
+            this.setState(STATE.SETTINGS);
         }
 
         // Shop button
@@ -5054,13 +5272,13 @@ const game = {
         const logBtnY = settingsY + bh + btnGap;
         const shopBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
         if (drawButton("🛍  SKIN SHOP", logBtnX, logBtnY, logBtnW, logBtnH, shopBtnHover)) {
-            this.state = STATE.SHOP;
+            this.setState(STATE.SHOP);
         }
 
         // Standalone full changelog button (recent-changelog panel removed)
         const changelogY = logBtnY + bh + btnGap;
         if (drawButton("📜  CHANGELOGS", logBtnX, changelogY, logBtnW, logBtnH, Mouse.inRect(logBtnX, changelogY, logBtnW, logBtnH))) {
-            this.state = STATE.CHANGELOGS;
+            this.setState(STATE.CHANGELOGS);
         }
 
         // Meta progression panel
@@ -5536,7 +5754,7 @@ const game = {
         const backHover = Mouse.inRect(backX, backY, backW, backH);
         if (drawButton("← BACK TO MENU", backX, backY, backW, backH, backHover, compactLayout ? 15 : 17)) {
             this.shopTelemetryLogged = false;
-            this.state = STATE.START_MENU;
+            this.setState(STATE.START_MENU);
         }
 
         ctx.textAlign = "center";
@@ -5552,7 +5770,7 @@ const game = {
 
     updateChangelogs() {
         if (Input.just("Escape")) {
-            this.state = STATE.START_MENU;
+            this.setState(STATE.START_MENU);
         }
     },
 
@@ -5616,7 +5834,7 @@ const game = {
         const by = CANVAS_H - 72;
         const backHover = Mouse.inRect(bx, by, bw, bh);
         if (drawButton("← BACK TO MENU", bx, by, bw, bh, backHover)) {
-            this.state = STATE.START_MENU;
+            this.setState(STATE.START_MENU);
         }
 
         ctx.fillStyle = COLOR.textDim;
@@ -6007,11 +6225,7 @@ const game = {
 
         Progression.applyMetaToPlayer(p);
 
-        if (Settings.challengeMode === "glass") {
-            p.maxHp = Math.floor(p.maxHp * 0.62);
-            p.hp = p.maxHp;
-            p.damage = Math.floor(p.damage * 1.45);
-        }
+        applyChallengeToRunState({ enemySpeedMult: 1, shardRewardMult: 1 }, p, currentChallengeMode());
 
         if (this.adBoosterActive) {
             p.damage = Math.floor(p.damage * 1.12);
@@ -6366,15 +6580,15 @@ const game = {
         const rightPanelW = compactLayout ? 126 : (narrowLayout ? 130 : 136);
 
         // Soft panel anchors to improve HUD legibility under heavy effects.
-        drawRoundRect(pad - 6, pad - 6, leftPanelW, compactLayout ? 64 : 68, 8);
-        ctx.fillStyle = "rgba(8,10,24,0.72)";
-        ctx.fill();
-        drawRoundRect(CANVAS_W / 2 - centerPanelW / 2, pad - 8, centerPanelW, this.endbossActive ? 58 : 54, 8);
-        ctx.fillStyle = "rgba(8,10,24,0.68)";
-        ctx.fill();
-        drawRoundRect(CANVAS_W - rightPanelW - pad + 2, pad - 8, rightPanelW, 58, 8);
-        ctx.fillStyle = "rgba(8,10,24,0.68)";
-        ctx.fill();
+        drawPanel(pad - 6, pad - 6, leftPanelW, compactLayout ? 64 : 68, 8, { fill: UI_THEME.panelFill, stroke: false });
+        drawPanel(CANVAS_W / 2 - centerPanelW / 2, pad - 8, centerPanelW, this.endbossActive ? 58 : 54, 8, {
+            fill: "rgba(8,10,24,0.68)",
+            stroke: false,
+        });
+        drawPanel(CANVAS_W - rightPanelW - pad + 2, pad - 8, rightPanelW, 58, 8, {
+            fill: "rgba(8,10,24,0.68)",
+            stroke: false,
+        });
 
         // ── Low HP danger vignette ──
         const hpPct = p.hp / p.maxHp;
@@ -6495,12 +6709,11 @@ const game = {
         if (Progression.isGameSpeedUnlocked()) {
             const layout = this.getSpeedSelectorLayout();
             const maxUnlockedIdx = Progression.getMaxGameSpeedIndex();
-            drawRoundRect(layout.x, layout.y, layout.panelW, layout.panelH, 8);
-            ctx.fillStyle = "rgba(8, 10, 24, 0.88)";
-            ctx.fill();
-            ctx.strokeStyle = "rgba(102,204,255,0.45)";
-            ctx.lineWidth = 1.2;
-            ctx.stroke();
+            drawPanel(layout.x, layout.y, layout.panelW, layout.panelH, 8, {
+                fill: UI_THEME.panelFillStrong,
+                strokeColor: "rgba(102,204,255,0.45)",
+                lineWidth: 1.2,
+            });
 
             ctx.fillStyle = COLOR.accent;
             ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
@@ -6941,6 +7154,9 @@ const game = {
     },
 
     finalizeRun(won) {
+        this.lastRunGameMode = Settings.gameMode;
+        this.lastRunChallengeMode = currentChallengeMode().id;
+        this.lastRunChallengeLabel = currentChallengeMode().label;
         const baseShards = Math.floor(this.killCount * 0.45 + this.wave * 3 + (won ? 35 : 0));
         const gained = Math.max(5, Math.floor(baseShards * this.shardRewardMult));
         Progression.addShards(gained);
@@ -7233,7 +7449,7 @@ const game = {
 
     updateSettings() {
         if (Input.just("Escape")) {
-            this.state = STATE.START_MENU;
+            this.setState(STATE.START_MENU);
         }
     },
 
@@ -7241,7 +7457,7 @@ const game = {
         this.commitLossIfNeeded();
         Audio.stopMusic();
         CrazyGamesSDK.gameplayStop();
-        this.state = STATE.START_MENU;
+        this.setState(STATE.START_MENU);
     },
 
     drawSettings() {
@@ -7405,7 +7621,7 @@ const game = {
         y += sectionGap;
         const backHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(isPausedMidRun ? "▶ RESUME" : "← BACK", bx, y, bw, bh, backHover)) {
-            this.state = isPausedMidRun ? STATE.GAMEPLAY : STATE.START_MENU;
+            this.setState(isPausedMidRun ? STATE.GAMEPLAY : STATE.START_MENU, !isPausedMidRun);
         }
 
         // ── Abandon run button ──
@@ -7464,9 +7680,11 @@ const game = {
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "16px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`Mode: ${this.lastRunGameMode.toUpperCase()}  •  Challenge: ${this.lastRunChallengeLabel}`,
+            CANVAS_W / 2, CANVAS_H / 2 - 36);
         const timeSurvivedText = `Time survived: ${formatTime(this.timePlayed)}`;
         const comboSuffix = this.bestCombo >= 3 ? `  •  Best combo: ${this.bestCombo}x` : "";
-        ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, CANVAS_H / 2 - 18);
+        ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, CANVAS_H / 2 - 14);
         ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
             CANVAS_W / 2, CANVAS_H / 2 + 6);
 
@@ -7497,7 +7715,7 @@ const game = {
         const restartY = this.expGameOverFlow === "restartFirst" ? CANVAS_H / 2 + 26 : CANVAS_H / 2 + 100;
 
         // Rewarded revive (one-time)
-        if (APP_CONFIG.monetization && !this.revivedThisRun) {
+        if (APP_CONFIG.monetization && !this.revivedThisRun && this.challengeAllowsRevive) {
             const reviveHover = Mouse.inRect(bx, reviveY, bw, bh);
             if (drawButton(reviveLabel, bx, reviveY, bw, bh, reviveHover) && !this.reviveInProgress) {
                 void this.tryRewardedRevive();
@@ -7505,6 +7723,10 @@ const game = {
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(reviveInfoLabel, CANVAS_W / 2, reviveY + 64);
+        } else if (APP_CONFIG.monetization && !this.revivedThisRun && !this.challengeAllowsRevive) {
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("Revive disabled by challenge mode", CANVAS_W / 2, reviveY + 24);
         }
 
         // Restart
@@ -7520,7 +7742,7 @@ const game = {
         const menuHover = Mouse.inRect(bx, menuY, bw, bh);
         if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
             this.commitLossIfNeeded();
-            this.state = STATE.START_MENU;
+            this.setState(STATE.START_MENU);
         }
 
         // ── Local High Scores (per-mode) ──
@@ -7563,13 +7785,14 @@ const game = {
         Audio.sfxNewHighScore();
         CrazyGamesSDK.happyTime();
         CrazyGamesSDK.gameplayStop();
-        this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, true);
+        const runContext = this.getRunContext();
+        this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, true, runContext);
         const prestigeResult = Progression.applyPrestigeFromFinalBoss();
         this.lastPrestigeGain = prestigeResult.gain;
         this.lastPrestigeTotal = prestigeResult.total;
         this.lastRunShardGain = 0;
         this.lastDailyReward = 0;
-        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, true);
+        CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, true, runContext);
         this.runFinalized = true;
     },
 
@@ -7613,6 +7836,8 @@ const game = {
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "15px 'Segoe UI', Arial, sans-serif";
+        ctx.fillText(`Mode: ${this.lastRunGameMode.toUpperCase()}  •  Challenge: ${this.lastRunChallengeLabel}`,
+            CANVAS_W / 2, CANVAS_H / 2 - 10);
         ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, CANVAS_H / 2 + 2);
         ctx.fillText(`Prestige gained: +${this.lastPrestigeGain}  •  Total Prestige: ${this.lastPrestigeTotal}`,
             CANVAS_W / 2, CANVAS_H / 2 + 24);
@@ -7645,7 +7870,7 @@ const game = {
         const menuY = restartY + 58;
         const menuHover = Mouse.inRect(bx, menuY, bw, bh);
         if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
-            this.state = STATE.START_MENU;
+            this.setState(STATE.START_MENU);
         }
 
         // Best scores

@@ -2,6 +2,22 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 27.04:2
+- Started Neon visual-overhaul implementation (Phase 1 foundation)
+- Added centralized UI theme/font tokens in game.js for upcoming HUD/menu styling passes
+- Added reusable drawPanel helper and upgraded button rendering with neon gradient + hover pulse treatment
+- Added transition-aware game state helper (setState) with lightweight fade overlay for menu/screen navigation
+- Wired key menu flows to use transition-aware routing (start menu, shop/changelogs back paths, settings/back to menu, game-over and victory menu return)
+- Updated HUD anchor and game-speed panels to use shared panel styling helpers for consistent visual language
+
+beta 27.04:1
+- Started replayability implementation by moving challenge mode tuning to config-driven definitions under replay.challengeModes
+- Added centralized challenge-mode resolver/application path in game.js so new modes can be introduced without hardcoded branches
+- Local high score storage now segments by both core difficulty and selected challenge mode
+- Run records now store mode context metadata (game mode, challenge mode, and event placeholders) for future event routing
+- Added new challenge mode: Permadeath (revive disabled, higher shard reward)
+- Game-over flow now reflects challenge revive restrictions and run summary shows selected challenge label
+
 beta 20.04:21
 - Fixed pointer/touch to canvas coordinate mapping for reliable clicks/taps in resized and windowed modes
 - Added responsive layout foundation helpers (compact/narrow/normal modes) and dynamic readable-scale floor logic
