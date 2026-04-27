@@ -7738,7 +7738,7 @@ const game = {
             ? "⏳  LOADING AD..."
             : (this.expRewardedCopy === "urgency" ? "🎁  REVIVE NOW (AD)" : "🎁  REVIVE (AD)");
         const reviveInfoLabel = this.expRewardedCopy === "urgency"
-            ? "One revive only – keep your run alive"
+            ? "One revive only - keep your run alive"
             : "One revive per run";
 
         // Rewarded revive (one-time)
@@ -7874,7 +7874,6 @@ const game = {
         ctx.fillText(`Mode: ${this.lastRunGameMode.toUpperCase()}  •  Challenge: ${this.lastRunChallengeLabel}`,
             CANVAS_W / 2, 178);
         ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, 198);
-        // (was 12 px gap → overlap; now 20 px gap)
         ctx.fillText(`Prestige gained: +${this.lastPrestigeGain}  •  Total Prestige: ${this.lastPrestigeTotal}`,
             CANVAS_W / 2, 218);
         ctx.fillText(`Prestige reset applied: Shards ${PRESTIGE_RESET_SHARDS ? "reset" : "kept"}  •  Meta ${PRESTIGE_RESET_META ? "reset" : "kept"}`,
