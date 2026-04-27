@@ -5161,7 +5161,7 @@ const game = {
         ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
-        ctx.fillText("SELECT MODE", CANVAS_W / 2, my - 12);
+        ctx.fillText("SELECT MODE", CANVAS_W / 2, my - 16);
 
         for (let i = 0; i < modes.length; i++) {
             const m = modes[i];
@@ -5202,7 +5202,7 @@ const game = {
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
-        ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 8);
+        ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 14);
         const cW = compactMobile ? 260 : (narrowLayout ? 104 : 112);
         const cH = compactMobile ? 30 : (narrowLayout ? 36 : 38);
         const cGap = compactMobile ? 5 : (narrowLayout ? 6 : 8);
@@ -5762,7 +5762,8 @@ const game = {
         ctx.font = "12px 'Segoe UI', Arial, sans-serif";
         if (this.shopMaxScroll > 0) {
             ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText("Scroll: mouse wheel or W/S / Up/Down", CANVAS_W / 2, CANVAS_H - 50);
+            // Draw scroll hint above the back button so it does not overlap it
+            ctx.fillText("Scroll: mouse wheel or W/S / Up/Down", CANVAS_W / 2, backY - 12);
         }
     },
 
@@ -7651,114 +7652,145 @@ const game = {
         ctx.fillStyle = goGrad;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        // Title with glow
+        // ── Fixed top-anchored layout so text and buttons never overlap ──
+        // Title band: y = 68
         ctx.shadowColor = COLOR.danger;
         ctx.shadowBlur = 16;
         ctx.fillStyle = COLOR.danger;
         ctx.font = "bold 48px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText("GAME OVER", CANVAS_W / 2, CANVAS_H / 2 - 110);
+        ctx.textBaseline = "middle";
+        ctx.fillText("GAME OVER", CANVAS_W / 2, 68);
         ctx.shadowBlur = 0;
 
-        // New high score indicator
+        // New high score indicator: y = 106
         if (this.lastHighScoreRank > 0) {
             const pulse = 0.7 + 0.3 * Math.sin(frameNow * 0.005);
             ctx.globalAlpha = pulse;
             ctx.fillStyle = "#ffd700";
             ctx.font = "bold 26px 'Segoe UI', Arial, sans-serif";
             if (this.lastHighScoreRank === 1) {
-                ctx.fillText("🏆 NEW HIGH SCORE! 🏆", CANVAS_W / 2, CANVAS_H / 2 - 72);
+                ctx.fillText("🏆 NEW HIGH SCORE! 🏆", CANVAS_W / 2, 106);
             } else {
-                ctx.fillText(`🎖️ TOP ${this.lastHighScoreRank} SCORE! 🎖️`, CANVAS_W / 2, CANVAS_H / 2 - 72);
+                ctx.fillText(`🎖️ TOP ${this.lastHighScoreRank} SCORE! 🎖️`, CANVAS_W / 2, 106);
             }
             ctx.globalAlpha = 1;
         }
 
+        // Stats block: y = 148 … 264 (each line 22–26 px apart, no overlap)
         ctx.fillStyle = COLOR.text;
         ctx.font = "20px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Wave ${this.wave}  •  ☠ ${this.killCount} kills`, CANVAS_W / 2, CANVAS_H / 2 - 45);
+        ctx.fillText(`Wave ${this.wave}  •  ☠ ${this.killCount} kills`, CANVAS_W / 2, 148);
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "16px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`Mode: ${this.lastRunGameMode.toUpperCase()}  •  Challenge: ${this.lastRunChallengeLabel}`,
-            CANVAS_W / 2, CANVAS_H / 2 - 36);
+            CANVAS_W / 2, 174);   // 26 px below previous line (was only 9 px → overlap fixed)
         const timeSurvivedText = `Time survived: ${formatTime(this.timePlayed)}`;
         const comboSuffix = this.bestCombo >= 3 ? `  •  Best combo: ${this.bestCombo}x` : "";
-        ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, CANVAS_H / 2 - 14);
+        ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, 198);
         ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 6);
+            CANVAS_W / 2, 220);
 
         const accuracy = this.runShotsFired > 0
             ? Math.round((this.runShotsHit / this.runShotsFired) * 100)
             : 0;
         ctx.fillText(`Summary: Accuracy ${accuracy}%  •  Upgrades ${this.runUpgradesTaken}  •  Bosses ${this.runBossesDefeated}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 26);
+            CANVAS_W / 2, 242);
 
         // Best score comparison
         const best = HighScores.getBest();
         if (best && this.lastHighScoreRank !== 1) {
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(`Best: Wave ${best.wave}  •  ☠${best.kills}  •  ${formatTime(best.time)}`, CANVAS_W / 2, CANVAS_H / 2 + 46);
+            ctx.fillText(`Best: Wave ${best.wave}  •  ☠${best.kills}  •  ${formatTime(best.time)}`, CANVAS_W / 2, 264);
         }
 
+        // ── Buttons: start at y = 292, well below the text block ──
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
+        const btnStride = bh + 8;  // 56 px per button slot
+
+        const hasReviveArea = APP_CONFIG.monetization && !this.revivedThisRun;
+
+        // Determine which slot each action occupies (2 slots without revive, 3 with)
+        const slot1Y = 292;
+        const slot2Y = slot1Y + btnStride;   // 348
+        const slot3Y = slot2Y + btnStride;   // 404  (menu when revive is present)
+
+        let reviveSlotY, restartSlotY, menuBtnY;
+        if (hasReviveArea) {
+            if (this.expGameOverFlow === "restartFirst") {
+                restartSlotY = slot1Y;
+                reviveSlotY  = slot2Y;
+            } else {
+                reviveSlotY  = slot1Y;
+                restartSlotY = slot2Y;
+            }
+            menuBtnY = slot3Y;
+        } else {
+            restartSlotY = slot1Y;
+            menuBtnY     = slot2Y;
+            reviveSlotY  = null;
+        }
+
         const reviveLabel = this.reviveInProgress
             ? "⏳  LOADING AD..."
             : (this.expRewardedCopy === "urgency" ? "🎁  REVIVE NOW (AD)" : "🎁  REVIVE (AD)");
         const reviveInfoLabel = this.expRewardedCopy === "urgency"
-            ? "One revive only - keep your run alive"
+            ? "One revive only – keep your run alive"
             : "One revive per run";
 
-        const reviveY = this.expGameOverFlow === "restartFirst" ? CANVAS_H / 2 + 84 : CANVAS_H / 2 + 26;
-        const restartY = this.expGameOverFlow === "restartFirst" ? CANVAS_H / 2 + 26 : CANVAS_H / 2 + 100;
-
         // Rewarded revive (one-time)
-        if (APP_CONFIG.monetization && !this.revivedThisRun && this.challengeAllowsRevive) {
-            const reviveHover = Mouse.inRect(bx, reviveY, bw, bh);
-            if (drawButton(reviveLabel, bx, reviveY, bw, bh, reviveHover) && !this.reviveInProgress) {
+        if (hasReviveArea && this.challengeAllowsRevive) {
+            const reviveHover = Mouse.inRect(bx, reviveSlotY, bw, bh);
+            if (drawButton(reviveLabel, bx, reviveSlotY, bw, bh, reviveHover) && !this.reviveInProgress) {
                 void this.tryRewardedRevive();
             }
+        } else if (hasReviveArea && !this.challengeAllowsRevive) {
+            // Show disabled-revive notice in the revive slot (no button, just text)
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(reviveInfoLabel, CANVAS_W / 2, reviveY + 64);
-        } else if (APP_CONFIG.monetization && !this.revivedThisRun && !this.challengeAllowsRevive) {
-            ctx.fillStyle = COLOR.textDim;
-            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText("Revive disabled by challenge mode", CANVAS_W / 2, reviveY + 24);
+            ctx.textAlign = "center";
+            ctx.fillText("Revive disabled by challenge mode", CANVAS_W / 2, reviveSlotY + bh / 2);
         }
 
         // Restart
-        const effectiveRestartY = (!APP_CONFIG.monetization || this.revivedThisRun) ? CANVAS_H / 2 + 26 : restartY;
-        const restartHover = Mouse.inRect(bx, effectiveRestartY, bw, bh);
-        if (drawButton("↻  RESTART", bx, effectiveRestartY, bw, bh, restartHover)) {
+        const restartHover = Mouse.inRect(bx, restartSlotY, bw, bh);
+        if (drawButton("↻  RESTART", bx, restartSlotY, bw, bh, restartHover)) {
             this.commitLossIfNeeded();
             this.startGame();
         }
 
         // Menu
-        const menuY = effectiveRestartY + 58;
-        const menuHover = Mouse.inRect(bx, menuY, bw, bh);
-        if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
+        const menuHover = Mouse.inRect(bx, menuBtnY, bw, bh);
+        if (drawButton("🏠  MAIN MENU", bx, menuBtnY, bw, bh, menuHover)) {
             this.commitLossIfNeeded();
             this.setState(STATE.START_MENU);
         }
 
+        // Revive info label — shown below all buttons so it never overlaps them
+        if (hasReviveArea && this.challengeAllowsRevive) {
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(reviveInfoLabel, CANVAS_W / 2, menuBtnY + bh + 14);
+        }
+
         // ── Local High Scores (per-mode) ──
+        const tableTopY = menuBtnY + bh + (hasReviveArea ? 34 : 22);
         const scores = HighScores.getAll();
         if (scores.length > 0) {
             const tableX = CANVAS_W / 2;
-            const tableY = menuY + 66;
             ctx.fillStyle = COLOR.accent;
             ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText(`── ${gameModeLabel()} SCORES ──`, tableX, tableY);
+            ctx.fillText(`── ${gameModeLabel()} SCORES ──`, tableX, tableTopY);
 
             ctx.font = "13px 'Segoe UI', Arial, sans-serif";
             for (let i = 0; i < scores.length; i++) {
                 const s = scores[i];
-                const ty = tableY + 22 + i * 20;
+                const ty = tableTopY + 22 + i * 20;
                 const isNew = s.id === HighScores.getLastSubmittedId();
                 const wonFlag = HighScores.isWinningRun(s) ? "🏆 " : "";
                 ctx.fillStyle = isNew ? "#ffd700" : (i === 0 ? COLOR.accent : COLOR.textDim);
@@ -7817,57 +7849,62 @@ const game = {
             ctx.fill();
         }
 
+        // ── Fixed top-anchored layout so text never overlaps buttons ──
+        // Title: y = 68
         const pulse = 0.85 + 0.15 * Math.sin(frameNow * 0.006);
         ctx.globalAlpha = pulse;
         ctx.fillStyle = "#ffd700";
         ctx.font = "bold 56px 'Segoe UI', Arial, sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("🏆 YOU WIN! 🏆", CANVAS_W / 2, CANVAS_H / 2 - 110);
+        ctx.fillText("🏆 YOU WIN! 🏆", CANVAS_W / 2, 68);
         ctx.globalAlpha = 1;
 
+        // Stats block: y = 126 … 280, 20-28 px per line (no overlap)
         ctx.fillStyle = COLOR.text;
         ctx.font = "22px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`${BOSS_NAMES.endboss} has been vanquished!`, CANVAS_W / 2, CANVAS_H / 2 - 60);
+        ctx.fillText(`${BOSS_NAMES.endboss} has been vanquished!`, CANVAS_W / 2, 126);
 
         ctx.fillStyle = COLOR.accent;
         ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`⏱ Time: ${formatTime(this.timePlayed)}  •  ☠ ${this.killCount} kills`, CANVAS_W / 2, CANVAS_H / 2 - 28);
+        ctx.fillText(`⏱ Time: ${formatTime(this.timePlayed)}  •  ☠ ${this.killCount} kills`, CANVAS_W / 2, 154);
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = "15px 'Segoe UI', Arial, sans-serif";
         ctx.fillText(`Mode: ${this.lastRunGameMode.toUpperCase()}  •  Challenge: ${this.lastRunChallengeLabel}`,
-            CANVAS_W / 2, CANVAS_H / 2 - 10);
-        ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, CANVAS_H / 2 + 2);
+            CANVAS_W / 2, 178);
+        ctx.fillText("Leaderboard rank is decided by fastest completion time", CANVAS_W / 2, 198);
+        // (was 12 px gap → overlap; now 20 px gap)
         ctx.fillText(`Prestige gained: +${this.lastPrestigeGain}  •  Total Prestige: ${this.lastPrestigeTotal}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 24);
+            CANVAS_W / 2, 218);
         ctx.fillText(`Prestige reset applied: Shards ${PRESTIGE_RESET_SHARDS ? "reset" : "kept"}  •  Meta ${PRESTIGE_RESET_META ? "reset" : "kept"}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 44);
+            CANVAS_W / 2, 238);
         const victoryNextPrestige = getNextPrestigeSkinPreview(Progression.getSkinCatalog(), this.lastPrestigeTotal);
         ctx.fillText(
             victoryNextPrestige
                 ? `Next prestige reward: ${victoryNextPrestige.name} at Prestige ${victoryNextPrestige.requirement}`
                 : "Prestige track complete",
             CANVAS_W / 2,
-            CANVAS_H / 2 + 64
+            258
         );
 
         const accuracy = this.runShotsFired > 0
             ? Math.round((this.runShotsHit / this.runShotsFired) * 100)
             : 0;
         ctx.fillText(`Summary: Accuracy ${accuracy}%  •  Upgrades ${this.runUpgradesTaken}  •  Bosses ${this.runBossesDefeated}`,
-            CANVAS_W / 2, CANVAS_H / 2 + 84);
+            CANVAS_W / 2, 278);
 
+        // ── Buttons: start at y = 306, after the text block ends at ~286 ──
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
 
-        const restartY = CANVAS_H / 2 + 30;
+        const restartY = 306;
         const restartHover = Mouse.inRect(bx, restartY, bw, bh);
         if (drawButton("↻  PLAY AGAIN", bx, restartY, bw, bh, restartHover)) {
             this.startGame();
         }
 
-        const menuY = restartY + 58;
+        const menuY = restartY + bh + 8;   // 362
         const menuHover = Mouse.inRect(bx, menuY, bw, bh);
         if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
             this.setState(STATE.START_MENU);
@@ -7877,7 +7914,7 @@ const game = {
         const scores = HighScores.getAll();
         if (scores.length > 0) {
             const tableX = CANVAS_W / 2;
-            const tableY = menuY + 66;
+            const tableY = menuY + bh + 22;  // 432
             ctx.fillStyle = "#ffd700";
             ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
