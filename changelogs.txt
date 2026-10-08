@@ -2,6 +2,18 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 08.10:1
+- Fixed run finalisation: Game Over now shows shards earned, high-score rank and the score table immediately instead of "+0"
+- Fixed lost level-ups: multiple level-ups arriving at once (big XP orbs) are queued instead of silently dropped
+- Fixed skin catalog not refreshing on a fresh profile - prestige skins were invisible and the prestige track showed as complete
+- Replaced the blocking browser "Low FPS?" dialog with a non-blocking in-game prompt (Y/N or click)
+- Fixed start menu layout: challenge buttons now stay inside the centre panel, the prestige reward line no longer overlaps the meta rows
+- Fixed compact/narrow start menu: daily mission progress bar was drawn outside its panel
+- Fixed skin shop: prestige badge no longer overlaps the ownership line
+- Renamed the internal audio module so it no longer shadows the global browser Audio constructor
+- Local high scores on the Game Over screen are submitted on death, so the newest run appears in the table
+- Moved dev-only overlays (asset telemetry, A/B variant line) behind a debug flag
+- itch build now ships config.js and env.txt; changelog fetch fallback strips the JS wrapper
 beta 27.04:2
 - Started Neon visual-overhaul implementation (Phase 1 foundation)
 - Added centralized UI theme/font tokens in game.js for upcoming HUD/menu styling passes

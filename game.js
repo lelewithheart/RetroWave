@@ -118,7 +118,6 @@ const CANVAS_W = 960;
 const CANVAS_H = 640;
 const MIN_READABLE_SCALE = CFG.perf.minReadableScale;
 const TARGET_FPS = 60;
-const FIXED_DT = 1 / TARGET_FPS;        // Logical step in seconds
 const MAX_DT = 0.1;                      // Cap to avoid spiral of death
 let GAME_VERSION = "loading...";
 let CHANGELOG_ENTRIES = [];
@@ -144,6 +143,10 @@ const SKIN_ASSET_TELEMETRY = {
 const APP_CONFIG = {
     monetization: false,
 };
+
+// Developer/QA overlays (asset telemetry, A/B variants). Keep false in builds the
+// players get to see.
+const SHOW_DEV_INFO = false;
 
 function cloneSkinShopConfig(raw) {
     const src = raw || {};
@@ -202,7 +205,6 @@ const BULLET_LIFETIME = 1.5;             // seconds
 const PLAYER_BASE_RANGE = 300;           // px
 
 // Enemy
-const ENEMY_BASE_RADIUS = 14;
 const ENEMY_BASE_SPEED = 80;
 const ENEMY_BASE_HP = 30;
 
@@ -448,10 +450,6 @@ function currentChallengeMode() {
     return getChallengeMode(Settings.challengeMode);
 }
 
-function challengeModeLabel() {
-    const mode = currentChallengeMode();
-    return mode?.label || "No Challenge";
-}
 
 function applyChallengeToRunState(runState, player, challengeMode) {
     const mode = challengeMode || currentChallengeMode();
@@ -763,11 +761,6 @@ function pickUpgradeChoicesByRarity(pool, count, opts = {}) {
     return picks;
 }
 
-/** Format number with K suffix */
-function fmtNum(n) {
-    if (n >= 1000) return (n / 1000).toFixed(1) + "K";
-    return String(Math.floor(n));
-}
 
 /** Format seconds as MM:SS */
 function formatTime(totalSeconds) {
@@ -852,6 +845,17 @@ function isPortraitMobile() {
     return isMobile && window.innerHeight > window.innerWidth;
 }
 
+/** The changelog source is injected as `window.ROGUEWAVE_CHANGELOG_TEXT = `...``.
+ *  When we fall back to fetching the file we get that wrapper verbatim, so strip it
+ *  to end up with the same plain-text format the embedded copy provides. */
+function stripChangelogWrapper(raw) {
+    const text = String(raw || "");
+    if (!/ROGUEWAVE_CHANGELOG_TEXT/.test(text)) return text;
+    const start = text.indexOf("`");
+    if (start < 0) return text;
+    return text.slice(start + 1).replace(/`\s*;?\s*$/, "");
+}
+
 /** Parse plain-text changelog into [{ version, changes[] }, ...] */
 function parseChangelogText(text) {
     const entries = [];
@@ -895,7 +899,7 @@ async function loadChangelogs() {
     try {
         const res = await fetch("changelogs.txt", { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const text = await res.text();
+        const text = stripChangelogWrapper(await res.text());
         const entries = parseChangelogText(text);
 
         if (entries.length > 0) {
@@ -1409,7 +1413,7 @@ function gridQuery(x, y, radius) {
 // §3b  RETRO AUDIO ENGINE  (Web Audio API)
 // ─────────────────────────────────────────────
 
-const Audio = (() => {
+const GameAudio = (() => {
     let actx = null;        // AudioContext (lazy-init on first user gesture)
     let musicGain = null;   // master gain node for music
     let sfxGain = null;     // master gain node for SFX
@@ -1622,10 +1626,7 @@ const Audio = (() => {
     }
 
     // ── Chiptune music loop ──
-    // Three distinct biome soundtracks with unique vibes
-
-    const MUSIC_BPM = 140;
-    const BEAT = 60 / MUSIC_BPM;
+    // Three distinct biome soundtracks with unique vibes (tempo lives per track below)
 
     // ── Biome 0: Neon District (upbeat, driving synthwave) ──
     const neonMelody = [
@@ -2091,9 +2092,14 @@ const Progression = (() => {
 
     async function init() {
         const raw = await CrazyGamesSDK.loadData(STORAGE_KEY);
+        let loaded = null;
         if (raw) {
-            try { data = normalize(JSON.parse(raw)); } catch (e) { data = normalize(null); }
+            try { loaded = JSON.parse(raw); } catch (e) { loaded = null; }
         }
+        // normalize() also re-syncs the skin catalog from SKIN_SHOP_CONFIG (which is
+        // only fetched during boot), so it has to run for fresh profiles too –
+        // otherwise the prestige skins stay invisible and can never be earned.
+        data = normalize(loaded);
         ensureDaily();
         save();
     }
@@ -3238,7 +3244,7 @@ class Player extends Entity {
         this.invTimer = 0.35;
         game.camera.shake();
         game.spawnParticles(this.x, this.y, COLOR.danger, isMobile ? 3 : 8);
-        Audio.sfxPlayerHit();
+        GameAudio.sfxPlayerHit();
         if (this.hp <= 0) {
             this.hp = 0;
             this.alive = false;
@@ -3247,7 +3253,7 @@ class Player extends Entity {
 
     addXP(amount) {
         this.xp += amount;
-        Audio.sfxXPPickup();
+        GameAudio.sfxXPPickup();
         const mods = modeModifiers();
         while (this.xp >= this.xpToNext) {
             this.xp -= this.xpToNext;
@@ -3463,13 +3469,13 @@ class Enemy extends Entity {
             this.attackCooldown = 1.8;
             game.camera.shake();
             game.spawnParticles(this.x, this.y, "#ff00ff", 25);
-            Audio.sfxExplosion();
+            GameAudio.sfxExplosion();
         } else if (hpPct <= 0.6 && this.phase < 2) {
             this.phase = 2;
             this.attackCooldown = 2.4;
             game.camera.shake();
             game.spawnParticles(this.x, this.y, "#ff44aa", 20);
-            Audio.sfxExplosion();
+            GameAudio.sfxExplosion();
         }
 
         // Shield mechanic
@@ -3551,7 +3557,7 @@ class Enemy extends Entity {
                         Math.floor(this.contactDamage * 0.5), 0, 1.0, false, true
                     ));
                 }
-                Audio.sfxExplosion();
+                GameAudio.sfxExplosion();
             } else {
                 // Dash toward player
                 if (d > 1) {
@@ -3572,7 +3578,7 @@ class Enemy extends Entity {
                         Math.floor(this.contactDamage * 0.4), 0, 1.0, false, true
                     ));
                 }
-                Audio.sfxExplosion();
+                GameAudio.sfxExplosion();
             } else if (attackType < 0.6) {
                 // Shield: reduce incoming damage for 2 seconds
                 this.shieldActive = true;
@@ -3906,7 +3912,7 @@ class Enemy extends Entity {
                 // Visual explosion
                 game.spawnParticles(this.x, this.y, COLOR.exploder, 20);
                 game.camera.shake();
-                Audio.sfxExplosion();
+                GameAudio.sfxExplosion();
             }
         }
     }
@@ -4265,8 +4271,8 @@ const CrazyGamesSDK = (() => {
             preMuteMusicEnabled = Settings.musicEnabled;
             Settings.soundEnabled = false;
             Settings.musicEnabled = false;
-            Audio.setSfxEnabled(false);
-            Audio.setMusicEnabled(false);
+            GameAudio.setSfxEnabled(false);
+            GameAudio.setMusicEnabled(false);
         }
         // If muteAudio is false, keep the user's current settings as-is
     }
@@ -4280,14 +4286,14 @@ const CrazyGamesSDK = (() => {
                 preMuteMusicEnabled = Settings.musicEnabled;
                 Settings.soundEnabled = false;
                 Settings.musicEnabled = false;
-                Audio.setSfxEnabled(false);
-                Audio.setMusicEnabled(false);
+                GameAudio.setSfxEnabled(false);
+                GameAudio.setMusicEnabled(false);
             } else {
                 // Platform requests unmute – restore user's previous preferences
                 Settings.soundEnabled = preMuteSoundEnabled;
                 Settings.musicEnabled = preMuteMusicEnabled;
-                Audio.setSfxEnabled(Settings.soundEnabled);
-                Audio.setMusicEnabled(Settings.musicEnabled);
+                GameAudio.setSfxEnabled(Settings.soundEnabled);
+                GameAudio.setMusicEnabled(Settings.musicEnabled);
             }
         }
     }
@@ -4340,17 +4346,17 @@ const CrazyGamesSDK = (() => {
             s.ad.requestAd("midgame", {
                 adStarted()  {
                     gameplayStop();
-                    Audio.setSfxEnabled(false);
-                    Audio.setMusicEnabled(false);
+                    GameAudio.setSfxEnabled(false);
+                    GameAudio.setMusicEnabled(false);
                 },
                 adFinished() {
-                    if (Settings.soundEnabled) Audio.setSfxEnabled(true);
-                    if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                    if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
+                    if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
                     gameplayStart();
                 },
                 adError() {
-                    if (Settings.soundEnabled) Audio.setSfxEnabled(true);
-                    if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                    if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
+                    if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
                     gameplayStart();
                 },
             });
@@ -4369,18 +4375,18 @@ const CrazyGamesSDK = (() => {
                 s.ad.requestAd("rewarded", {
                     adStarted()  {
                         gameplayStop();
-                        Audio.setSfxEnabled(false);
-                        Audio.setMusicEnabled(false);
+                        GameAudio.setSfxEnabled(false);
+                        GameAudio.setMusicEnabled(false);
                     },
                     adFinished() {
-                        if (Settings.soundEnabled) Audio.setSfxEnabled(true);
-                        if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                        if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
+                        if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
                         gameplayStart();
                         resolve(true);
                     },
                     adError() {
-                        if (Settings.soundEnabled) Audio.setSfxEnabled(true);
-                        if (Settings.musicEnabled) Audio.setMusicEnabled(true);
+                        if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
+                        if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
                         gameplayStart();
                         resolve(false);
                     },
@@ -4609,6 +4615,7 @@ const game = {
 
     // Upgrade
     upgradeChoices: [],
+    upgradeQueue: [],        // level-ups that arrived while the screen was already open
     upgradeIsBonusWave: false,
     xpMagnetBonus: 0,
 
@@ -4675,6 +4682,7 @@ const game = {
     perfSampleTimer: 0,
     lowPerf: false,
     perfPromptDecision: null,
+    perfPromptVisible: false,
 
     // UX flow state
     tutorialDismissed: false,
@@ -4743,6 +4751,7 @@ const game = {
         this.waveActive = false;
         this.activeBoss = null;
         this.upgradeChoices = [];
+        this.upgradeQueue = [];
         this.upgradeIsBonusWave = false;
         this.xpMagnetBonus = 0;
         this.pendingBonusUpgrade = false;
@@ -4791,6 +4800,7 @@ const game = {
         this.perfSampleTimer = 0;
         this.lowPerf = false;
         this.perfPromptDecision = null;
+        this.perfPromptVisible = false;
         this.tutorialDismissed = false;
         this.revivedThisRun = false;
         this.reviveInProgress = false;
@@ -4846,24 +4856,92 @@ const game = {
         }
 
         if (!this.lowPerf && this.fpsEma < PERF_LOW_THRESHOLD) {
-            if (this.perfPromptDecision !== "decline") {
-                const avgFps = Math.max(1, Math.round(this.fpsEma));
-                const promptText = `Low FPS detected (~${avgFps}). Enable Performance Mode now?`;
-                const wantsPerfMode = typeof window !== "undefined" && typeof window.confirm === "function"
-                    ? window.confirm(promptText)
-                    : true;
-                this.perfPromptDecision = wantsPerfMode ? "accept" : "decline";
-                if (wantsPerfMode) this.lowPerf = true;
+            // Ask once per run via a non-blocking in-canvas prompt. window.confirm()
+            // would freeze the whole game loop (and is unreliable on game portals).
+            if (this.perfPromptDecision !== "decline" &&
+                this.perfPromptDecision !== "accept" &&
+                !this.perfPromptVisible) {
+                this.perfPromptVisible = true;
             }
         } else if (this.lowPerf && this.fpsEma > PERF_RECOVER_THRESHOLD) {
             this.lowPerf = false;
         }
     },
 
+    getPerfPromptLayout() {
+        const w = 452, h = 132;
+        const x = CANVAS_W / 2 - w / 2;
+        const y = CANVAS_H / 2 - h / 2;
+        const bw = 186, bh = 36, gap = 16;
+        const by = y + h - bh - 14;
+        return {
+            x, y, w, h,
+            yes: { x: x + w / 2 - bw - gap / 2, y: by, w: bw, h: bh },
+            no:  { x: x + w / 2 + gap / 2, y: by, w: bw, h: bh },
+        };
+    },
+
+    /** Handles the performance-mode prompt. Returns true while it is open. */
+    updatePerfPrompt() {
+        if (!this.perfPromptVisible) return false;
+        const l = this.getPerfPromptLayout();
+        const clickedYes = Mouse.clicked && Mouse.inRect(l.yes.x, l.yes.y, l.yes.w, l.yes.h);
+        const clickedNo = Mouse.clicked && Mouse.inRect(l.no.x, l.no.y, l.no.w, l.no.h);
+
+        if (Input.just("KeyY") || clickedYes) {
+            this.perfPromptDecision = "accept";
+            this.lowPerf = true;
+            this.perfPromptVisible = false;
+            this.triggerEventToast("Performance mode ON", "#ffcc66", 1.4);
+            return false;
+        }
+        // Escape is deliberately not handled here: it would both decline the prompt
+        // and fall through to the pause shortcut in the same frame.
+        if (Input.just("KeyN") || clickedNo) {
+            this.perfPromptDecision = "decline";
+            this.perfPromptVisible = false;
+            return false;
+        }
+        return true;
+    },
+
+    drawPerfPrompt() {
+        if (!this.perfPromptVisible) return;
+        const l = this.getPerfPromptLayout();
+
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        drawPanel(l.x, l.y, l.w, l.h, 10, {
+            fill: "rgba(8,10,24,0.97)",
+            strokeColor: "#ffcc66",
+            lineWidth: 1.6,
+        });
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#ffcc66";
+        ctx.font = uiFont(17, "bold");
+        ctx.fillText("Low FPS detected", CANVAS_W / 2, l.y + 28);
+        ctx.fillStyle = COLOR.text;
+        ctx.font = uiFont(13);
+        ctx.fillText(`Average ~${Math.max(1, Math.round(this.fpsEma))} FPS. Enable Performance Mode?`, CANVAS_W / 2, l.y + 54);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(11);
+        ctx.fillText("Fewer particles and effects for a smoother run.", CANVAS_W / 2, l.y + 76);
+
+        const yesHover = Mouse.inRect(l.yes.x, l.yes.y, l.yes.w, l.yes.h);
+        const noHover = Mouse.inRect(l.no.x, l.no.y, l.no.w, l.no.h);
+        drawButton("ENABLE (Y)", l.yes.x, l.yes.y, l.yes.w, l.yes.h, yesHover, 14);
+        drawButton("NOT NOW (N)", l.no.x, l.no.y, l.no.w, l.no.h, noHover, 14);
+    },
+
+    /** True when a rewarded revive is still available for the current run. */
+    canOfferRevive() {
+        return APP_CONFIG.monetization && this.challengeAllowsRevive && !this.revivedThisRun;
+    },
+
     async tryRewardedRevive() {
-        if (!APP_CONFIG.monetization) return;
-        if (!this.challengeAllowsRevive) return;
-        if (this.revivedThisRun || this.reviveInProgress) return;
+        if (!this.canOfferRevive() || this.reviveInProgress) return;
         this.reviveInProgress = true;
         const ok = await CrazyGamesSDK.requestRewarded();
         if (ok && this.state === STATE.GAME_OVER) {
@@ -4873,7 +4951,7 @@ const game = {
             this.state = STATE.GAMEPLAY;
             this.revivedThisRun = true;
             CrazyGamesSDK.gameplayStart();
-            Audio.startMusic(this.currentBiomeIndex());
+            GameAudio.startMusic(this.currentBiomeIndex());
         }
         this.reviveInProgress = false;
     },
@@ -4976,7 +5054,7 @@ const game = {
         this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, false, runContext);
         this.finalizeRun(false);
         if (this.lastHighScoreRank === 1) {
-            Audio.sfxNewHighScore();
+            GameAudio.sfxNewHighScore();
             CrazyGamesSDK.happyTime();
         }
         CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, false, runContext);
@@ -5197,21 +5275,28 @@ const game = {
             }
         }
 
-        // Challenge selector
+        // Challenge selector – 2 columns inside the centre panel. The old single row
+        // of 4 buttons was wider than the panel and spilled over the meta/daily panels.
         const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 12 : my + 68;
+        const cH = compactMobile ? 30 : (narrowLayout ? 36 : 38);
+        const cGap = compactMobile ? 5 : (narrowLayout ? 6 : 8);
+        const cCols = compactMobile ? 1 : 2;
+        const cRows = Math.ceil(CHALLENGE_MODES.length / cCols);
+        const cW = compactMobile ? 260 : Math.floor((centerW - (cCols - 1) * cGap) / cCols);
+        const cTotal = cCols * cW + (cCols - 1) * cGap;
+        const cStartX = compactMobile
+            ? (CANVAS_W / 2 - cTotal / 2)
+            : (centerX + (centerW - cTotal) / 2);
         ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
         ctx.fillStyle = COLOR.textDim;
         ctx.textAlign = "center";
         ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 14);
-        const cW = compactMobile ? 260 : (narrowLayout ? 104 : 112);
-        const cH = compactMobile ? 30 : (narrowLayout ? 36 : 38);
-        const cGap = compactMobile ? 5 : (narrowLayout ? 6 : 8);
-        const cTotal = compactMobile ? cW : CHALLENGE_MODES.length * cW + (CHALLENGE_MODES.length - 1) * cGap;
-        const cStartX = CANVAS_W / 2 - cTotal / 2;
         for (let i = 0; i < CHALLENGE_MODES.length; i++) {
             const cm = CHALLENGE_MODES[i];
-            const cx = compactMobile ? cStartX : cStartX + i * (cW + cGap);
-            const cy = compactMobile ? cY + i * (cH + 5) : cY;
+            const col = i % cCols;
+            const row = Math.floor(i / cCols);
+            const cx = cStartX + col * (cW + cGap);
+            const cy = cY + row * (cH + 5);
             const selected = Settings.challengeMode === cm.id;
             const hov = Mouse.inRect(cx, cy, cW, cH);
             drawRoundRect(cx, cy, cW, cH, 8);
@@ -5234,9 +5319,7 @@ const game = {
         const bh = compactMobile ? 36 : (narrowLayout ? 40 : 44);
         const bhPlay = compactMobile ? 44 : (narrowLayout ? 50 : 56);
         const bx = compactMobile ? (CANVAS_W / 2 - bw / 2) : (centerX + (centerW - bw) / 2);
-        const challengeEnd = compactMobile
-            ? cY + CHALLENGE_MODES.length * (cH + 5) - 5
-            : cY + cH;
+        const challengeEnd = cY + cRows * (cH + 5) - 5;
         const btnGap = compactMobile ? 4 : 8;
 
         // Optional rewarded pre-run booster
@@ -5285,7 +5368,7 @@ const game = {
         const mpX = leftX;
         const mpY = compactMobile ? 42 : (narrowLayout ? 142 : 148);
         const mpW = leftW;
-        const mpH = compactMobile ? 274 : (narrowLayout ? 400 : 432);
+        const mpH = compactMobile ? 304 : (narrowLayout ? 400 : 432);
         drawRoundRect(mpX, mpY, mpW, mpH, 10);
         ctx.fillStyle = "rgba(8, 10, 22, 0.92)";
         ctx.fill();
@@ -5317,7 +5400,9 @@ const game = {
             { key: "xp", label: "Data Magnet", bonus: "+10% XP gain" },
             { key: "speed", label: "Game Speed", bonus: "Each level unlocks next speed tier", max: GAME_SPEED_UNLOCK_MAX },
         ];
-        const metaStartY = compactMobile ? mpY + 52 : mpY + 60;
+        // Leave room for the "next prestige reward" line above the first row –
+        // it used to overlap the "Vital Core" row in every layout.
+        const metaStartY = compactMobile ? mpY + 84 : mpY + 78;
         const metaStepY = compactMobile ? 38 : 66;
         for (let i = 0; i < metaRows.length; i++) {
             const row = metaRows[i];
@@ -5377,7 +5462,9 @@ const game = {
 
         // Daily panel
         const dpW = rightW;
-        const dpH = compactMobile ? 90 : (narrowLayout ? 118 : 132);
+        // Compact needs the same height as narrow – its progress bar used to be
+        // drawn below the panel because the panel was 28 px too short.
+        const dpH = compactMobile ? 118 : (narrowLayout ? 118 : 132);
         const dpX = rightX;
         const dpY = compactMobile ? CANVAS_H - dpH - 14 : (narrowLayout ? 142 : 148);
         drawRoundRect(dpX, dpY, dpW, dpH, 9);
@@ -5406,12 +5493,14 @@ const game = {
 
         // High Scores panel (right side) – per-mode
         const scores = HighScores.getAll();
-        if (scores.length > 0 && !compactMobile) {
-            const panelX = compactMobile ? CANVAS_W / 2 - 130 : rightX;
-            const panelY = compactMobile ? logBtnY + logBtnH + 8 : dpY + dpH + 14;
+        if (scores.length > 0) {
             const panelW = compactMobile ? 260 : rightW;
-            const shown = compactMobile ? Math.min(scores.length, 3) : Math.min(scores.length, 4);
+            const panelX = rightX;
+            const shown = Math.min(scores.length, compactMobile ? 3 : 4);
             const panelH = compactMobile ? 28 + shown * 22 : 34 + shown * 28;
+            // Compact puts it in the free space below the title instead of under the
+            // daily panel (which sits at the bottom there).
+            const panelY = compactMobile ? 148 : dpY + dpH + 14;
             drawRoundRect(panelX, panelY, panelW, panelH, 8);
             ctx.fillStyle = COLOR.panel;
             ctx.fill();
@@ -5533,14 +5622,16 @@ const game = {
         ctx.fillText("🛍 SKIN SHOP", CANVAS_W / 2, compactLayout ? 58 : 66);
         ctx.fillStyle = "#9fc6ff";
         ctx.font = compactLayout ? "12px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Shop config is loaded from skinshop.txt", CANVAS_W / 2, compactLayout ? 78 : 88);
-        ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
-        ctx.fillStyle = "#8fb0e6";
-        ctx.fillText(
-            `Asset telemetry  ok:${skinAssetTelemetry.loadSuccess}  missing:${skinAssetTelemetry.loadFailed}  fallback retries:${skinAssetTelemetry.fallbackRetries}  placeholders:${skinAssetTelemetry.placeholderRenders}  •  Prestige clears:${prestigeCount}/${prestigeSkinsTotal}`,
-            CANVAS_W / 2,
-            compactLayout ? 94 : 104
-        );
+        if (SHOW_DEV_INFO) {
+            ctx.fillText("Shop config is loaded from skinshop.txt", CANVAS_W / 2, compactLayout ? 78 : 88);
+            ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = "#8fb0e6";
+            ctx.fillText(
+                `Asset telemetry  ok:${skinAssetTelemetry.loadSuccess}  missing:${skinAssetTelemetry.loadFailed}  fallback retries:${skinAssetTelemetry.fallbackRetries}  placeholders:${skinAssetTelemetry.placeholderRenders}  •  Prestige clears:${prestigeCount}/${prestigeSkinsTotal}`,
+                CANVAS_W / 2,
+                compactLayout ? 94 : 104
+            );
+        }
 
         const shardPanelW = compactLayout ? 182 : 200;
         const shardPanelH = compactLayout ? 38 : 44;
@@ -5611,14 +5702,14 @@ const game = {
                     : (s.unlocked ? (s.selected ? "Selected" : "Owned") : priceLabel));
             ctx.fillText(stateLabel, x + cardW / 2, cardY + 100, cardW - 14);
 
+            // A card shows either the prestige badge or the placeholder hint – never
+            // both, they used to be drawn on the same line.
+            const featureAssetStatus = SkinAssets.getStatus(s.asset || "");
             if (s.prestigeSkin) {
                 ctx.fillStyle = s.prestigeLocked ? "#ffcc66" : "#ffd700";
                 ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
                 ctx.fillText("PRESTIGE", x + cardW / 2, cardY + 114, cardW - 14);
-            }
-
-            const featureAssetStatus = SkinAssets.getStatus(s.asset || "");
-            if (featureAssetStatus.state === "missing") {
+            } else if (featureAssetStatus.state === "missing") {
                 ctx.fillStyle = "#ffb366";
                 ctx.font = "10px 'Segoe UI', Arial, sans-serif";
                 ctx.fillText("Placeholder art", x + cardW / 2, cardY + 114, cardW - 14);
@@ -5694,11 +5785,16 @@ const game = {
             ctx.textAlign = "left";
             ctx.fillStyle = COLOR.text;
             ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(s.name, x + 30, y + 18, itemW - 34);
+            // Prestige skins reserve space on the right for their badge.
+            ctx.fillText(s.name, x + 30, y + 18, s.prestigeSkin ? itemW - 88 : itemW - 34);
             if (s.prestigeSkin) {
+                // Badge lives on the title row; as its own line it collided with the
+                // ownership label directly below.
                 ctx.fillStyle = s.prestigeLocked ? "#ffcc66" : "#ffd700";
                 ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
-                ctx.fillText("PRESTIGE", x + 30, y + 29, itemW - 34);
+                ctx.textAlign = "right";
+                ctx.fillText("PRESTIGE", x + itemW - 8, y + 16);
+                ctx.textAlign = "left";
             }
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
             ctx.font = compactLayout ? "10px 'Segoe UI', Arial, sans-serif" : "11px 'Segoe UI', Arial, sans-serif";
@@ -5849,14 +5945,17 @@ const game = {
         this.gameSpeedIndex = Progression.getGameSpeedIndex();
         this.gameSpeedMult = Progression.getGameSpeedMultiplier();
         this.state = STATE.GAMEPLAY;
-        Audio.ensureContext();
-        Audio.startMusic(0);
+        GameAudio.ensureContext();
+        GameAudio.startMusic(0);
         CrazyGamesSDK.gameplayStart();
     },
 
     // ────── GAMEPLAY ──────
 
     updateGameplay(dt) {
+        // Freeze the arena while the one-time performance prompt is open.
+        if (this.updatePerfPrompt()) return;
+
         this.updateGameSpeedSelection();
         const speedDt = dt * this.gameSpeedMult;
 
@@ -5913,7 +6012,7 @@ const game = {
                     if (b.collidesWith(e)) {
                         this.runShotsHit++;
                         e.takeDamage(b.damage, b.isCrit);
-                        if (b.isCrit) Audio.sfxCrit();
+                        if (b.isCrit) GameAudio.sfxCrit();
 
                         let didExecute = false;
                         if (
@@ -5927,13 +6026,13 @@ const game = {
                             if (hpRatio <= this.player.executeThreshold) {
                                 e.takeDamage(e.hp, false);
                                 didExecute = true;
-                                Audio.sfxExecute();
+                                GameAudio.sfxExecute();
                             }
                         }
 
                         this.spawnParticles(e.x, e.y, COLOR.enemyA, isMobile ? 2 : 5);
                         if (didExecute) this.spawnParticles(e.x, e.y, "#ff5577", isMobile ? 4 : 10);
-                        Audio.sfxHit();
+                        GameAudio.sfxHit();
 
                         // Piercing: increment hit count, kill bullet when exceeded
                         b.hitCount++;
@@ -6034,16 +6133,21 @@ const game = {
         // Player death
         if (!this.player.alive) {
             this.state = STATE.GAME_OVER;
-            Audio.stopMusic();
-            Audio.sfxGameOver();
-            if (this.revivedThisRun) {
+            GameAudio.stopMusic();
+            GameAudio.sfxGameOver();
+            // Finalise the run right away, otherwise the Game Over screen would show
+            // stale values (+0 shards, no rank, no score table). Only defer when a
+            // rewarded revive is still on the table – that run continues afterwards.
+            if (!this.canOfferRevive()) {
                 this.commitLossIfNeeded();
             }
             CrazyGamesSDK.gameplayStop();
         }
 
-        // Settings shortcut
-        if (Input.just("Escape") || Input.just("KeyP") || TouchControls.pauseTapped) {
+        // Settings shortcut – only while actually playing. Death may have switched
+        // the state to GAME_OVER earlier in this very frame.
+        if (this.state === STATE.GAMEPLAY &&
+            (Input.just("Escape") || Input.just("KeyP") || TouchControls.pauseTapped)) {
             this.state = STATE.PAUSED;
         }
     },
@@ -6259,7 +6363,7 @@ const game = {
         this.waveBannerTimer = 1.8;
         this.waveBannerText = "CHEAT APPLIED";
         this.levelUpFlashTimer = 0.35;
-        Audio.sfxLevelUp();
+        GameAudio.sfxLevelUp();
     },
 
     drawCheatMenuOverlay() {
@@ -6899,6 +7003,9 @@ const game = {
 
         // Touch controls overlay (virtual joystick + pause button)
         TouchControls.draw();
+
+        // One-time performance prompt sits on top of everything else
+        this.drawPerfPrompt();
     },
 
     // ────── WAVE SYSTEM ──────
@@ -6916,7 +7023,7 @@ const game = {
                 this.waveActive = false;
                 const mods = modeModifiers();
                 this.waveRestTimer = WAVE_REST_TIME * mods.waveRestMult;
-                Audio.sfxWaveClear();
+                GameAudio.sfxWaveClear();
                 this.camera.shake(4, 0.12);
                 this.waveBannerTimer = Math.max(this.waveBannerTimer, 1.3);
                 this.waveBannerText = `WAVE ${this.wave} CLEARED!`;
@@ -6976,13 +7083,13 @@ const game = {
         this.activeBoss = boss;
 
         // Switch to boss music
-        Audio.startBossMusic();
+        GameAudio.startBossMusic();
 
         // Boss intro banner
         this.waveBannerTimer = 3.0;
         this.waveBannerText = `☠ ${BOSS_NAMES.endboss} APPROACHES ☠`;
         this.camera.shake();
-        Audio.sfxExplosion();
+        GameAudio.sfxExplosion();
     },
 
     startNextWave() {
@@ -6998,7 +7105,7 @@ const game = {
         this.waveActive = true;
 
         // Switch music when biome changes
-        Audio.startMusic(this.currentBiomeIndex());
+        GameAudio.startMusic(this.currentBiomeIndex());
 
         // Animated wave banner
         this.waveBannerTimer = 2.0;
@@ -7006,7 +7113,7 @@ const game = {
             ? `⚠ BOSS WAVE ${this.wave} ⚠`
             : `WAVE ${this.wave}`;
 
-        Audio.sfxWaveStart();
+        GameAudio.sfxWaveStart();
 
         // Spawn boss on milestone waves
         if (this.isBossWave(this.wave)) {
@@ -7102,7 +7209,7 @@ const game = {
         if (this.comboCount > this.bestCombo) this.bestCombo = this.comboCount;
         const comboMilestone = this.comboCount === 5 || this.comboCount === 10 || this.comboCount === 25 || (this.comboCount > 25 && this.comboCount % 25 === 0);
         if (comboMilestone && this.comboSfxCooldown <= 0) {
-            Audio.sfxComboMilestone(this.comboCount);
+            GameAudio.sfxComboMilestone(this.comboCount);
             this.comboSfxCooldown = 0.55;
             this.triggerEventFlash("#66ddff", 0.18);
             this.triggerEventToast(`${this.comboCount}x COMBO!`, "#66ddff", 0.9);
@@ -7117,7 +7224,7 @@ const game = {
         } else if (enemy.type === "miniboss" || enemy.type === "bigboss") {
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
-            Audio.sfxBossDefeat(enemy.type);
+            GameAudio.sfxBossDefeat(enemy.type);
             this.camera.shake(6, 0.16);
             this.triggerEventFlash("#ffd166", 0.24);
             this.triggerEventToast(`${getBossDisplayName(enemy)} defeated!`, "#ffd166", 1.2);
@@ -7126,9 +7233,9 @@ const game = {
             this.spawnParticles(enemy.x, enemy.y, "#ff00ff", isMobile ? 10 : 30);
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 8 : 25);
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
-            Audio.sfxBossDefeat(enemy.type);
+            GameAudio.sfxBossDefeat(enemy.type);
             this.camera.shake();
-            Audio.sfxExplosion();
+            GameAudio.sfxExplosion();
             this.triggerEventFlash("#ff55cc", 0.32);
             this.triggerEventToast("FINAL BOSS SLAIN!", "#ff66dd", 1.5);
             // Trigger victory!
@@ -7145,7 +7252,7 @@ const game = {
             const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * (enemy.xpMult || 1) * mods.xpGainMult * this.player.xpGainMult);
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
-        Audio.sfxEnemyDeath();
+        GameAudio.sfxEnemyDeath();
         // Boss kill rewards: grant instantly on miniboss/bigboss death.
         if (enemy.type === "miniboss" || enemy.type === "bigboss") {
             this.pendingBonusUpgrade = false;
@@ -7154,12 +7261,17 @@ const game = {
         }
     },
 
+    /** Shard payout of the current run. `won` = final boss cleared. */
+    computeShardGain(won) {
+        const base = Math.floor(this.killCount * 0.45 + this.wave * 3 + (won ? 35 : 0));
+        return Math.max(5, Math.floor(base * this.shardRewardMult));
+    },
+
     finalizeRun(won) {
         this.lastRunGameMode = Settings.gameMode;
         this.lastRunChallengeMode = currentChallengeMode().id;
         this.lastRunChallengeLabel = currentChallengeMode().label;
-        const baseShards = Math.floor(this.killCount * 0.45 + this.wave * 3 + (won ? 35 : 0));
-        const gained = Math.max(5, Math.floor(baseShards * this.shardRewardMult));
+        const gained = this.computeShardGain(won);
         Progression.addShards(gained);
         const dailyResult = Progression.registerRun(this.killCount, this.wave, this.timePlayed);
         this.lastRunShardGain = gained;
@@ -7171,7 +7283,7 @@ const game = {
     spawnBullet(x, y, angle, damage, piercing, sizeMultiplier, isCrit, lifetime) {
         this.bullets.push(new Projectile(x, y, angle, damage, piercing, sizeMultiplier, isCrit, false, lifetime));
         this.runShotsFired++;
-        Audio.sfxShoot();
+        GameAudio.sfxShoot();
     },
 
     spawnParticles(x, y, color, count) {
@@ -7221,9 +7333,14 @@ const game = {
     // ────── UPGRADE SCREEN ──────
 
     triggerUpgrade(isBonusWave = false, bossType = null) {
-        // Guard: don't interrupt an active upgrade screen
-        if (this.state === STATE.UPGRADE_SCREEN) return;
-        
+        // A second level-up can arrive while the upgrade screen is already open
+        // (multi-level XP orb, or several orbs in one frame). Queue it instead of
+        // silently dropping the upgrade.
+        if (this.state === STATE.UPGRADE_SCREEN) {
+            this.upgradeQueue.push({ isBonusWave, bossType });
+            return;
+        }
+
         // Pick upgrade choices: 4 for bigboss kill, 3 otherwise
         const numChoices = (isBonusWave && bossType === "bigboss") ? 4 : UPGRADE_CHOICES;
         const pool = [...UPGRADES].filter((up) => {
@@ -7245,7 +7362,7 @@ const game = {
         this.upgradeIsBonusWave = isBonusWave;
         this.state = STATE.UPGRADE_SCREEN;
         this.levelUpFlashTimer = 0.3;
-        Audio.sfxLevelUp();
+        GameAudio.sfxLevelUp();
     },
 
     updateUpgrade() {
@@ -7260,15 +7377,20 @@ const game = {
 
     applyUpgrade(index) {
         const up = this.upgradeChoices[index];
-        if (up) {
-            up.apply(this.player);
-            this.runUpgradesTaken++;
-            if (up.cat === "stat") {
-                const c = this.player.upgradeCounts;
-                c[up.id] = (c[up.id] || 0) + 1;
-            }
-            this.state = STATE.GAMEPLAY;
-            Audio.sfxUpgradeSelect();
+        if (!up) return;
+        up.apply(this.player);
+        this.runUpgradesTaken++;
+        if (up.cat === "stat") {
+            const c = this.player.upgradeCounts;
+            c[up.id] = (c[up.id] || 0) + 1;
+        }
+        GameAudio.sfxUpgradeSelect();
+
+        // Chain straight into the next queued level-up (if any), otherwise resume.
+        const next = this.upgradeQueue.shift();
+        this.state = STATE.GAMEPLAY;
+        if (next) {
+            this.triggerUpgrade(next.isBonusWave, next.bossType);
         }
     },
 
@@ -7337,7 +7459,6 @@ const game = {
         let cols = Math.max(1, Math.min(this.upgradeChoices.length, Math.floor((availableW + gap) / (cardW + gap))));
         if (compactLayout && this.upgradeChoices.length > 2) cols = Math.min(cols, 2);
         if (narrowLayout && this.upgradeChoices.length > 3) cols = Math.min(cols, 3);
-        const rows = Math.ceil(this.upgradeChoices.length / cols);
         const gridW = cols * cardW + (cols - 1) * gap;
         const startX = CANVAS_W / 2 - gridW / 2;
         const startY = compactLayout ? 176 : 210;
@@ -7349,7 +7470,6 @@ const game = {
             const cx = startX + col * (cardW + gap);
             const cy = startY + row * (cardH + rowGap);
             const hovered = Mouse.inRect(cx, cy, cardW, cardH);
-            const isStat = up.cat === "stat";
             const isWeapon = up.cat === "weapon";
             const rarity = upgradeRarity(up);
             const rarityLabel = rarity.toUpperCase();
@@ -7456,7 +7576,7 @@ const game = {
 
     abandonRun() {
         this.commitLossIfNeeded();
-        Audio.stopMusic();
+        GameAudio.stopMusic();
         CrazyGamesSDK.gameplayStop();
         this.setState(STATE.START_MENU);
     },
@@ -7535,7 +7655,7 @@ const game = {
             bx, y, bw, bh, soundHover
         )) {
             Settings.soundEnabled = !Settings.soundEnabled;
-            Audio.setSfxEnabled(Settings.soundEnabled);
+            GameAudio.setSfxEnabled(Settings.soundEnabled);
         }
         y += bh + btnGap;
 
@@ -7545,7 +7665,7 @@ const game = {
             bx, y, bw, bh, musicHover
         )) {
             Settings.musicEnabled = !Settings.musicEnabled;
-            Audio.setMusicEnabled(Settings.musicEnabled);
+            GameAudio.setMusicEnabled(Settings.musicEnabled);
         }
         y += bh + btnGap;
 
@@ -7611,12 +7731,14 @@ const game = {
             ctx.fillText("Layout-agnostic: works on QWERTY, AZERTY, QWERTZ, etc.", CANVAS_W / 2, y);
         }
 
-        // A/B experiment info (small, bottom area)
+        // A/B experiment info (developer-only)
         y += lineGap;
-        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-        ctx.fillStyle = COLOR.textDim;
-        const exp = Experiments.all();
-        ctx.fillText(`A/B: pacing=${exp.earlyPacing}, gameOver=${exp.gameOverFlow}, adCopy=${exp.rewardedCopy}`, CANVAS_W / 2, y);
+        if (SHOW_DEV_INFO) {
+            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = COLOR.textDim;
+            const exp = Experiments.all();
+            ctx.fillText(`A/B: pacing=${exp.earlyPacing}, gameOver=${exp.gameOverFlow}, adCopy=${exp.rewardedCopy}`, CANVAS_W / 2, y);
+        }
 
         // ── Back button ──
         y += sectionGap;
@@ -7689,7 +7811,10 @@ const game = {
         const timeSurvivedText = `Time survived: ${formatTime(this.timePlayed)}`;
         const comboSuffix = this.bestCombo >= 3 ? `  •  Best combo: ${this.bestCombo}x` : "";
         ctx.fillText(timeSurvivedText + comboSuffix, CANVAS_W / 2, 198);
-        ctx.fillText(`Shards earned: +${this.lastRunShardGain}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
+        // When a revive is still available the run is not finalised yet – show the
+        // payout it is currently worth instead of a misleading "+0".
+        const shardsShown = this.runFinalized ? this.lastRunShardGain : this.computeShardGain(false);
+        ctx.fillText(`Shards earned: +${shardsShown}${this.lastDailyReward > 0 ? `  •  Daily bonus +${this.lastDailyReward}` : ""}`,
             CANVAS_W / 2, 220);
 
         const accuracy = this.runShotsFired > 0
@@ -7813,8 +7938,8 @@ const game = {
     onVictory() {
         if (this.runFinalized) return;
         this.state = STATE.VICTORY;
-        Audio.stopMusic();
-        Audio.sfxNewHighScore();
+        GameAudio.stopMusic();
+        GameAudio.sfxNewHighScore();
         CrazyGamesSDK.happyTime();
         CrazyGamesSDK.gameplayStop();
         const runContext = this.getRunContext();

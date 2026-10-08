@@ -40,6 +40,19 @@ Open `index.html` in any modern browser — no build step required.
 
 Main logic lives in **`game.js`** (loaded from `index.html`) and is logically separated into clearly commented sections:
 
+### Runtime files (must all ship with a build)
+
+| File | Purpose |
+|---|---|
+| `index.html` | Entry point. Loads `changelogs.txt` (as injected JS), `config.js`, `game.js` |
+| `game.js` | The whole game |
+| `config.js` | `window.RogueConfig` – wave/boss/upgrade/prestige tuning, challenge modes. Without it the game falls back to a reduced built-in default config |
+| `changelogs.txt` | Version + changelog text (`window.ROGUEWAVE_CHANGELOG_TEXT`) |
+| `skinshop.txt` | Skin catalog (`[skins]` / `[featured]` sections) |
+| `env.txt` / `.env` | Optional runtime flags (e.g. `MONETIZATION=true`); `.env` first, `env.txt` as fallback |
+
+The itch.io workflow (`.github/workflows/deploy.yml`) zips exactly these files plus `assets/`.
+
 | Section | Description |
 |---|---|
 | §1 | Constants & configuration |
