@@ -6223,6 +6223,29 @@ const game = {
 
         this.drawMenuBackdrop();
 
+        // ── Status strip (top-left, clear of the centred title) ──
+        this.drawStatusStrip(profile);
+
+        // ── Version badge (top-right, balances the status strip) ──
+        // GAME_VERSION already reads like "beta 17.10:2", so no extra "v".
+        const verText = GAME_VERSION;
+        ctx.font = uiFont(11, "bold");
+        const verW = ctx.measureText(verText).width + 28;
+        const verX = CANVAS_W - verW - 24;
+        drawPanel(verX, 66, verW, 54, 12, {
+            fill: "rgba(8,12,26,0.9)",
+            strokeColor: "rgba(102,204,255,0.24)",
+            lineWidth: 1.2,
+        });
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(9, "bold");
+        ctx.fillText("BUILD", verX + verW / 2, 81);
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(11, "bold");
+        ctx.fillText(verText, verX + verW / 2, 101, verW - 12);
+
         // ── Title block ──
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -6232,35 +6255,32 @@ const game = {
         ctx.shadowBlur = 28;
         ctx.fillStyle = "#eaf9ff";
         ctx.font = uiFont(56, "bold");
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, 78);
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, 96);
         ctx.restore();
         ctx.fillStyle = COLOR.accent;
         ctx.font = uiFont(13, "bold");
-        ctx.fillText("S U R V I V O R   R O G U E L I T E", CANVAS_W / 2, 116);
-
-        // ── Status strip (top right): shards + prestige, compact ──
-        this.drawStatusStrip(profile);
+        ctx.fillText("S U R V I V O R   R O G U E L I T E", CANVAS_W / 2, 136);
 
         // ── Centre: mode + challenge + PLAY ──
         // Wrap the two setup rows in a subtle panel so they read as one group
         // ("configure your run") separate from the PLAY action below.
         const cW = 520;
         const cX = CANVAS_W / 2 - cW / 2;
-        const panelY = 156;
-        drawPanel(cX - 22, panelY, cW + 44, 244, 14, {
+        const panelY = 152;
+        drawPanel(cX - 22, panelY, cW + 44, 196, 14, {
             fill: "rgba(8,12,26,0.72)",
             strokeColor: "rgba(102,204,255,0.18)",
             lineWidth: 1.2,
         });
-        let y = panelY + 30;
+        let y = panelY + 24;
 
         y = this.drawModeRow(cX, y, cW);
-        y = this.drawChallengeGrid(cX, y + 22, cW);
+        y = this.drawChallengeGrid(cX, y + 20, cW);
 
         // PLAY: the single most prominent element.
         const playW = cW + 44;
-        const playH = 78;
-        const playY = panelY + 244 + 30;
+        const playH = 76;
+        const playY = panelY + 196 + 24;
         const playX = cX - 22;
         const playHov = Mouse.inRect(playX, playY, playW, playH);
         const pulse = 0.94 + 0.06 * Math.sin(frameNow * 0.006);
@@ -6286,16 +6306,30 @@ const game = {
         ctx.fillText("▶  PLAY", CANVAS_W / 2, playY + playH / 2);
         if (playHov && Mouse.clicked) this.startGame();
 
-        // ── Daily mission: one slim line, not a whole panel ──
-        const dailyY = playY + playH + 24;
+        // ── Daily mission: a slim pill directly under PLAY, framing the action ──
+        const dailyY = playY + playH + 14;
         const dailyDone = daily.completed;
-        ctx.fillStyle = dailyDone ? "#66ff99" : "#ffcc66";
-        ctx.font = uiFont(13);
-        ctx.fillText(
-            `◆ Daily: ${daily.label}   ${daily.progress}/${daily.target}${dailyDone ? "  ✓" : ""}   ·   Streak ${daily.streak}`,
-            CANVAS_W / 2,
-            dailyY
-        );
+        const dailyText = `◆ Daily: ${daily.label}   ${daily.progress}/${daily.target}${dailyDone ? "  ✓" : ""}   ·   Streak ${daily.streak}`;
+        ctx.font = uiFont(12, "bold");
+        const dailyTextW = ctx.measureText(dailyText).width;
+        const pillW = dailyTextW + 56;
+        const pillH = 32;
+        const pillX = CANVAS_W / 2 - pillW / 2;
+        const pillAccent = dailyDone ? "#66ff99" : "#ffcc66";
+        ctx.save();
+        ctx.shadowColor = hexToRgba(pillAccent, 0.45);
+        ctx.shadowBlur = dailyDone ? 16 : 10;
+        drawRoundRect(pillX, dailyY, pillW, pillH, 16);
+        ctx.fillStyle = dailyDone ? "rgba(102,255,153,0.14)" : "rgba(255,204,102,0.12)";
+        ctx.fill();
+        ctx.restore();
+        ctx.strokeStyle = hexToRgba(pillAccent, 0.7);
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = pillAccent;
+        ctx.fillText(dailyText, CANVAS_W / 2, dailyY + pillH / 2);
 
         // ── Bottom navigation: six even buttons, one clean row ──
         this.drawMenuNav();
@@ -6325,10 +6359,10 @@ const game = {
         }
     },
 
-    /** Compact shards/prestige readout pinned top-right. */
+    /** Compact shards/prestige readout pinned top-left, level with the title. */
     drawStatusStrip(profile) {
         const w = 300, h = 54;
-        const x = CANVAS_W - w - 24, y = 20;
+        const x = 24, y = 66;
         drawPanel(x, y, w, h, 12, {
             fill: "rgba(8,12,26,0.9)",
             strokeColor: "rgba(102,204,255,0.42)",
@@ -6379,7 +6413,7 @@ const game = {
         ctx.fillText("DIFFICULTY", x, y);
 
         const top = y + 16;
-        const h = 64;
+        const h = 56;
         const gap = 12;
         const cw = (w - gap * 2) / 3;
 
@@ -6405,13 +6439,13 @@ const game = {
 
             ctx.textAlign = "center";
             ctx.fillStyle = selected ? "#062033" : COLOR.text;
-            ctx.font = uiFont(21);
-            ctx.fillText(m.icon, mx + cw / 2, top + 20);
+            ctx.font = uiFont(19);
+            ctx.fillText(m.icon, mx + cw / 2, top + 17);
             ctx.font = uiFont(14, "bold");
-            ctx.fillText(m.label, mx + cw / 2, top + 40);
+            ctx.fillText(m.label, mx + cw / 2, top + 36);
             ctx.fillStyle = selected ? "#0a2a3a" : COLOR.textDim;
             ctx.font = uiFont(10);
-            ctx.fillText(m.desc, mx + cw / 2, top + 54);
+            ctx.fillText(m.desc, mx + cw / 2, top + 48);
 
             if (hov && Mouse.clicked) Settings.gameMode = m.id;
         }
@@ -6429,7 +6463,7 @@ const game = {
         ctx.fillText("CHALLENGE", x, y);
 
         const top = y + 16;
-        const h = 54;
+        const h = 48;
         const gap = 10;
         const cw = (w - gap * (CHALLENGE_MODES.length - 1)) / CHALLENGE_MODES.length;
 
@@ -6457,11 +6491,11 @@ const game = {
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.fillStyle = selected ? "#042314" : COLOR.text;
-            ctx.font = uiFont(13, "bold");
-            ctx.fillText(cm.label, mx + cw / 2, top + 20, cw - 10);
+            ctx.font = uiFont(12, "bold");
+            ctx.fillText(cm.label, mx + cw / 2, top + 18, cw - 10);
             ctx.fillStyle = selected ? "#0b3a22" : COLOR.textDim;
             ctx.font = uiFont(9);
-            ctx.fillText(cm.desc, mx + cw / 2, top + 38, cw - 8);
+            ctx.fillText(cm.desc, mx + cw / 2, top + 34, cw - 8);
 
             if (hov && Mouse.clicked) Settings.challengeMode = cm.id;
         }
