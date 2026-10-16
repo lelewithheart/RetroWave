@@ -771,6 +771,16 @@ function withAlpha(rgbaStr, newAlpha) {
     return rgbaStr.replace(/[\d.]+\)$/, newAlpha + ")");
 }
 
+/** Convert a #rrggbb colour and an alpha (0..1) into an rgba() string. */
+function hexToRgba(hex, alpha) {
+    const h = String(hex || "#ffffff").replace("#", "");
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    const r = parseInt(full.slice(0, 2), 16) || 0;
+    const g = parseInt(full.slice(2, 4), 16) || 0;
+    const b = parseInt(full.slice(4, 6), 16) || 0;
+    return `rgba(${r},${g},${b},${alpha})`;
+}
+
 /** Shuffle array in-place (Fisher-Yates) */
 function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -2140,7 +2150,6 @@ const Progression = (() => {
             equipped: {},
             nextItemId: 1,
             openedChests: 0,
-            supporterChests: 0,
         },
     };
 
@@ -2288,7 +2297,6 @@ const Progression = (() => {
         }
         base.loot.equipped = equipped;
         base.loot.openedChests = Number.isFinite(ll.openedChests) ? Math.max(0, Math.floor(ll.openedChests)) : 0;
-        base.loot.supporterChests = Number.isFinite(ll.supporterChests) ? Math.max(0, Math.floor(ll.supporterChests)) : 0;
 
         return base;
     }
@@ -2661,35 +2669,27 @@ const Progression = (() => {
         }
 
         /**
-         * Open a chest by id. Spends shards unless the chest is the supporter chest
-         * (which is gated behind a real-money flow, see game.js; here we just roll).
+         * Open a chest by id. Spends shards and rolls the chest's item count.
          * Returns { ok, items, reason }.
          */
         function openChest(chestId, opts = {}) {
             const chest = LOOT_CHESTS.find((c) => c.id === chestId);
             if (!chest) return { ok: false, reason: "unknown" };
 
-            const isSupporter = chest.id === "supporter";
-            if (!isSupporter) {
-                const cost = chest.cost || 0;
-                if (data.shards < cost) return { ok: false, reason: "shards", cost };
-                data.shards -= cost;
-            }
+            const cost = chest.cost || 0;
+            if (data.shards < cost) return { ok: false, reason: "shards", cost };
+            data.shards -= cost;
 
             const items = [];
             const count = chest.itemCount || 1;
             for (let i = 0; i < count; i++) {
                 const force = {};
                 if (chest.rarityWeights) force.rarityWeights = chest.rarityWeights;
-                // Guarantees apply to the first roll of a supporter chest.
-                if (i === 0 && chest.guaranteeLegendary) force.forceRarity = "legendary";
-                if (i === 0 && chest.guaranteeSet) force.forceSet = true;
                 const item = rollItem(force);
                 if (item) items.push(item);
             }
             for (const it of items) data.loot.items.push(it);
             data.loot.openedChests = (data.loot.openedChests || 0) + 1;
-            if (isSupporter) data.loot.supporterChests = (data.loot.supporterChests || 0) + 1;
             save();
             return { ok: true, items, chest };
         }
@@ -5543,8 +5543,7 @@ const game = {
     inventoryMaxScroll: 0,
     inventorySelectedId: null,   // item id selected in the inventory list
     chestsScroll: 0,
-    chestReveal: null,           // { items, chest, timer } shown after opening
-    chestRevealTimer: 0,
+    chestReveal: null,           // { items, chest, phase, t, ... } reveal animation state
     enchantMenuOpen: false,
     enchantTargetId: null,
     lootToastText: "",
@@ -6658,14 +6657,15 @@ const game = {
 
     updateChests(dt) {
         if (Input.just("Escape")) {
-            if (this.chestReveal) { this.chestReveal = null; return; }
+            if (this.chestReveal) {
+                // Only dismissable once the reveal has played out.
+                if (this.chestRevealDone()) this.chestReveal = null;
+                return;
+            }
             this.state = STATE.START_MENU;
         }
-        // Chest reveal popup auto-dismisses after a few seconds.
-        if (this.chestRevealTimer > 0) {
-            this.chestRevealTimer -= dt;
-            if (this.chestRevealTimer <= 0) this.chestReveal = null;
-        }
+        // Drive the chest-opening animation.
+        this.updateChestReveal(dt);
         if (this.lootToastTimer > 0) this.lootToastTimer -= dt;
     },
 
@@ -6676,44 +6676,93 @@ const game = {
         this.lootToastTimer = 2.2;
     },
 
-    /** Open a chest from the UI and queue the reveal popup. */
+    /** Open a chest from the UI and start the reveal animation. */
     handleChestOpen(chestId) {
-        const chest = LOOT_CHESTS.find((c) => c.id === chestId);
-        if (chest && chest.realPrice) {
-            // Real-money supporter chest. No payment processor is wired up yet,
-            // so the flow is intentionally explicit rather than silently granting.
-            this.requestSupporterChest();
-            return;
-        }
         const res = Progression.openChest(chestId);
         if (!res.ok) {
             if (res.reason === "shards") this.showLootToast("Not enough shards", COLOR.danger);
             else this.showLootToast("Chest unavailable", COLOR.danger);
             return;
         }
-        this.chestReveal = { items: res.items, chest: res.chest };
-        this.chestRevealTimer = 4.5;
-        this.triggerEventFlash(res.chest.color || COLOR.accent, 0.2);
-        GameAudio.sfxComboMilestone(3);
+        this.startChestReveal(res.items, res.chest);
     },
 
     /**
-     * Supporter chest entry point. Payment is deliberately isolated here: when a
-     * real checkout is added, replace the body with the provider call and grant
-     * the chest in the success callback (Progression.openChest("supporter")).
+     * Begin the chest-opening sequence. Phases:
+     *   shake  - the chest rattles and builds up
+     *   burst  - it pops open with a light burst
+     *   cards  - item cards fly in one at a time with a rarity aura
      */
-    requestSupporterChest() {
-        this.supporterPending = true;
-        this.showLootToast("Supporter chest needs a payment setup", "#ffd166");
+    startChestReveal(items, chest) {
+        this.chestReveal = {
+            items,
+            chest,
+            phase: "shake",
+            t: 0,
+            shakeDur: 0.75,
+            burstDur: 0.45,
+            perCard: 0.28,        // staggered card reveal
+            cardsShown: 0,
+            burstParticles: [],
+            auraT: 0,
+        };
+        this.triggerEventFlash(chest.color || COLOR.accent, 0.18);
+        if (chest.itemCount >= 3) GameAudio.sfxComboMilestone(5);
+        else GameAudio.sfxComboMilestone(3);
     },
 
-    /** Confirm a supporter chest after payment succeeded (call from the hook). */
-    grantSupporterChest() {
-        const res = Progression.openChest("supporter");
-        if (!res.ok) { this.showLootToast("Supporter chest failed", COLOR.danger); return; }
-        this.chestReveal = { items: res.items, chest: res.chest };
-        this.chestRevealTimer = 5.0;
-        this.showLootToast("Thank you for supporting!", "#ffd166");
+    updateChestReveal(dt) {
+        const r = this.chestReveal;
+        if (!r) return;
+        r.t += dt;
+        r.auraT += dt;
+
+        if (r.phase === "shake") {
+            if (r.t >= r.shakeDur) {
+                r.phase = "burst";
+                r.t = 0;
+                // Spawn burst particles once when it pops.
+                const col = r.chest.color || COLOR.accent;
+                for (let i = 0; i < 40; i++) {
+                    const a = randRange(0, Math.PI * 2);
+                    const sp = randRange(120, 420);
+                    r.burstParticles.push({
+                        x: CANVAS_W / 2, y: CANVAS_H / 2,
+                        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                        life: randRange(0.5, 1.1), age: 0,
+                        color: Math.random() < 0.5 ? col : "#ffffff",
+                    });
+                }
+                this.cameraShakeLoot = 0.15;
+                GameAudio.sfxExplosion();
+            }
+        } else if (r.phase === "burst") {
+            if (r.t >= r.burstDur) { r.phase = "cards"; r.t = 0; }
+        } else if (r.phase === "cards") {
+            const target = Math.min(r.items.length, Math.floor(r.t / r.perCard) + 1);
+            if (target > r.cardsShown) {
+                r.cardsShown = target;
+                GameAudio.sfxEnemyDeath();
+            }
+        }
+
+        // Advance burst particles
+        for (let i = r.burstParticles.length - 1; i >= 0; i--) {
+            const p = r.burstParticles[i];
+            p.age += dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vx *= 0.94;
+            p.vy *= 0.94;
+            if (p.age >= p.life) r.burstParticles.splice(i, 1);
+        }
+    },
+
+    /** True once every card has been revealed and can be dismissed. */
+    chestRevealDone() {
+        const r = this.chestReveal;
+        if (!r) return false;
+        return r.phase === "cards" && r.cardsShown >= r.items.length;
     },
 
     // ────── LOOT UI DRAWING ──────
@@ -7126,16 +7175,16 @@ const game = {
         ctx.font = uiFont(UI_FONT.xs);
         ctx.fillText("Open chests to roll gear. Equip what helps — but equipped gear is lost on death.", CANVAS_W / 2, 54);
 
-        // Chest cards laid out in a row.
+        // Chest cards laid out in a row. Only three tiers now, so give each
+        // card more room than the old four-across layout.
         const count = LOOT_CHESTS.length;
-        const cardW = Math.min(210, (CANVAS_W - 48 - (count - 1) * 14) / count);
-        const cardH = 300;
-        const totalW = count * cardW + (count - 1) * 14;
+        const cardW = Math.min(250, (CANVAS_W - 60 - (count - 1) * 20) / count);
+        const cardH = 330;
+        const totalW = count * cardW + (count - 1) * 20;
         let cx = CANVAS_W / 2 - totalW / 2;
-        const cy = 110;
+        const cy = 104;
 
         for (const chest of LOOT_CHESTS) {
-            const isSupporter = !!chest.realPrice;
             const hover = Mouse.inRect(cx, cy, cardW, cardH);
             drawRoundRect(cx, cy, cardW, cardH, 10);
             ctx.fillStyle = hover ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.045)";
@@ -7144,31 +7193,27 @@ const game = {
             ctx.lineWidth = hover ? 2.2 : 1.4;
             ctx.stroke();
 
-            ctx.textAlign = "center";
-            // Chest icon (simple stylised box)
+            // Chest icon with a rarity-tinted glow behind it.
             const icx = cx + cardW / 2;
-            const icy = cy + 56;
-            drawRoundRect(icx - 34, icy - 22, 68, 44, 6);
-            ctx.fillStyle = chest.color;
-            ctx.globalAlpha = 0.85;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-            ctx.strokeStyle = "rgba(0,0,0,0.45)";
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-            ctx.fillStyle = "rgba(0,0,0,0.55)";
-            ctx.fillRect(icx - 34, icy - 2, 68, 5);
+            const icy = cy + 60;
+            const g = ctx.createRadialGradient(icx, icy, 0, icx, icy, 58);
+            g.addColorStop(0, hexToRgba(chest.color, hover ? 0.34 : 0.2));
+            g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = g;
+            ctx.fillRect(icx - 58, icy - 58, 116, 116);
+            this.drawChestSprite(icx, icy, 0.82, chest.color, 0);
 
+            ctx.textAlign = "center";
             ctx.fillStyle = chest.color;
             ctx.font = uiFont(UI_FONT.sm, "bold");
-            ctx.fillText(chest.label, icx, cy + 104, cardW - 16);
+            ctx.fillText(chest.label, icx, cy + 118, cardW - 16);
 
             ctx.fillStyle = COLOR.textDim;
             ctx.font = uiFont(UI_FONT.xxs);
-            // Wrap the description crudely over up to three lines.
+            // Wrap the description over as many lines as it needs.
             const words = (chest.desc || "").split(" ");
             let line = "";
-            let ly = cy + 126;
+            let ly = cy + 138;
             for (const word of words) {
                 const test = line ? line + " " + word : word;
                 if (ctx.measureText(test).width > cardW - 24 && line) {
@@ -7181,17 +7226,24 @@ const game = {
             }
             if (line) ctx.fillText(line, icx, ly);
 
+            // Item-count badge so the value is readable at a glance.
+            ctx.fillStyle = "rgba(255,255,255,0.08)";
+            const badgeW = 96, badgeH = 20;
+            drawRoundRect(icx - badgeW / 2, cy + cardH - 100, badgeW, badgeH, 6);
+            ctx.fill();
+            ctx.fillStyle = COLOR.text;
+            ctx.font = uiFont(UI_FONT.xxs, "bold");
+            ctx.fillText(`${chest.itemCount} ITEM${chest.itemCount > 1 ? "S" : ""}`, icx, cy + cardH - 90);
+
             // Price + button
-            const priceLabel = isSupporter ? `€ ${chest.realPrice}` : `◆ ${chest.cost}`;
-            ctx.fillStyle = isSupporter ? "#ffd166" : "#66ff99";
+            ctx.fillStyle = "#66ff99";
             ctx.font = uiFont(UI_FONT.md, "bold");
-            ctx.fillText(priceLabel, icx, cy + cardH - 74);
+            ctx.fillText(`◆ ${chest.cost}`, icx, cy + cardH - 66);
 
             const bw = cardW - 24, bh = 36;
-            const bx = cx + 12, by = cy + cardH - 56;
-            const affordable = isSupporter || (profile.shards >= chest.cost);
-            const label = isSupporter ? "SUPPORT" : "OPEN";
-            if (drawButton(label, bx, by, bw, bh, Mouse.inRect(bx, by, bw, bh), UI_FONT.sm) && affordable) {
+            const bx = cx + 12, by = cy + cardH - 52;
+            const affordable = profile.shards >= chest.cost;
+            if (drawButton("OPEN", bx, by, bw, bh, Mouse.inRect(bx, by, bw, bh), UI_FONT.sm) && affordable) {
                 this.handleChestOpen(chest.id);
             } else if (!affordable) {
                 ctx.fillStyle = COLOR.danger;
@@ -7200,14 +7252,6 @@ const game = {
             }
 
             cx += cardW + 14;
-        }
-
-        // Supporter note
-        if (this.supporterPending) {
-            ctx.textAlign = "center";
-            ctx.fillStyle = "#ffd166";
-            ctx.font = uiFont(UI_FONT.xs);
-            ctx.fillText("Payment provider not connected yet — this button is wired and ready.", CANVAS_W / 2, CANVAS_H - 84);
         }
 
         if (drawButton("BACK", 24, CANVAS_H - 62, 120, 34, Mouse.inRect(24, CANVAS_H - 62, 120, 34), UI_FONT.xs)) {
@@ -7220,42 +7264,198 @@ const game = {
     },
 
     drawChestReveal() {
-        const reveal = this.chestReveal;
-        ctx.fillStyle = "rgba(0,0,0,0.72)";
+        const r = this.chestReveal;
+        const t = frameNow;
+
+        // Dim backdrop, a touch darker during the build-up so the burst pops.
+        const dim = r.phase === "cards" ? 0.78 : 0.86;
+        ctx.fillStyle = `rgba(0,0,0,${dim})`;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
-        const items = reveal.items;
-        const cols = Math.min(3, Math.max(1, items.length));
-        const cardW = 230;
-        const cardH = 130;
-        const gap = 12;
-        const totalW = cols * cardW + (cols - 1) * gap;
-        const rows = Math.ceil(items.length / cols);
-        const totalH = rows * cardH + (rows - 1) * gap;
+        const cx = CANVAS_W / 2;
+        const cy = CANVAS_H / 2;
 
-        const startX = CANVAS_W / 2 - totalW / 2;
-        const startY = CANVAS_H / 2 - totalH / 2 + 10;
+        // ── Phase: shake. Chest rattles, glow builds. ──
+        if (r.phase === "shake") {
+            const prog = Math.min(1, r.t / r.shakeDur);
+            const amp = 2 + prog * 9;
+            const ox = Math.sin(t * 0.05) * amp;
+            const oy = Math.cos(t * 0.063) * amp * 0.6;
+            const pulse = 0.35 + 0.65 * prog;
 
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = reveal.chest.color;
-        ctx.font = uiFont(UI_FONT.md, "bold");
-        ctx.fillText(`${reveal.chest.label} opened`, CANVAS_W / 2, startY - 34);
+            // Build-up glow behind the chest
+            const glowR = 90 + prog * 150;
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+            g.addColorStop(0, `rgba(255,255,255,${0.22 * pulse})`);
+            g.addColorStop(0.45, hexToRgba(r.chest.color, 0.5 * pulse));
+            g.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = g;
+            ctx.fillRect(cx - glowR, cy - glowR, glowR * 2, glowR * 2);
 
-        for (let i = 0; i < items.length; i++) {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const ix = startX + col * (cardW + gap);
-            const iy = startY + row * (cardH + gap);
-            this.drawItemCard(items[i], ix, iy, cardW, cardH, {});
+            this.drawChestSprite(cx + ox, cy + oy, 1 + prog * 0.06, r.chest.color, 0);
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = "#ffffff";
+            ctx.globalAlpha = 0.5 + 0.5 * prog;
+            ctx.font = uiFont(UI_FONT.md, "bold");
+            ctx.fillText("OPENING…", cx, cy + 120);
+            ctx.globalAlpha = 1;
         }
 
-        ctx.fillStyle = COLOR.textDim;
-        ctx.font = uiFont(UI_FONT.xs);
-        ctx.fillText("Click or press ESC to continue", CANVAS_W / 2, startY + totalH + 30);
+        // ── Phase: burst. Burst particles + expanding light ring. ──
+        if (r.phase === "burst" || r.phase === "cards") {
+            const bp = r.phase === "burst" ? Math.min(1, r.t / r.burstDur) : 1;
 
-        if (Mouse.clicked || Input.just("Escape") || Input.just("Enter")) {
-            this.chestReveal = null;
+            // Expanding ring
+            if (r.phase === "burst") {
+                const ringR = 40 + bp * 300;
+                ctx.beginPath();
+                ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+                ctx.strokeStyle = hexToRgba(r.chest.color, (1 - bp) * 0.8);
+                ctx.lineWidth = 6 * (1 - bp) + 1;
+                ctx.stroke();
+            }
+
+            // Burst particles
+            for (const p of r.burstParticles) {
+                const a = Math.max(0, 1 - p.age / p.life);
+                ctx.globalAlpha = a;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3 * a + 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // While bursting, keep the chest visible with an opening lid.
+            if (r.phase === "burst") {
+                this.drawChestSprite(cx, cy, 1, r.chest.color, bp);
+            }
+        }
+
+        // ── Phase: cards. Staggered reveal with rarity aura. ──
+        if (r.phase === "cards") {
+            const items = r.items;
+            const cols = Math.min(3, Math.max(1, items.length));
+            const cardW = 230;
+            const cardH = 130;
+            const gap = 12;
+            const totalW = cols * cardW + (cols - 1) * gap;
+            const rows = Math.ceil(items.length / cols);
+            const totalH = rows * cardH + (rows - 1) * gap;
+            const startX = CANVAS_W / 2 - totalW / 2;
+            const startY = CANVAS_H / 2 - totalH / 2 + 10;
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = r.chest.color;
+            ctx.font = uiFont(UI_FONT.md, "bold");
+            ctx.fillText(`${r.chest.label} opened`, CANVAS_W / 2, startY - 40);
+
+            for (let i = 0; i < items.length; i++) {
+                if (i >= r.cardsShown) break;
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const tx = startX + col * (cardW + gap);
+                const ty = startY + row * (cardH + gap);
+
+                // Fly-in + fade for the newest card.
+                const isNewest = i === r.cardsShown - 1;
+                const local = isNewest ? clamp(r.t - i * r.perCard, 0, 1) : 1;
+                const ease = 1 - Math.pow(1 - local, 3);   // ease-out cubic
+                const scale = 0.72 + 0.28 * ease;
+                const alpha = local;
+                const offY = (1 - ease) * 26;
+
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.translate(tx + cardW / 2, ty + cardH / 2 + offY);
+                ctx.scale(scale, scale);
+                ctx.translate(-(tx + cardW / 2), -(ty + cardH / 2));
+
+                // Rarity aura ring that pulses while fresh.
+                if (isNewest) {
+                    const rc = this.rarityColor(items[i].rarity);
+                    const pulse = 0.5 + 0.5 * Math.sin(t * 0.02);
+                    ctx.save();
+                    ctx.shadowColor = rc;
+                    ctx.shadowBlur = 24 + pulse * 16;
+                    drawRoundRect(tx, ty, cardW, cardH, 8);
+                    ctx.strokeStyle = hexToRgba(rc, 0.55 + pulse * 0.35);
+                    ctx.lineWidth = 2.5;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                this.drawItemCard(items[i], tx, ty, cardW, cardH, {});
+                ctx.restore();
+            }
+
+            // Hint only once everything is on screen.
+            if (this.chestRevealDone()) {
+                const bl = 0.55 + 0.45 * Math.sin(t * 0.006);
+                ctx.globalAlpha = bl;
+                ctx.textAlign = "center";
+                ctx.fillStyle = COLOR.textDim;
+                ctx.font = uiFont(UI_FONT.xs);
+                ctx.fillText("Click or press ESC to continue", CANVAS_W / 2, startY + totalH + 34);
+                ctx.globalAlpha = 1;
+
+                if (Mouse.clicked || Input.just("Escape") || Input.just("Enter")) {
+                    this.chestReveal = null;
+                }
+            }
+        }
+    },
+
+    /**
+     * Draw the chest box itself. `openAmount` 0..1 lifts and tilts the lid so
+     * the opening can be animated.
+     */
+    drawChestSprite(x, y, scale, color, openAmount) {
+        const w = 92 * scale;
+        const h = 62 * scale;
+        const bx = x - w / 2;
+        const by = y - h / 2;
+
+        // Body
+        drawRoundRect(bx, by, w, h, 6);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.45)";
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        // strap
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillRect(bx, by + h * 0.55, w, h * 0.10);
+
+        // Lid: pivots upward as it opens.
+        const lidH = h * 0.42;
+        const lift = openAmount * 16 * scale;
+        const tilt = openAmount * 0.22;
+        ctx.save();
+        ctx.translate(bx + w / 2, by - lift);
+        ctx.rotate(-tilt);
+        drawRoundRect(-w / 2, -lidH, w, lidH, 5);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.95;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "rgba(0,0,0,0.45)";
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255,255,255,0.25)";
+        ctx.fillRect(-w / 2 + 4, -lidH + 4, w - 8, 3);
+        ctx.restore();
+
+        // Interior glow when open
+        if (openAmount > 0.05) {
+            const g = ctx.createLinearGradient(x, by, x, by + h * 0.5);
+            g.addColorStop(0, `rgba(255,255,255,${0.5 * openAmount})`);
+            g.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = g;
+            ctx.fillRect(bx + 4, by, w - 8, h * 0.5);
         }
     },
 

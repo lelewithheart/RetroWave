@@ -383,14 +383,6 @@ window.RogueConfig = {
                 desc: "3 items, strongly weighted toward epic and legendary.",
                 rarityWeights: { common: 15, rare: 45, epic: 55, legendary: 22 },
             },
-            {
-                id: "supporter", label: "Supporter Cache", cost: 0, itemCount: 3, color: "#ffd166",
-                realPrice: "1.99",
-                desc: "Supports development. Guarantees a legendary and a set piece.",
-                guaranteeLegendary: true,
-                guaranteeSet: true,
-                rarityWeights: { common: 0, rare: 20, epic: 60, legendary: 40 },
-            },
         ],
         // Chance an item drop also rolls a set piece (supporter chest forces it).
         startingShards: 250,
