@@ -4890,7 +4890,14 @@ const game = {
         const clickedYes = Mouse.clicked && Mouse.inRect(l.yes.x, l.yes.y, l.yes.w, l.yes.h);
         const clickedNo = Mouse.clicked && Mouse.inRect(l.no.x, l.no.y, l.no.w, l.no.h);
 
-        if (Input.just("KeyY") || clickedYes) {
+        // Accept both physical keys that can be labelled "Y" on the user's
+        // keyboard. event.code is layout-agnostic: on QWERTY "Y" reports KeyY,
+        // on QWERTZ the key printed "Z" sits in the same physical slot and also
+        // reports KeyY — but users on other layouts may still reach for the key
+        // that physically reports KeyZ, so treat it as "yes" too. The button is
+        // labelled "ENABLE (Y)" because Y reads as "yes"; both codes are accepted
+        // behind the scenes.
+        if (Input.just("KeyY") || Input.just("KeyZ") || clickedYes) {
             this.perfPromptDecision = "accept";
             this.lowPerf = true;
             this.perfPromptVisible = false;
