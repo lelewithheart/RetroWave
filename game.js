@@ -917,7 +917,7 @@ function modeModifiers() {
                 enemySpdMult: 0.82,
                 enemyDmgMult: 0.8,
                 xpGainMult: 1.9,
-                xpNeedGrowth: 1.28,
+                xpNeedGrowth: 1.16,
                 waveRestMult: 1.12,
                 specialChanceMult: 0.9,
             };
@@ -929,7 +929,7 @@ function modeModifiers() {
                 enemySpdMult: 1.28,
                 enemyDmgMult: 1.35,
                 xpGainMult: 0.72,
-                xpNeedGrowth: 1.55,
+                xpNeedGrowth: 1.32,
                 waveRestMult: 0.85,
                 specialChanceMult: 1.25,
             };
@@ -941,7 +941,10 @@ function modeModifiers() {
                 enemySpdMult: 1,
                 enemyDmgMult: 1,
                 xpGainMult: 1,
-                xpNeedGrowth: 1.4,
+                // Lowered from 1.4: at 1.4 the player only reached ~19 upgrade
+                // picks in a full run (level ~20 by wave 25), so the build never
+                // came together and DPS could not keep up with the wave scaling.
+                xpNeedGrowth: 1.20,
                 waveRestMult: 1,
                 specialChanceMult: 1,
             };
@@ -7943,7 +7946,12 @@ const game = {
 
         const mods = modeModifiers();
         if (this.xpOrbs.length < dynamicCap(MAX_XP_ORBS)) {
-            const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * (enemy.xpMult || 1) * mods.xpGainMult * this.player.xpGainMult);
+            // XP per kill grows both linearly (with the wave) and exponentially
+            // (CFG.balance.xpPerWaveGrowth), so upgrade income keeps pace with
+            // exponentially growing enemy HP. Without the exponential term the
+            // level curve fell behind and the build never came together.
+            const xpWaveGrowth = Math.pow((CFG.balance && CFG.balance.xpPerWaveGrowth) || 1, this.wave - 1);
+            const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * xpWaveGrowth * (enemy.xpMult || 1) * mods.xpGainMult * this.player.xpGainMult);
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
         GameAudio.sfxEnemyDeath();

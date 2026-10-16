@@ -11,11 +11,13 @@ window.RogueConfig = {
         baseKills: 10,
         killsGrowth: 5,
         baseSpawnCd: 1.5,
-        minSpawnCd: 0.3,
-        spawnCdDecay: 0.92,
-        // Flattened from 1.22 / 1.10: the old curves outran the player's upgrade
-        // scaling badly (a wave-25 trash enemy hit 3.5k HP while contact damage
-        // was a 2-hit kill), which is why nobody reached the final boss.
+        minSpawnCd: 0.30,
+        // Raised from 0.92: the old value ramped the spawn rate to ~3.3/s while
+        // the player could only kill ~1.7/s by wave 20, so the arena inevitably
+        // overran you around wave 18-20. Slower ramp keeps kill-rate ahead of
+        // spawn-rate (ratio stays >= ~1.2 through the whole run).
+        spawnCdDecay: 0.94,
+        // HP curve tuned together with the XP economy and spawn rate, see below.
         hpScale: 1.18,
         speedScale: 1.07,
         damageScale: 1.07,
@@ -30,17 +32,16 @@ window.RogueConfig = {
             20: "Abyss Colossus",
         },
         endbossName: "The Null Sovereign",
-        // Absolute boss HP per boss wave. These are deliberately decoupled from
-        // the wave HP curve: that curve is tuned for trash enemies, and bosses
-        // need to stay beatable in ~10-30s (endboss ~60s) for a mid-strength
-        // build instead of scaling into a wall. Calibrated against expected
-        // player DPS at each boss (250 / 900 / 2000 / 4000 / 5000).
+        // Absolute boss HP per boss wave, decoupled from the trash curve and
+        // calibrated against the player's expected DPS at that point (roughly
+        // 220 / 760 / 1890 / 3225 / 5700 dps with the new XP economy). Target
+        // fight lengths: ~12s, 16s, 18s, 25s, and ~55s for the final boss.
         hpByWave: {
-            5:  1000,
-            10: 7000,
-            15: 15000,
-            20: 55000,
-            25: 260000,
+            5:  2500,
+            10: 12000,
+            15: 34000,
+            20: 81000,
+            25: 314000,
         },
     },
     skinShop: { // Only Fallback 
@@ -255,5 +256,12 @@ window.RogueConfig = {
         // Flat heal granted when an event payout is claimed, so the late waves
         // are not a pure war of attrition.
         eventHealAmount: 12,
+        // XP economy. The real reason runs stalled around wave 20 was that the
+        // player only got ~19 upgrade picks in a whole run: XP per kill grew
+        // linearly (10 + wave*2) while enemy HP grew exponentially, so the
+        // level curve fell behind and DPS could not keep up with the spawn rate.
+        // xpPerWaveGrowth scales the XP payout per wave so upgrade income tracks
+        // enemy scaling; xpNeedGrowth (see modeModifiers) was also lowered.
+        xpPerWaveGrowth: 1.11,
     },
 };

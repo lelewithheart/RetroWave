@@ -20,6 +20,14 @@ beta 16.10:1-hotfix1
 - Elite HP softened from 2.6x to 2.2x, elite XP raised from 3.2x to 3.6x - elites are a speed bump that accelerates your build, not a wall
 - Event shard payouts now also heal for a small flat amount, so the late waves are not a pure war of attrition
 - All new numbers live in config.js (wave, bosses.hpByWave, elites, balance) for easy fine-tuning
+beta 16.10:1-hotfix2
+- Root cause of "can't get past wave 20" fixed: the XP economy, not the enemy stats
+- XP per kill only grew linearly (10 + wave*2) while enemy HP grew exponentially, and the level curve asked for 40% more XP each level. Result: a full run only granted ~19 upgrade picks, so the build never came together and DPS fell behind
+- Level curve per level: XP requirement growth lowered from 1.40 to 1.20 (easy 1.28->1.16, hard 1.55->1.32)
+- XP per kill now also scales with the wave (1.11x per wave, config: balance.xpPerWaveGrowth), so upgrade income tracks enemy scaling
+- A full run now grants ~42 upgrade picks instead of ~19 - the build actually happens
+- Spawn rate ramp slowed (spawnCdDecay 0.92 -> 0.94): the old value reached 3.3 enemies/s on wave 20 while a realistic build could only kill ~1.7/s, so the arena inevitably overran you around wave 18-20. Spawn rate is now ~2.2/s at wave 20 and kill-rate stays well ahead of it
+- Boss HP recalibrated to the stronger player curve (wave 5/10/15/20/25 = 2500/12000/34000/81000/314000), targeting ~11s/16s/18s/25s/45-80s fights depending on build strength
 beta 08.10:1
 - Fixed run finalisation: Game Over now shows shards earned, high-score rank and the score table immediately instead of "+0"
 - Fixed lost level-ups: multiple level-ups arriving at once (big XP orbs) are queued instead of silently dropped
