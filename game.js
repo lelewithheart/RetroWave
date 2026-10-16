@@ -176,6 +176,8 @@ const STATE = {
     START_MENU:     "START_MENU",
     CHANGELOGS:     "CHANGELOGS",
     SHOP:           "SHOP",
+    INVENTORY:      "INVENTORY",
+    CHESTS:         "CHESTS",
     GAMEPLAY:       "GAMEPLAY",
     PAUSED:         "PAUSED",
     CHEAT_MENU:     "CHEAT_MENU",
@@ -426,6 +428,19 @@ const BOSS_MODIFIER_DEFS = {
 const BOSS_MODIFIERS_ENABLED = CFG.bossModifiers.enabled;
 const ELITES_ENABLED = CFG.elites.enabled;
 const ELITE_START_WAVE = CFG.elites.startWave;
+
+// ────── LOOT / INVENTORY ──────
+const LOOT_CFG = CFG.loot || {};
+const LOOT_ENABLED = LOOT_CFG.enabled !== false;
+const LOOT_RARITIES = LOOT_CFG.rarities || {};
+const LOOT_SLOTS = LOOT_CFG.slots || [];
+const LOOT_AFFIXES = LOOT_CFG.affixes || {};
+const LOOT_ENCHANTS = LOOT_CFG.enchantments || {};
+const LOOT_SETS = LOOT_CFG.sets || {};
+const LOOT_CHESTS = LOOT_CFG.chests || [];
+// Ordered worst -> best, used for rarity comparisons and display.
+const RARITY_ORDER = ["common", "rare", "epic", "legendary"];
+const RARITY_RANK = Object.fromEntries(RARITY_ORDER.map((r, i) => [r, i]));
 
 
 // Upgrade choices per level-up
@@ -2116,6 +2131,17 @@ const Progression = (() => {
             streak: 0,
             lastCompletedKey: "",
         },
+        // ── Loot ──
+        // items: everything you own (safe unless equipped).
+        // equipped: slot -> item id. These are the ones at risk when you die.
+        // nextItemId: monotonic id source so items stay addressable.
+        loot: {
+            items: [],
+            equipped: {},
+            nextItemId: 1,
+            openedChests: 0,
+            supporterChests: 0,
+        },
     };
 
     const dailyMissionPool = [
@@ -2227,6 +2253,42 @@ const Progression = (() => {
         base.daily.rewardClaimed = !!ld.rewardClaimed;
         base.daily.streak = Number.isFinite(ld.streak) ? Math.max(0, Math.floor(ld.streak)) : 0;
         base.daily.lastCompletedKey = typeof ld.lastCompletedKey === "string" ? ld.lastCompletedKey : "";
+
+        // ── Loot migration ──
+        // Older profiles have no loot block; normalise defensively and drop any
+        // item whose shape we no longer recognise (e.g. removed affixes).
+        const ll = (loaded && loaded.loot) || {};
+        const rawItems = Array.isArray(ll.items) ? ll.items : [];
+        const cleanItems = [];
+        const seenIds = new Set();
+        let maxId = 0;
+        for (const it of rawItems) {
+            const norm = normalizeItem(it);
+            if (!norm) continue;
+            if (seenIds.has(norm.id)) continue;      // duplicate id, skip
+            seenIds.add(norm.id);
+            maxId = Math.max(maxId, norm.id);
+            cleanItems.push(norm);
+        }
+        base.loot.items = cleanItems;
+        base.loot.nextItemId = Number.isFinite(ll.nextItemId)
+            ? Math.max(Math.floor(ll.nextItemId), maxId + 1)
+            : maxId + 1;
+
+        // Equipped map: keep only entries pointing at an existing item and a
+        // valid slot.
+        const equipped = {};
+        const rawEquipped = (ll && ll.equipped) || {};
+        for (const slot of LOOT_SLOTS) {
+            const id = rawEquipped[slot];
+            if (Number.isFinite(id) && seenIds.has(id)) {
+                const item = cleanItems.find((i) => i.id === id);
+                if (item && item.slot === slot) equipped[slot] = id;
+            }
+        }
+        base.loot.equipped = equipped;
+        base.loot.openedChests = Number.isFinite(ll.openedChests) ? Math.max(0, Math.floor(ll.openedChests)) : 0;
+        base.loot.supporterChests = Number.isFinite(ll.supporterChests) ? Math.max(0, Math.floor(ll.supporterChests)) : 0;
 
         return base;
     }
@@ -2449,6 +2511,379 @@ const Progression = (() => {
         return { gain, total: data.prestige.count };
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // LOOT / INVENTORY
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Validate/repair a stored item. Returns null if it is unusable. */
+    function normalizeItem(raw) {
+        if (!raw || typeof raw !== "object") return null;
+        const id = Number(raw.id);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        const slot = String(raw.slot || "");
+
+            const rarity = Object.prototype.hasOwnProperty.call(LOOT_RARITIES, raw.rarity) ? raw.rarity : "common";
+
+            // Affixes: keep only known ones with a finite value.
+            const affixes = [];
+            if (Array.isArray(raw.affixes)) {
+                for (const a of raw.affixes) {
+                    if (!a || !Object.prototype.hasOwnProperty.call(LOOT_AFFIXES, a.stat)) continue;
+                    const value = Number(a.value);
+                    if (!Number.isFinite(value)) continue;
+                    affixes.push({ stat: a.stat, value });
+                }
+            }
+
+            // Enchantments: keep known ones.
+            const enchants = [];
+            if (Array.isArray(raw.enchants)) {
+                for (const e of raw.enchants) {
+                    if (typeof e === "string" && Object.prototype.hasOwnProperty.call(LOOT_ENCHANTS, e)) {
+                        enchants.push(e);
+                    }
+                }
+            }
+
+            const set = (typeof raw.set === "string" && LOOT_SETS[raw.set]) ? raw.set : null;
+            return {
+                id,
+                slot,
+                rarity,
+                name: typeof raw.name === "string" && raw.name ? raw.name : defaultItemName(slot, rarity),
+                affixes,
+                enchants,
+                set,
+                // Whether this item has been "saved" by the enchanter; purely for UI.
+                locked: !!raw.locked,
+            };
+        }
+
+        function defaultItemName(slot, rarity) {
+            const slotLabel = (LOOT_CFG.slotLabels && LOOT_CFG.slotLabels[slot]) || slot;
+            const rarityLabel = (LOOT_RARITIES[rarity] && LOOT_RARITIES[rarity].label) || rarity;
+            return `${rarityLabel} ${slotLabel}`;
+        }
+
+        /** Weighted pick from a { key: weight } map. */
+        function weightedPick(weights) {
+            const keys = Object.keys(weights).filter((k) => weights[k] > 0);
+            if (keys.length === 0) return null;
+            let total = 0;
+            for (const k of keys) total += weights[k];
+            let roll = Math.random() * total;
+            for (const k of keys) {
+                roll -= weights[k];
+                if (roll <= 0) return k;
+            }
+            return keys[keys.length - 1];
+        }
+
+        /**
+         * Roll a single item. `opts.rarityWeights` overrides the default rarity
+         * table, `opts.forceRarity` pins the rarity, `opts.forceSet` guarantees a
+         * set piece.
+         */
+        function rollItem(opts = {}) {
+            const slot = randPick(LOOT_SLOTS);
+
+            let rarity = opts.forceRarity;
+            if (!rarity) {
+                const weights = {};
+                const table = opts.rarityWeights || null;
+                for (const r of RARITY_ORDER) {
+                    weights[r] = table ? (table[r] || 0) : ((LOOT_RARITIES[r] && LOOT_RARITIES[r].weight) || 0);
+                }
+                rarity = weightedPick(weights) || "common";
+            }
+
+            const rarityDef = LOOT_RARITIES[rarity] || LOOT_RARITIES.common;
+            const rank = RARITY_RANK[rarity] || 0;
+
+            // Roll affixes: pick distinct stats, take the value for this rarity tier.
+            const affixKeys = Object.keys(LOOT_AFFIXES);
+            const count = Math.min(rarityDef.affixCount || 1, affixKeys.length);
+            const chosenAffixes = [];
+            const pool = affixKeys.slice();
+            for (let i = 0; i < count; i++) {
+                const idx = randInt(0, pool.length - 1);
+                const key = pool.splice(idx, 1)[0];
+                const def = LOOT_AFFIXES[key];
+                const base = (def.perRarity && def.perRarity[rank]) || 0;
+                if (base <= 0) continue;
+                // Small variance so two items of the same rarity are not identical.
+                const value = base * randRange(0.85, 1.15);
+                const rounded = Math.abs(value) >= 1 ? Math.round(value * 10) / 10 : Math.round(value * 1000) / 1000;
+                chosenAffixes.push({ stat: key, value: rounded });
+            }
+
+            // Set piece?
+            let set = null;
+            const wantSet = opts.forceSet || Math.random() < (LOOT_CFG.setChance || 0);
+            if (wantSet) {
+                const setKeys = Object.keys(LOOT_SETS);
+                if (setKeys.length > 0) set = randPick(setKeys);
+            }
+
+            // Enchantments: rarity grants slots, drop chance decides if one is filled.
+            const enchants = [];
+            const slots = rarityDef.enchantSlots || 0;
+            if (slots > 0 && Math.random() < (LOOT_CFG.dropEnchantChance || 0)) {
+                const enchKeys = Object.keys(LOOT_ENCHANTS);
+                enchants.push(randPick(enchKeys));
+            }
+
+            const item = normalizeItem({
+                id: data.loot.nextItemId++,
+                slot,
+                rarity,
+                name: itemNameFor(slot, rarity, set),
+                affixes: chosenAffixes,
+                enchants,
+                set,
+            });
+            return item;
+        }
+
+        /** Flavour name so items are readable in the UI. */
+        function itemNameFor(slot, rarity, set) {
+            const slotLabel = (LOOT_CFG.slotLabels && LOOT_CFG.slotLabels[slot]) || slot;
+            if (set && LOOT_SETS[set]) return `${LOOT_SETS[set].label} ${slotLabel}`;
+            return defaultItemName(slot, rarity);
+        }
+
+        /** Add an item to the collection. Returns the stored item. */
+        function addItem(item) {
+            if (!item) return null;
+            data.loot.items.push(item);
+            save();
+            return item;
+        }
+
+        /**
+         * Open a chest by id. Spends shards unless the chest is the supporter chest
+         * (which is gated behind a real-money flow, see game.js; here we just roll).
+         * Returns { ok, items, reason }.
+         */
+        function openChest(chestId, opts = {}) {
+            const chest = LOOT_CHESTS.find((c) => c.id === chestId);
+            if (!chest) return { ok: false, reason: "unknown" };
+
+            const isSupporter = chest.id === "supporter";
+            if (!isSupporter) {
+                const cost = chest.cost || 0;
+                if (data.shards < cost) return { ok: false, reason: "shards", cost };
+                data.shards -= cost;
+            }
+
+            const items = [];
+            const count = chest.itemCount || 1;
+            for (let i = 0; i < count; i++) {
+                const force = {};
+                if (chest.rarityWeights) force.rarityWeights = chest.rarityWeights;
+                // Guarantees apply to the first roll of a supporter chest.
+                if (i === 0 && chest.guaranteeLegendary) force.forceRarity = "legendary";
+                if (i === 0 && chest.guaranteeSet) force.forceSet = true;
+                const item = rollItem(force);
+                if (item) items.push(item);
+            }
+            for (const it of items) data.loot.items.push(it);
+            data.loot.openedChests = (data.loot.openedChests || 0) + 1;
+            if (isSupporter) data.loot.supporterChests = (data.loot.supporterChests || 0) + 1;
+            save();
+            return { ok: true, items, chest };
+        }
+
+        /** All items, newest first. */
+        function getItems() {
+            return cloneData().loot.items.slice().sort((a, b) => b.id - a.id);
+        }
+
+        function getItemById(id) {
+            return data.loot.items.find((i) => i.id === id) || null;
+        }
+
+        /** Equip an item, displacing whatever was in that slot (stays in inventory). */
+        function equipItem(id) {
+            const item = getItemById(id);
+            if (!item) return { ok: false, reason: "missing" };
+            data.loot.equipped[item.slot] = item.id;
+            save();
+            return { ok: true, item };
+        }
+
+        function unequipSlot(slot) {
+            if (data.loot.equipped[slot] === undefined) return { ok: false, reason: "empty" };
+            delete data.loot.equipped[slot];
+            save();
+            return { ok: true };
+        }
+
+        /** The currently equipped item for a slot, or null. */
+        function getEquipped(slot) {
+            const id = data.loot.equipped[slot];
+            if (id === undefined) return null;
+            return getItemById(id);
+        }
+
+        /** Map of slot -> item for everything currently equipped. */
+        function getEquippedAll() {
+            const out = {};
+            for (const slot of LOOT_SLOTS) {
+                const it = getEquipped(slot);
+                if (it) out[slot] = it;
+            }
+            return out;
+        }
+
+        /** Does an item carry the Afterlife enchantment? */
+        function hasAfterlife(item) {
+            return !!(item && Array.isArray(item.enchants) && item.enchants.indexOf("afterlife") !== -1);
+        }
+
+        /**
+         * Death penalty: destroy every EQUIPPED item, except those protected by
+         * Afterlife. Unequipped inventory is untouched. Returns what was lost/kept.
+         */
+        function applyDeathPenalty() {
+            const lost = [];
+            const kept = [];
+            const equipped = getEquippedAll();
+            for (const slot of Object.keys(equipped)) {
+                const item = equipped[slot];
+                if (hasAfterlife(item)) {
+                    kept.push(item);
+                    continue;
+                }
+                lost.push(item);
+            }
+            if (lost.length > 0) {
+                const lostIds = new Set(lost.map((i) => i.id));
+                data.loot.items = data.loot.items.filter((i) => !lostIds.has(i.id));
+                for (const slot of Object.keys(data.loot.equipped)) {
+                    if (lostIds.has(data.loot.equipped[slot])) delete data.loot.equipped[slot];
+                }
+                save();
+            }
+            return { lost, kept };
+        }
+
+        /** Apply a chosen enchantment to an item for a shard cost. */
+        function enchantItem(id, enchantKey) {
+            const item = getItemById(id);
+            if (!item) return { ok: false, reason: "missing" };
+            if (!Object.prototype.hasOwnProperty.call(LOOT_ENCHANTS, enchantKey)) {
+                return { ok: false, reason: "unknown" };
+            }
+            if (item.enchants.indexOf(enchantKey) !== -1) return { ok: false, reason: "duplicate" };
+
+            const rarityDef = LOOT_RARITIES[item.rarity] || LOOT_RARITIES.common;
+            const maxSlots = rarityDef.enchantSlots || 0;
+            if (item.enchants.length >= maxSlots) return { ok: false, reason: "full", maxSlots };
+
+            const cost = LOOT_CFG.enchantCost || 0;
+            if (data.shards < cost) return { ok: false, reason: "shards", cost };
+            data.shards -= cost;
+            item.enchants.push(enchantKey);
+            save();
+            return { ok: true, item, cost };
+        }
+
+        /** How many pieces of each set are currently equipped, plus active bonuses. */
+        function getSetStatus() {
+            const equipped = getEquippedAll();
+            const counts = {};
+            for (const slot of Object.keys(equipped)) {
+                const set = equipped[slot].set;
+                if (set) counts[set] = (counts[set] || 0) + 1;
+            }
+            const result = {};
+            for (const setId of Object.keys(LOOT_SETS)) {
+                const def = LOOT_SETS[setId];
+                const have = counts[setId] || 0;
+                const active = (def.bonuses || []).filter((b) => have >= b.need);
+                result[setId] = { def, have, active };
+            }
+            return result;
+        }
+
+        /**
+         * Aggregate every equipped item's affixes, enchantments and set bonuses
+         * into a single stat block. game.js applies this to the player on spawn.
+         */
+        function computeLootStats() {
+            const stats = {
+                damage: 0, maxHp: 0, armor: 0, hpRegen: 0,
+                speedMult: 1, fireRateMult: 1, damageMult: 1, maxHpMult: 1,
+                xpGainMult: 1, magnetMult: 1,
+                critChance: 0, critMult: 0, piercing: 0, multiShot: 0,
+                perKillHeal: 0, shardMult: 1,
+            };
+            const equipped = getEquippedAll();
+
+            // Flat + multiplicative affixes.
+            for (const slot of Object.keys(equipped)) {
+                const item = equipped[slot];
+                for (const a of item.affixes) {
+                    switch (a.stat) {
+                        case "damage":     stats.damage += a.value; break;
+                        case "maxHp":      stats.maxHp += a.value; break;
+                        case "armor":      stats.armor += a.value; break;
+                        case "hpRegen":    stats.hpRegen += a.value; break;
+                        case "critChance": stats.critChance += a.value; break;
+                        case "critMult":   stats.critMult += a.value; break;
+                        case "piercing":   stats.piercing += a.value; break;
+                        case "multiShot":  stats.multiShot += a.value; break;
+                        case "speedMult":  stats.speedMult += a.value; break;
+                        case "fireRateMult": stats.fireRateMult -= a.value; break;   // lower = faster
+                        case "xpGainMult": stats.xpGainMult += a.value; break;
+                        case "magnet":     stats.magnetMult += a.value / 100; break;
+                    }
+                }
+                // Enchantments.
+                for (const key of item.enchants) {
+                    const e = LOOT_ENCHANTS[key];
+                    if (!e) continue;
+                    if (e.perKillHeal) stats.perKillHeal += e.perKillHeal;
+                    if (e.speedBonus) stats.speedMult += e.speedBonus;
+                    if (e.shardMult) stats.shardMult *= e.shardMult;
+                    if (e.damageMult) stats.damageMult *= e.damageMult;
+                    if (e.armorBonus) stats.armor += e.armorBonus;
+                }
+            }
+
+            // Set bonuses (only the highest satisfied tier per set applies its stat).
+            const setStatus = getSetStatus();
+            for (const setId of Object.keys(setStatus)) {
+                const st = setStatus[setId];
+                for (const b of st.active) {
+                    switch (b.stat) {
+                        case "damageMult":   stats.damageMult *= b.value; break;
+                        case "maxHpMult":    stats.maxHpMult *= b.value; break;
+                        case "fireRateMult": stats.fireRateMult *= b.value; break;
+                        case "critChance":   stats.critChance += b.value; break;
+                        case "xpGainMult":   stats.xpGainMult *= b.value; break;
+                        case "magnetMult":   stats.magnetMult *= b.value; break;
+                        case "multiShot":    stats.multiShot += b.value; break;
+                    }
+                    if (b.extra) {
+                        if (b.extra.armor) stats.armor += b.extra.armor;
+                        if (b.extra.hpRegen) stats.hpRegen += b.extra.hpRegen;
+                    }
+                }
+            }
+            return stats;
+        }
+
+        /** Give the player a small starting stash so the first chest is reachable. */
+        function ensureStarterShards() {
+            const want = (LOOT_CFG.startingShards || 0);
+            if (want > 0 && data.shards === 0 && (data.loot.openedChests || 0) === 0 && data.loot.items.length === 0) {
+                data.shards = want;
+                save();
+            }
+        }
+
     return {
         init,
         get,
@@ -2470,6 +2905,22 @@ const Progression = (() => {
         unlockOrSelectSkin,
         applyMetaToPlayer,
         registerRun,
+        // ── loot ──
+        rollItem,
+        addItem,
+        openChest,
+        getItems,
+        getItemById,
+        equipItem,
+        unequipSlot,
+        getEquipped,
+        getEquippedAll,
+        hasAfterlife,
+        applyDeathPenalty,
+        enchantItem,
+        getSetStatus,
+        computeLootStats,
+        ensureStarterShards,
     };
 })();
 
@@ -3087,6 +3538,37 @@ class Player extends Entity {
         this.skinAssetPath = skin.asset || "";
         this.skinImage = SkinAssets.get(this.skinAssetPath);
         Progression.applyMetaToPlayer(this);
+
+        // Apply equipped loot (affixes + enchantments + set bonuses).
+        this.applyLootStats(Progression.computeLootStats());
+    }
+
+    /**
+     * Fold the aggregated loot stat block into the player. Flat stats add,
+     * multiplicative stats multiply. Runs once per run start (see constructor).
+     */
+    applyLootStats(s) {
+        if (!s) return;
+        this.damage += s.damage || 0;
+        this.maxHp += s.maxHp || 0;
+        this.armor += s.armor || 0;
+        this.hpRegen += s.hpRegen || 0;
+        this.critChance = Math.min(1, this.critChance + (s.critChance || 0));
+        this.critMult += s.critMult || 0;
+        this.piercing += s.piercing || 0;
+        this.multiShot += s.multiShot || 0;
+        this.speed *= s.speedMult || 1;
+        this.fireRate *= s.fireRateMult || 1;
+        this.damage = Math.floor(this.damage * (s.damageMult || 1));
+        this.maxHp = Math.floor(this.maxHp * (s.maxHpMult || 1));
+        this.xpGainMult *= s.xpGainMult || 1;
+        this.magnetRangeMult = (this.magnetRangeMult || 1) * (s.magnetMult || 1);
+        // Enchantment-driven per-kill heal (Vampiric) and shard bonus (Fortune)
+        // are read by the game loop; stash them on the player.
+        this.perKillHeal = s.perKillHeal || 0;
+        this.shardPayoutMult = s.shardMult || 1;
+        // Keep HP consistent with a raised maxHp from gear.
+        this.hp = this.maxHp;
     }
 
     update(dt) {
@@ -4275,7 +4757,8 @@ class XPOrb extends Entity {
 
         // Magnet toward player
         const d = dist(this.x, this.y, player.x, player.y);
-        if (d < XP_MAGNET_RANGE + game.xpMagnetBonus) {
+        const magnetMult = player.magnetRangeMult || 1;
+        if (d < (XP_MAGNET_RANGE + game.xpMagnetBonus) * magnetMult) {
             this.magnetised = true;
         }
         if (this.magnetised) {
@@ -4981,6 +5464,8 @@ const game = {
     timePlayed: 0,
     lastHighScoreRank: 0,  // rank achieved on last game over (0 = not a high score)
     lastRunShardGain: 0,
+    lastLostItems: null,      // gear destroyed by the death penalty on the last run
+    lastKeptItems: null,      // gear saved by Afterlife on the last run
     lastRunGameMode: "normal",
     lastRunChallengeMode: "none",
     lastRunChallengeLabel: "No Challenge",
@@ -5053,6 +5538,19 @@ const game = {
     shopMaxScroll: 0,
     shopTelemetryLogged: false,
 
+    // ── Loot UI ──
+    inventoryScroll: 0,
+    inventoryMaxScroll: 0,
+    inventorySelectedId: null,   // item id selected in the inventory list
+    chestsScroll: 0,
+    chestReveal: null,           // { items, chest, timer } shown after opening
+    chestRevealTimer: 0,
+    enchantMenuOpen: false,
+    enchantTargetId: null,
+    lootToastText: "",
+    lootToastTimer: 0,
+    lootToastColor: COLOR.accent,
+
     // Cheat code state
     cheatProgress: 0,
     cheatRows: [],
@@ -5124,6 +5622,8 @@ const game = {
         this.timePlayed = 0;
         this.lastHighScoreRank = 0;
         this.lastRunShardGain = 0;
+        this.lastLostItems = null;
+        this.lastKeptItems = null;
         this.lastRunGameMode = Settings.gameMode;
         this.lastRunChallengeMode = selectedChallenge.id;
         this.lastRunChallengeLabel = selectedChallenge.label;
@@ -5582,6 +6082,11 @@ const game = {
         const runContext = this.getRunContext();
         this.lastHighScoreRank = HighScores.submit(this.wave, this.killCount, this.timePlayed, false, runContext);
         this.finalizeRun(false);
+        // Death penalty: equipped gear is destroyed unless it carries Afterlife.
+        // Unequipped inventory stays safe, so the risk is entirely in what you wear.
+        const penalty = Progression.applyDeathPenalty();
+        this.lastLostItems = penalty.lost;
+        this.lastKeptItems = penalty.kept;
         if (this.lastHighScoreRank === 1) {
             GameAudio.sfxNewHighScore();
             CrazyGamesSDK.happyTime();
@@ -5616,6 +6121,8 @@ const game = {
             case STATE.START_MENU:   this.updateStartMenu(dt); break;
             case STATE.CHANGELOGS:   this.updateChangelogs(dt); break;
             case STATE.SHOP:         this.updateShop(dt); break;
+            case STATE.INVENTORY:    this.updateInventory(dt); break;
+            case STATE.CHESTS:       this.updateChests(dt); break;
             case STATE.GAMEPLAY:     this.updateGameplay(dt);  break;
             case STATE.PAUSED:       this.updatePaused(dt);  break;
             case STATE.CHEAT_MENU:   this.updateCheatMenu(dt); break;
@@ -5637,6 +6144,8 @@ const game = {
             case STATE.START_MENU:   this.drawStartMenu();   break;
             case STATE.CHANGELOGS:   this.drawChangelogs();  break;
             case STATE.SHOP:         this.drawShop();         break;
+            case STATE.INVENTORY:    this.drawInventory();    break;
+            case STATE.CHESTS:       this.drawChests();       break;
             case STATE.GAMEPLAY:     this.drawGameplay();     break;
             case STATE.PAUSED:       this.drawSettings();     break;
             case STATE.CHEAT_MENU:
@@ -5901,6 +6410,19 @@ const game = {
             this.setState(STATE.CHANGELOGS);
         }
 
+        // Loot buttons: CHESTS (spend shards) and INVENTORY (equip gear).
+        // Share the row below changelogs, side by side.
+        const lootRowY = changelogY + bh + btnGap;
+        const halfW = (logBtnW - btnGap) / 2;
+        if (drawButton("🎁  CHESTS", logBtnX, lootRowY, halfW, logBtnH, Mouse.inRect(logBtnX, lootRowY, halfW, logBtnH), 13)) {
+            this.setState(STATE.CHESTS);
+        }
+        const invX = logBtnX + halfW + btnGap;
+        const itemCount = Progression.getItems().length;
+        if (drawButton(`🎒  ITEMS (${itemCount})`, invX, lootRowY, halfW, logBtnH, Mouse.inRect(invX, lootRowY, halfW, logBtnH), 12)) {
+            this.setState(STATE.INVENTORY);
+        }
+
         // Meta progression panel
         const mpX = leftX;
         const mpY = compactMobile ? 42 : (narrowLayout ? 142 : 148);
@@ -6114,6 +6636,643 @@ const game = {
             this.shopScroll -= 420 * dt;
         }
         this.shopScroll = clamp(this.shopScroll, 0, this.shopMaxScroll);
+    },
+
+    updateInventory(dt) {
+        if (Input.just("Escape")) {
+            if (this.enchantMenuOpen) {
+                this.enchantMenuOpen = false;
+                return;
+            }
+            this.state = STATE.START_MENU;
+        }
+        const wheelStep = Mouse.wheelDelta;
+        if (wheelStep !== 0) this.inventoryScroll += wheelStep;
+        const touchStep = Mouse.touchScrollDelta;
+        if (touchStep !== 0) this.inventoryScroll += touchStep;
+        if (Input.held("ArrowDown") || Input.held("KeyS")) this.inventoryScroll += 420 * dt;
+        if (Input.held("ArrowUp") || Input.held("KeyW")) this.inventoryScroll -= 420 * dt;
+        this.inventoryScroll = clamp(this.inventoryScroll, 0, this.inventoryMaxScroll);
+        if (this.lootToastTimer > 0) this.lootToastTimer -= dt;
+    },
+
+    updateChests(dt) {
+        if (Input.just("Escape")) {
+            if (this.chestReveal) { this.chestReveal = null; return; }
+            this.state = STATE.START_MENU;
+        }
+        // Chest reveal popup auto-dismisses after a few seconds.
+        if (this.chestRevealTimer > 0) {
+            this.chestRevealTimer -= dt;
+            if (this.chestRevealTimer <= 0) this.chestReveal = null;
+        }
+        if (this.lootToastTimer > 0) this.lootToastTimer -= dt;
+    },
+
+    /** Toast helper for loot feedback. */
+    showLootToast(text, color) {
+        this.lootToastText = text;
+        this.lootToastColor = color || COLOR.accent;
+        this.lootToastTimer = 2.2;
+    },
+
+    /** Open a chest from the UI and queue the reveal popup. */
+    handleChestOpen(chestId) {
+        const chest = LOOT_CHESTS.find((c) => c.id === chestId);
+        if (chest && chest.realPrice) {
+            // Real-money supporter chest. No payment processor is wired up yet,
+            // so the flow is intentionally explicit rather than silently granting.
+            this.requestSupporterChest();
+            return;
+        }
+        const res = Progression.openChest(chestId);
+        if (!res.ok) {
+            if (res.reason === "shards") this.showLootToast("Not enough shards", COLOR.danger);
+            else this.showLootToast("Chest unavailable", COLOR.danger);
+            return;
+        }
+        this.chestReveal = { items: res.items, chest: res.chest };
+        this.chestRevealTimer = 4.5;
+        this.triggerEventFlash(res.chest.color || COLOR.accent, 0.2);
+        GameAudio.sfxComboMilestone(3);
+    },
+
+    /**
+     * Supporter chest entry point. Payment is deliberately isolated here: when a
+     * real checkout is added, replace the body with the provider call and grant
+     * the chest in the success callback (Progression.openChest("supporter")).
+     */
+    requestSupporterChest() {
+        this.supporterPending = true;
+        this.showLootToast("Supporter chest needs a payment setup", "#ffd166");
+    },
+
+    /** Confirm a supporter chest after payment succeeded (call from the hook). */
+    grantSupporterChest() {
+        const res = Progression.openChest("supporter");
+        if (!res.ok) { this.showLootToast("Supporter chest failed", COLOR.danger); return; }
+        this.chestReveal = { items: res.items, chest: res.chest };
+        this.chestRevealTimer = 5.0;
+        this.showLootToast("Thank you for supporting!", "#ffd166");
+    },
+
+    // ────── LOOT UI DRAWING ──────
+
+    rarityColor(rarity) {
+        const def = LOOT_RARITIES[rarity];
+        return (def && def.color) || "#cfd9e6";
+    },
+
+    rarityLabel(rarity) {
+        const def = LOOT_RARITIES[rarity];
+        return (def && def.label) || rarity;
+    },
+
+    affixLabel(statKey, value) {
+        const def = LOOT_AFFIXES[statKey];
+        const label = (def && def.label) || statKey;
+        // Stats stored as fractions should read as percentages. Keep this in
+        // sync with the stat keys used in config.js loot.affixes.
+        const isPct = ["speedMult", "fireRateMult", "critChance", "critMult", "xpGain"].indexOf(statKey) !== -1;
+        if (isPct) return `+${Math.round(value * 100)}% ${label}`;
+        const rounded = Math.round(value * 10) / 10;
+        return `+${rounded} ${label}`;
+    },
+
+    /**
+     * Render one item card. Returns the card rect for hit-testing.
+     * `compact` renders a shorter two-line variant for grids.
+     */
+    drawItemCard(item, x, y, w, h, opts = {}) {
+        const isEquipped = opts.isEquipped;
+        const selected = opts.selected;
+        const rarityCol = this.rarityColor(item.rarity);
+
+        drawRoundRect(x, y, w, h, 8);
+        ctx.fillStyle = selected ? "rgba(102,204,255,0.16)" : "rgba(255,255,255,0.05)";
+        ctx.fill();
+        ctx.strokeStyle = rarityCol;
+        ctx.lineWidth = selected ? 2.2 : 1.2;
+        ctx.stroke();
+
+        // Rarity stripe on the left edge.
+        ctx.save();
+        drawRoundRect(x, y, w, h, 8);
+        ctx.clip();
+        ctx.fillStyle = rarityCol;
+        ctx.fillRect(x, y, 4, h);
+        ctx.restore();
+
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+
+        // Name (+ slot)
+        ctx.fillStyle = rarityCol;
+        ctx.font = uiFont(UI_FONT.sm, "bold");
+        ctx.fillText(item.name, x + 10, y + 8, w - 46);
+
+        // Rarity + slot tag
+        const slotLabel = (LOOT_CFG.slotLabels && LOOT_CFG.slotLabels[item.slot]) || item.slot;
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(UI_FONT.xxs);
+        ctx.fillText(`${this.rarityLabel(item.rarity)} · ${slotLabel}`, x + 10, y + 24);
+
+        // Set tag
+        let ty = y + 38;
+        if (item.set && LOOT_SETS[item.set]) {
+            ctx.fillStyle = LOOT_SETS[item.set].color;
+            ctx.font = uiFont(UI_FONT.xxs, "bold");
+            ctx.fillText(`◈ ${LOOT_SETS[item.set].label}`, x + 10, ty);
+            ty += 13;
+        }
+
+        // Affixes
+        ctx.fillStyle = COLOR.text;
+        ctx.font = uiFont(UI_FONT.xs);
+        const maxAffix = opts.compact ? 2 : 6;
+        for (let i = 0; i < item.affixes.length && i < maxAffix; i++) {
+            const a = item.affixes[i];
+            ctx.fillText(this.affixLabel(a.stat, a.value), x + 10, ty);
+            ty += 14;
+        }
+        if (opts.compact && item.affixes.length > maxAffix) {
+            ctx.fillStyle = COLOR.textDim;
+            ctx.fillText(`+${item.affixes.length - maxAffix} more`, x + 10, ty);
+            ty += 14;
+        }
+
+        // Enchantments
+        for (const key of item.enchants) {
+            const e = LOOT_ENCHANTS[key];
+            if (!e) continue;
+            ctx.fillStyle = e.color;
+            ctx.font = uiFont(UI_FONT.xs, "bold");
+            ctx.fillText(`✦ ${e.label}`, x + 10, ty);
+            ty += 14;
+        }
+
+        // Equipped badge
+        if (isEquipped) {
+            ctx.fillStyle = "#66ff99";
+            ctx.font = uiFont(UI_FONT.xxs, "bold");
+            ctx.textAlign = "right";
+            ctx.fillText("EQUIPPED", x + w - 10, y + 8);
+            ctx.textAlign = "left";
+        }
+        return { x, y, w, h };
+    },
+
+    drawInventory() {
+        ctx.fillStyle = COLOR.bg;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        const profile = Progression.get();
+        const items = Progression.getItems();
+        const equippedAll = Progression.getEquippedAll();
+        const equippedIds = new Set(Object.keys(equippedAll).map((s) => equippedAll[s].id));
+
+        // ── Header ──
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(UI_FONT.lg, "bold");
+        ctx.fillText("INVENTORY", CANVAS_W / 2, 30);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#66ff99";
+        ctx.font = uiFont(UI_FONT.sm, "bold");
+        ctx.fillText(`◆ ${profile.shards}`, CANVAS_W - 24, 30);
+
+        // ── Left: equipped loadout + set status ──
+        const leftW = 300;
+        const leftX = 24;
+        const leftY = 58;
+        drawPanel(leftX, leftY, leftW, CANVAS_H - 130, 8, { fill: UI_THEME.panelFillStrong });
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(UI_FONT.sm, "bold");
+        ctx.fillText("LOADOUT", leftX + 12, leftY + 18);
+
+        let ly = leftY + 42;
+        const slotH = 34;
+        for (const slot of LOOT_SLOTS) {
+            const item = equippedAll[slot];
+            const slotLabel = (LOOT_CFG.slotLabels && LOOT_CFG.slotLabels[slot]) || slot;
+            const rect = { x: leftX + 10, y: ly, w: leftW - 20, h: slotH };
+
+            drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6);
+            ctx.fillStyle = item ? "rgba(102,204,255,0.10)" : "rgba(255,255,255,0.04)";
+            ctx.fill();
+            ctx.strokeStyle = item ? this.rarityColor(item.rarity) : "rgba(255,255,255,0.12)";
+            ctx.lineWidth = 1.1;
+            ctx.stroke();
+
+            ctx.textAlign = "left";
+            if (item) {
+                const afx = Progression.hasAfterlife(item) ? " ✦" : "";
+                ctx.fillStyle = this.rarityColor(item.rarity);
+                ctx.font = uiFont(UI_FONT.xxs, "bold");
+                ctx.fillText(`${slotLabel}: ${item.name}${afx}`, rect.x + 8, rect.y + 12, rect.w - 60);
+                ctx.fillStyle = COLOR.textDim;
+                ctx.font = uiFont(UI_FONT.xxs);
+                ctx.fillText(item.affixes.map((a) => this.affixLabel(a.stat, a.value)).join(", "), rect.x + 8, rect.y + 24, rect.w - 60);
+            } else {
+                ctx.fillStyle = COLOR.textDim;
+                ctx.font = uiFont(UI_FONT.xs);
+                ctx.fillText(`${slotLabel}: empty`, rect.x + 8, rect.y + 12);
+            }
+
+            // Unequip button for filled slots.
+            if (item) {
+                const ux = rect.x + rect.w - 54;
+                const uy = rect.y + 6;
+                if (drawButton("OFF", ux, uy, 48, 22, Mouse.inRect(ux, uy, 48, 22), UI_FONT.xxs)) {
+                    Progression.unequipSlot(slot);
+                    this.showLootToast(`${item.name} unequipped`, COLOR.textDim);
+                }
+            }
+            ly += slotH + 4;
+        }
+
+        // Set bonus readout
+        ly += 6;
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(UI_FONT.xs, "bold");
+        ctx.fillText("SET BONUSES", leftX + 12, ly);
+        ly += 18;
+        const setStatus = Progression.getSetStatus();
+        for (const setId of Object.keys(setStatus)) {
+            const st = setStatus[setId];
+            ctx.fillStyle = st.have > 0 ? st.def.color : COLOR.textDim;
+            ctx.font = uiFont(UI_FONT.xxs, "bold");
+            ctx.fillText(`${st.def.label}  ${st.have}/${st.def.pieces}`, leftX + 12, ly);
+            ly += 13;
+            for (const b of st.def.bonuses) {
+                const active = st.have >= b.need;
+                ctx.fillStyle = active ? st.def.color : "rgba(255,255,255,0.28)";
+                ctx.font = uiFont(UI_FONT.xxs);
+                ctx.fillText(`  ${active ? "✔" : "·"} ${b.need}pc: ${b.desc}`, leftX + 12, ly, leftW - 30);
+                ly += 12;
+            }
+        }
+
+        // ── Right: item list ──
+        const listX = leftX + leftW + 16;
+        const listW = CANVAS_W - listX - 24;
+        const listY = leftY;
+        const listH = CANVAS_H - 130;
+        drawPanel(listX, listY, listW, listH, 8, { fill: UI_THEME.panelFillStrong });
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(UI_FONT.sm, "bold");
+        ctx.fillText(`ITEMS (${items.length})`, listX + 12, listY + 18);
+
+        if (items.length === 0) {
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = uiFont(UI_FONT.xs);
+            ctx.fillText("No items yet. Open chests to find gear.", listX + 12, listY + 48);
+            ctx.fillText("Unequipped items are safe. Equipped items", listX + 12, listY + 66);
+            ctx.fillText("are lost on death unless they have Afterlife.", listX + 12, listY + 82);
+        }
+
+        // Two-column grid of item cards with scroll.
+        const cardW = (listW - 40) / 2;
+        const cardH = 118;
+        const gap = 8;
+        const viewTop = listY + 34;
+        const viewH = listH - 44;
+        const rows = Math.ceil(items.length / 2);
+        const contentH = rows * (cardH + gap);
+        this.inventoryMaxScroll = Math.max(0, contentH - viewH);
+        const scroll = this.inventoryScroll;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(listX + 8, viewTop, listW - 16, viewH);
+        ctx.clip();
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const col = i % 2;
+            const row = Math.floor(i / 2);
+            const cx = listX + 12 + col * (cardW + gap);
+            const cy = viewTop + row * (cardH + gap) - scroll;
+            if (cy + cardH < viewTop - 20 || cy > viewTop + viewH + 20) continue;
+
+            const rect = this.drawItemCard(item, cx, cy, cardW, cardH, {
+                isEquipped: equippedIds.has(item.id),
+                selected: this.inventorySelectedId === item.id,
+            });
+
+            // Click: select the item.
+            if (Mouse.clicked && Mouse.inRect(rect.x, rect.y, rect.w, rect.h)) {
+                this.inventorySelectedId = item.id;
+            }
+        }
+        ctx.restore();
+
+        // Scrollbar
+        if (this.inventoryMaxScroll > 0) {
+            const barH = viewH;
+            const thumbH = Math.max(26, barH * (viewH / contentH));
+            const travel = barH - thumbH;
+            const t = this.inventoryMaxScroll > 0 ? scroll / this.inventoryMaxScroll : 0;
+            drawRoundRect(listX + listW - 10, viewTop, 3, barH, 2);
+            ctx.fillStyle = "rgba(255,255,255,0.15)";
+            ctx.fill();
+            drawRoundRect(listX + listW - 10, viewTop + travel * t, 3, thumbH, 2);
+            ctx.fillStyle = "rgba(102,204,255,0.9)";
+            ctx.fill();
+        }
+
+        // ── Selected item action bar ──
+        const selItem = this.inventorySelectedId != null ? Progression.getItemById(this.inventorySelectedId) : null;
+        const barY = CANVAS_H - 62;
+        if (selItem) {
+            const isEq = equippedIds.has(selItem.id);
+            const bw = 150, bh = 34;
+            const bx = CANVAS_W - 24 - bw * 2 - 10;
+            const label = isEq ? "UNEQUIP" : "EQUIP";
+            if (drawButton(label, bx, barY, bw, bh, Mouse.inRect(bx, barY, bw, bh), UI_FONT.xs)) {
+                if (isEq) {
+                    Progression.unequipSlot(selItem.slot);
+                    this.showLootToast(`${selItem.name} unequipped`, COLOR.textDim);
+                } else {
+                    Progression.equipItem(selItem.id);
+                    this.showLootToast(`${selItem.name} equipped`, this.rarityColor(selItem.rarity));
+                }
+            }
+            const ex = bx + bw + 10;
+            const canEnchant = (LOOT_RARITIES[selItem.rarity].enchantSlots || 0) > selItem.enchants.length;
+            const enchantLabel = canEnchant ? `ENCHANT (${LOOT_CFG.enchantCost || 0}◆)` : "ENCHANT FULL";
+            if (drawButton(enchantLabel, ex, barY, bw, bh, Mouse.inRect(ex, barY, bw, bh), UI_FONT.xxs) && canEnchant) {
+                this.enchantMenuOpen = true;
+                this.enchantTargetId = selItem.id;
+            }
+        } else {
+            ctx.textAlign = "right";
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = uiFont(UI_FONT.xs);
+            ctx.fillText("Select an item to equip or enchant", CANVAS_W - 24, barY + 17);
+        }
+
+        // ── Back ──
+        if (drawButton("BACK", 24, CANVAS_H - 62, 120, 34, Mouse.inRect(24, CANVAS_H - 62, 120, 34), UI_FONT.xs)) {
+            this.state = STATE.START_MENU;
+        }
+
+        // ── Enchant picker overlay ──
+        if (this.enchantMenuOpen) this.drawEnchantPicker();
+
+        // Toast
+        this.drawLootToast();
+    },
+
+    drawEnchantPicker() {
+        const item = this.enchantTargetId != null ? Progression.getItemById(this.enchantTargetId) : null;
+        if (!item) { this.enchantMenuOpen = false; return; }
+
+        ctx.fillStyle = "rgba(0,0,0,0.65)";
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        const w = 520, h = 420;
+        const x = CANVAS_W / 2 - w / 2;
+        const y = CANVAS_H / 2 - h / 2;
+        drawPanel(x, y, w, h, 10, { fill: "rgba(8,10,24,0.97)", strokeColor: "#c38bff", lineWidth: 1.6 });
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#c38bff";
+        ctx.font = uiFont(UI_FONT.md, "bold");
+        ctx.fillText("ENCHANT", CANVAS_W / 2, y + 26);
+        ctx.fillStyle = COLOR.text;
+        ctx.font = uiFont(UI_FONT.xs);
+        ctx.fillText(item.name, CANVAS_W / 2, y + 48);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(UI_FONT.xxs);
+        const maxSlots = LOOT_RARITIES[item.rarity].enchantSlots || 0;
+        ctx.fillText(`${item.enchants.length}/${maxSlots} slots used · ${LOOT_CFG.enchantCost || 0} ◆ each`, CANVAS_W / 2, y + 66);
+
+        const keys = Object.keys(LOOT_ENCHANTS);
+        const rowH = 46;
+        let ry = y + 86;
+        ctx.textAlign = "left";
+        for (const key of keys) {
+            const e = LOOT_ENCHANTS[key];
+            const already = item.enchants.indexOf(key) !== -1;
+            const rect = { x: x + 16, y: ry, w: w - 32, h: rowH - 6 };
+
+            drawRoundRect(rect.x, rect.y, rect.w, rect.h, 6);
+            ctx.fillStyle = already ? "rgba(102,255,153,0.10)" : (Mouse.inRect(rect.x, rect.y, rect.w, rect.h) ? "rgba(195,139,255,0.16)" : "rgba(255,255,255,0.04)");
+            ctx.fill();
+            ctx.strokeStyle = already ? "#66ff99" : e.color;
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            ctx.fillStyle = e.color;
+            ctx.font = uiFont(UI_FONT.xs, "bold");
+            ctx.fillText(e.label, rect.x + 10, rect.y + 14);
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = uiFont(UI_FONT.xxs);
+            ctx.fillText(e.desc, rect.x + 10, rect.y + 28, rect.w - 130);
+
+            ctx.textAlign = "right";
+            ctx.fillStyle = already ? "#66ff99" : COLOR.text;
+            ctx.font = uiFont(UI_FONT.xxs, "bold");
+            ctx.fillText(already ? "APPLIED" : `APPLY ${LOOT_CFG.enchantCost || 0}◆`, rect.x + rect.w - 10, rect.y + 20);
+            ctx.textAlign = "left";
+
+            if (!already && Mouse.clicked && Mouse.inRect(rect.x, rect.y, rect.w, rect.h)) {
+                const res = Progression.enchantItem(item.id, key);
+                if (res.ok) {
+                    this.showLootToast(`${e.label} applied to ${item.name}`, e.color);
+                    this.enchantMenuOpen = false;
+                } else if (res.reason === "shards") {
+                    this.showLootToast("Not enough shards", COLOR.danger);
+                } else if (res.reason === "full") {
+                    this.showLootToast("No free enchant slot", COLOR.danger);
+                }
+            }
+            ry += rowH;
+        }
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(UI_FONT.xxs);
+        ctx.fillText("ESC or click CLOSE to cancel", CANVAS_W / 2, y + h - 32);
+        if (drawButton("CLOSE", CANVAS_W / 2 - 60, y + h - 26, 120, 20, Mouse.inRect(CANVAS_W / 2 - 60, y + h - 26, 120, 20), UI_FONT.xxs)) {
+            this.enchantMenuOpen = false;
+        }
+    },
+
+    drawChests() {
+        ctx.fillStyle = COLOR.bg;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        const profile = Progression.get();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(UI_FONT.lg, "bold");
+        ctx.fillText("CHESTS", CANVAS_W / 2, 30);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#66ff99";
+        ctx.font = uiFont(UI_FONT.sm, "bold");
+        ctx.fillText(`◆ ${profile.shards}`, CANVAS_W - 24, 30);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(UI_FONT.xs);
+        ctx.fillText("Open chests to roll gear. Equip what helps — but equipped gear is lost on death.", CANVAS_W / 2, 54);
+
+        // Chest cards laid out in a row.
+        const count = LOOT_CHESTS.length;
+        const cardW = Math.min(210, (CANVAS_W - 48 - (count - 1) * 14) / count);
+        const cardH = 300;
+        const totalW = count * cardW + (count - 1) * 14;
+        let cx = CANVAS_W / 2 - totalW / 2;
+        const cy = 110;
+
+        for (const chest of LOOT_CHESTS) {
+            const isSupporter = !!chest.realPrice;
+            const hover = Mouse.inRect(cx, cy, cardW, cardH);
+            drawRoundRect(cx, cy, cardW, cardH, 10);
+            ctx.fillStyle = hover ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.045)";
+            ctx.fill();
+            ctx.strokeStyle = chest.color;
+            ctx.lineWidth = hover ? 2.2 : 1.4;
+            ctx.stroke();
+
+            ctx.textAlign = "center";
+            // Chest icon (simple stylised box)
+            const icx = cx + cardW / 2;
+            const icy = cy + 56;
+            drawRoundRect(icx - 34, icy - 22, 68, 44, 6);
+            ctx.fillStyle = chest.color;
+            ctx.globalAlpha = 0.85;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = "rgba(0,0,0,0.45)";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.fillStyle = "rgba(0,0,0,0.55)";
+            ctx.fillRect(icx - 34, icy - 2, 68, 5);
+
+            ctx.fillStyle = chest.color;
+            ctx.font = uiFont(UI_FONT.sm, "bold");
+            ctx.fillText(chest.label, icx, cy + 104, cardW - 16);
+
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = uiFont(UI_FONT.xxs);
+            // Wrap the description crudely over up to three lines.
+            const words = (chest.desc || "").split(" ");
+            let line = "";
+            let ly = cy + 126;
+            for (const word of words) {
+                const test = line ? line + " " + word : word;
+                if (ctx.measureText(test).width > cardW - 24 && line) {
+                    ctx.fillText(line, icx, ly);
+                    ly += 13;
+                    line = word;
+                } else {
+                    line = test;
+                }
+            }
+            if (line) ctx.fillText(line, icx, ly);
+
+            // Price + button
+            const priceLabel = isSupporter ? `€ ${chest.realPrice}` : `◆ ${chest.cost}`;
+            ctx.fillStyle = isSupporter ? "#ffd166" : "#66ff99";
+            ctx.font = uiFont(UI_FONT.md, "bold");
+            ctx.fillText(priceLabel, icx, cy + cardH - 74);
+
+            const bw = cardW - 24, bh = 36;
+            const bx = cx + 12, by = cy + cardH - 56;
+            const affordable = isSupporter || (profile.shards >= chest.cost);
+            const label = isSupporter ? "SUPPORT" : "OPEN";
+            if (drawButton(label, bx, by, bw, bh, Mouse.inRect(bx, by, bw, bh), UI_FONT.sm) && affordable) {
+                this.handleChestOpen(chest.id);
+            } else if (!affordable) {
+                ctx.fillStyle = COLOR.danger;
+                ctx.font = uiFont(UI_FONT.xxs);
+                ctx.fillText("not enough shards", icx, by - 8);
+            }
+
+            cx += cardW + 14;
+        }
+
+        // Supporter note
+        if (this.supporterPending) {
+            ctx.textAlign = "center";
+            ctx.fillStyle = "#ffd166";
+            ctx.font = uiFont(UI_FONT.xs);
+            ctx.fillText("Payment provider not connected yet — this button is wired and ready.", CANVAS_W / 2, CANVAS_H - 84);
+        }
+
+        if (drawButton("BACK", 24, CANVAS_H - 62, 120, 34, Mouse.inRect(24, CANVAS_H - 62, 120, 34), UI_FONT.xs)) {
+            this.state = STATE.START_MENU;
+        }
+
+        // Reveal overlay
+        if (this.chestReveal) this.drawChestReveal();
+        this.drawLootToast();
+    },
+
+    drawChestReveal() {
+        const reveal = this.chestReveal;
+        ctx.fillStyle = "rgba(0,0,0,0.72)";
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        const items = reveal.items;
+        const cols = Math.min(3, Math.max(1, items.length));
+        const cardW = 230;
+        const cardH = 130;
+        const gap = 12;
+        const totalW = cols * cardW + (cols - 1) * gap;
+        const rows = Math.ceil(items.length / cols);
+        const totalH = rows * cardH + (rows - 1) * gap;
+
+        const startX = CANVAS_W / 2 - totalW / 2;
+        const startY = CANVAS_H / 2 - totalH / 2 + 10;
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = reveal.chest.color;
+        ctx.font = uiFont(UI_FONT.md, "bold");
+        ctx.fillText(`${reveal.chest.label} opened`, CANVAS_W / 2, startY - 34);
+
+        for (let i = 0; i < items.length; i++) {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            const ix = startX + col * (cardW + gap);
+            const iy = startY + row * (cardH + gap);
+            this.drawItemCard(items[i], ix, iy, cardW, cardH, {});
+        }
+
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(UI_FONT.xs);
+        ctx.fillText("Click or press ESC to continue", CANVAS_W / 2, startY + totalH + 30);
+
+        if (Mouse.clicked || Input.just("Escape") || Input.just("Enter")) {
+            this.chestReveal = null;
+        }
+    },
+
+    drawLootToast() {
+        if (this.lootToastTimer <= 0) return;
+        const alpha = Math.min(1, this.lootToastTimer / 0.5);
+        ctx.globalAlpha = alpha;
+        const w = 420, h = 38;
+        const x = CANVAS_W / 2 - w / 2;
+        const y = CANVAS_H - 108;
+        drawPanel(x, y, w, h, 8, { fill: "rgba(8,10,24,0.92)", strokeColor: this.lootToastColor, lineWidth: 1.4 });
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = this.lootToastColor;
+        ctx.font = uiFont(UI_FONT.sm, "bold");
+        ctx.fillText(this.lootToastText, CANVAS_W / 2, y + h / 2, w - 20);
+        ctx.globalAlpha = 1;
     },
 
     drawShop() {
@@ -7981,6 +9140,11 @@ const game = {
             this.spawnSplitChildren(enemy);
         }
 
+        // Vampiric enchantment: heal on kill.
+        if (this.player && this.player.alive && this.player.perKillHeal > 0) {
+            this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.player.perKillHeal);
+        }
+
         // Boss kill rewards: grant instantly on miniboss/bigboss death.
         if (enemy.type === "miniboss" || enemy.type === "bigboss") {
             this.pendingBonusUpgrade = false;
@@ -7992,7 +9156,10 @@ const game = {
     /** Bank shards earned from run events; cashed in when the run finalises. */
     grantEventShards(amount) {
         if (!amount || amount <= 0) return;
-        this.eventShardsEarned = (this.eventShardsEarned || 0) + amount;
+        // Fortune enchantment boosts the payout.
+        const mult = (this.player && this.player.shardPayoutMult) || 1;
+        const total = Math.floor(amount * mult);
+        this.eventShardsEarned = (this.eventShardsEarned || 0) + total;
         // Small flat heal per payout so the late waves are not pure attrition.
         const heal = (CFG.balance && CFG.balance.eventHealAmount) || 0;
         if (heal > 0 && this.player && this.player.alive) {
@@ -8895,6 +10062,9 @@ async function bootGame() {
 
         try {
             await Progression.init();
+            // First-time players get a small stash so the loot system is
+            // reachable without grinding shards first.
+            Progression.ensureStarterShards();
             BOOT_DIAGNOSTICS.progression = { ok: true };
         } catch (e) {
             console.warn("[Boot] Failed loading progression, continuing", e);

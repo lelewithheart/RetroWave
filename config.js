@@ -264,4 +264,135 @@ window.RogueConfig = {
         // enemy scaling; xpNeedGrowth (see modeModifiers) was also lowered.
         xpPerWaveGrowth: 1.11,
     },
+    // ─────────────────────────────────────────────────────────────────────────
+    // LOOT / INVENTORY SYSTEM
+    // ─────────────────────────────────────────────────────────────────────────
+    // Items are permanent collection pieces. Whatever you have EQUIPPED is lost
+    // when you die (unless the item carries the "afterlife" enchantment), so
+    // equipping is a real risk decision. Everything unequipped stays safe.
+    loot: {
+        enabled: true,
+
+        // Item rarity. Higher rarity = stronger affix rolls + more enchant slots.
+        rarities: {
+            common:    { label: "Common",    color: "#cfd9e6", affixCount: 1, enchantSlots: 0, weight: 100 },
+            rare:      { label: "Rare",      color: "#66ddff", affixCount: 2, enchantSlots: 1, weight: 42 },
+            epic:      { label: "Epic",      color: "#c38bff", affixCount: 3, enchantSlots: 1, weight: 14 },
+            legendary: { label: "Legendary", color: "#ffd166", affixCount: 4, enchantSlots: 2, weight: 4 },
+        },
+
+        // Equipment slots. One item per slot.
+        slots: ["weapon", "chest", "helm", "gloves", "boots", "augment"],
+        slotLabels: {
+            weapon:  "Weapon",
+            chest:   "Chest",
+            helm:    "Helm",
+            gloves:  "Gloves",
+            boots:   "Boots",
+            augment: "Augment",
+        },
+
+        // Which categories a slot can roll from. Categories exist for the shop
+        // filter and for set design; the slot decides what actually fits where.
+        categories: ["weapon", "armor", "augment", "implant"],
+
+        // Affix pool. `stat` maps onto the player stat keys used in game.js
+        // (see applyLootToPlayer). Ranges are rolled per rarity tier.
+        affixes: {
+            damage:     { label: "Damage",        stat: "damage",     perRarity: [3, 7, 12, 20] },
+            maxHp:      { label: "Max HP",        stat: "maxHp",      perRarity: [8, 18, 32, 55] },
+            moveSpeed:  { label: "Move Speed",    stat: "speedMult",  perRarity: [0.03, 0.06, 0.10, 0.16] },
+            fireRate:   { label: "Fire Rate",     stat: "fireRateMult", perRarity: [0.04, 0.08, 0.13, 0.20] },
+            critChance: { label: "Crit Chance",   stat: "critChance", perRarity: [0.03, 0.06, 0.10, 0.15] },
+            critDamage: { label: "Crit Damage",   stat: "critMult",   perRarity: [0.15, 0.30, 0.50, 0.80] },
+            armor:      { label: "Armor",         stat: "armor",      perRarity: [2, 4, 7, 11] },
+            hpRegen:    { label: "HP / sec",      stat: "hpRegen",    perRarity: [1, 2, 4, 7] },
+            xpGain:     { label: "XP Gain",       stat: "xpGainMult", perRarity: [0.05, 0.10, 0.18, 0.30] },
+            magnet:     { label: "Pickup Range",  stat: "magnet",     perRarity: [15, 30, 55, 90] },
+            piercing:   { label: "Piercing",      stat: "piercing",   perRarity: [1, 1, 2, 3] },
+            multiShot:  { label: "Multi-Shot",    stat: "multiShot",  perRarity: [0, 1, 1, 2] },
+        },
+
+        // Enchantments. `onDrop` items can roll one; the rest are applied later
+        // at the enchanter for a shard cost (see enchantCost).
+        enchantments: {
+            afterlife:  { label: "Afterlife",   color: "#b9f1ff", desc: "Kept even if you die with it equipped", dropOnly: false, weight: 22 },
+            vampiric:   { label: "Vampiric",    color: "#ff6688", desc: "+HP on kill",            dropOnly: false, weight: 20, perKillHeal: 1 },
+            swift:      { label: "Swift",       color: "#66ff99", desc: "+8% move speed",          dropOnly: false, weight: 20, speedBonus: 0.08 },
+            fortune:    { label: "Fortune",     color: "#ffd166", desc: "+20% shard payout",       dropOnly: false, weight: 18, shardMult: 1.2 },
+            overload:   { label: "Overload",    color: "#c38bff", desc: "+12% damage",             dropOnly: false, weight: 18, damageMult: 1.12 },
+            guardian:   { label: "Guardian",    color: "#66ddff", desc: "+4 armor",                dropOnly: false, weight: 16, armorBonus: 4 },
+        },
+        // Cost to apply a chosen enchantment at the enchanter.
+        enchantCost: 120,
+        // Chance that any given item drop already carries a random enchantment.
+        dropEnchantChance: 0.35,
+
+        // Sets. Each item rolls a set id (or none). Wearing N pieces of a set
+        // unlocks escalating bonuses.
+        sets: {
+            ashen: {
+                label: "Ashen Vanguard",
+                color: "#ff8899",
+                pieces: 6,
+                bonuses: [
+                    { need: 2, desc: "+10% damage",              stat: "damageMult", value: 1.10 },
+                    { need: 4, desc: "+15% max HP, +3 armor",    stat: "maxHpMult",  value: 1.15, extra: { armor: 3 } },
+                    { need: 6, desc: "+25% damage, +2 HP/sec",   stat: "damageMult", value: 1.25, extra: { hpRegen: 2 } },
+                ],
+            },
+            voltaic: {
+                label: "Voltaic Circuit",
+                color: "#88ddff",
+                pieces: 6,
+                bonuses: [
+                    { need: 2, desc: "+10% fire rate",           stat: "fireRateMult", value: 0.90 },
+                    { need: 4, desc: "+15% fire rate",           stat: "fireRateMult", value: 0.85 },
+                    { need: 6, desc: "+10% crit chance",         stat: "critChance",   value: 0.10 },
+                ],
+            },
+            sovereign: {
+                label: "Sovereign Core",
+                color: "#c38bff",
+                pieces: 6,
+                bonuses: [
+                    { need: 2, desc: "+15% XP gain",             stat: "xpGainMult",  value: 1.15 },
+                    { need: 4, desc: "+25% pickup range",        stat: "magnetMult",  value: 1.25 },
+                    { need: 6, desc: "+1 multi-shot",            stat: "multiShot",   value: 1 },
+                ],
+            },
+        },
+        // Chance that a rolled item belongs to a set at all.
+        setChance: 0.45,
+
+        // Chests. Costs are in shards. `rarityWeights` overrides the global
+        // rarity weights so better chests skew toward higher rarities.
+        chests: [
+            {
+                id: "standard", label: "Standard Cache", cost: 100, itemCount: 1, color: "#cfd9e6",
+                desc: "1 item. A fair roll at any rarity.",
+                rarityWeights: { common: 100, rare: 42, epic: 14, legendary: 4 },
+            },
+            {
+                id: "premium", label: "Premium Cache", cost: 300, itemCount: 2, color: "#66ddff",
+                desc: "2 items, better odds of rare and above.",
+                rarityWeights: { common: 55, rare: 60, epic: 30, legendary: 9 },
+            },
+            {
+                id: "elite", label: "Elite Cache", cost: 800, itemCount: 3, color: "#c38bff",
+                desc: "3 items, strongly weighted toward epic and legendary.",
+                rarityWeights: { common: 15, rare: 45, epic: 55, legendary: 22 },
+            },
+            {
+                id: "supporter", label: "Supporter Cache", cost: 0, itemCount: 3, color: "#ffd166",
+                realPrice: "1.99",
+                desc: "Supports development. Guarantees a legendary and a set piece.",
+                guaranteeLegendary: true,
+                guaranteeSet: true,
+                rarityWeights: { common: 0, rare: 20, epic: 60, legendary: 40 },
+            },
+        ],
+        // Chance an item drop also rolls a set piece (supporter chest forces it).
+        startingShards: 250,
+    },
 };

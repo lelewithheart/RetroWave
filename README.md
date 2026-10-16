@@ -18,6 +18,9 @@ Open `index.html` in any modern browser — no build step required.
 | **Elite Enemies** | Marked with a golden aura: 2.6x HP, stronger contact damage, 3.2x XP and a chance to drop shards. Odds rise with the wave |
 | **Boss Modifiers** | Bosses roll up to 2 random traits (Shield Wall, Berserker, Summoner, Siphon, Brutal, Brittle) shown under their HP bar. Wave 5 boss always gets exactly one |
 | **Enemy Variety** | 9 base types plus Splitter (splits into two weaker copies on death) and Warden (stationary turret with a rotating damage beam) |
+| **Loot & Inventory** | Buy chests with shards, roll gear across 6 slots and 4 rarities, build a loadout. 12 affix types, 3 sets with 2/4/6-piece bonuses, 6 enchantments (incl. Afterlife, which saves an item from the death penalty) |
+| **Chests** | Standard (100), Premium (300), Elite (800) and a Supporter Cache (EUR 1.99, guarantees a legendary + set piece). Supporter purchases need a payment provider — the hook is wired but not connected |
+| **Death Penalty** | Equipped gear is destroyed when you die. Unequipped items are safe, so equipping is a real risk decision |
 | **XP & Level-Up** | Collect XP orbs → pick 1 of 3 random power-ups (damage, fire-rate, speed, HP, etc.) |
 | **Particles** | Explosions on enemy death and player hit |
 | **Screen Shake** | Camera shake on hits for juicy feedback |

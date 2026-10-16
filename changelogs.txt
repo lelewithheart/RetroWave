@@ -2,6 +2,17 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 17.10:1
+- Added the INVENTORY / LOOT system: buy chests, roll random gear, build a loadout
+- 6 equipment slots (Weapon, Chest, Helm, Gloves, Boots, Augment), one item each
+- 4 item rarities (Common, Rare, Epic, Legendary). Higher rarity rolls more affixes and more enchant slots
+- 12 affix types: damage, max HP, move speed, fire rate, crit chance, crit damage, armor, HP regen, XP gain, pickup range, piercing, multi-shot
+- 4 chest tiers in the CHESTS screen: Standard (100 shards, 1 item), Premium (300, 2 items), Elite (800, 3 items, weighted to epic/legendary) and a Supporter Cache (EUR 1.99) that guarantees a legendary and a set piece
+- 3 sets with escalating bonuses: Ashen Vanguard (damage/HP), Voltaic Circuit (fire rate/crit), Sovereign Core (XP/range/multi-shot). 2 / 4 / 6 pieces unlock tiers, shown live in the inventory
+- 6 enchantments, either rolled on a drop or applied deliberately for 120 shards: Afterlife (item survives death), Vampiric (heal on kill), Swift, Fortune, Overload, Guardian
+- Death penalty: whatever you have EQUIPPED is destroyed when you die. Unequipped items stay safe, so equipping is a real risk decision. Afterlife protects a single item
+- All loot tuning lives in config.js under loot (rarities, affixes, enchantments, sets, chests)
+- Supporter cache note: the EUR 1.99 button is fully wired (game.requestSupporterChest -> grantSupporterChest) but no payment provider is connected yet, so it tells you that instead of silently granting the chest
 beta 16.10:1
 - Gameplay update "Run Variance": runs now diverge instead of repeating the same wave loop
 - Added between-wave run events (every 3rd wave from wave 3, never on boss waves): Elite Wave, Ion Storm, Repair Fountain, Ambush, Shard Cache, Bounty Hunt
