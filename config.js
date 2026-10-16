@@ -13,9 +13,12 @@ window.RogueConfig = {
         baseSpawnCd: 1.5,
         minSpawnCd: 0.3,
         spawnCdDecay: 0.92,
-        hpScale: 1.22,
+        // Flattened from 1.22 / 1.10: the old curves outran the player's upgrade
+        // scaling badly (a wave-25 trash enemy hit 3.5k HP while contact damage
+        // was a 2-hit kill), which is why nobody reached the final boss.
+        hpScale: 1.18,
         speedScale: 1.07,
-        damageScale: 1.10,
+        damageScale: 1.07,
         restTime: 2.5,
         maxWave: 25,
     },
@@ -27,6 +30,18 @@ window.RogueConfig = {
             20: "Abyss Colossus",
         },
         endbossName: "The Null Sovereign",
+        // Absolute boss HP per boss wave. These are deliberately decoupled from
+        // the wave HP curve: that curve is tuned for trash enemies, and bosses
+        // need to stay beatable in ~10-30s (endboss ~60s) for a mid-strength
+        // build instead of scaling into a wall. Calibrated against expected
+        // player DPS at each boss (250 / 900 / 2000 / 4000 / 5000).
+        hpByWave: {
+            5:  1000,
+            10: 7000,
+            15: 15000,
+            20: 55000,
+            25: 260000,
+        },
     },
     skinShop: { // Only Fallback 
         skins: [
@@ -225,11 +240,20 @@ window.RogueConfig = {
         // Elite odds climb with the wave, capped so late waves are not all elites.
         chancePerWave: 0.012,
         maxChance: 0.22,
-        hpMult: 2.6,
+        // Softened from 2.6x: with the flattened wave curve an elite should be a
+        // speed bump, not a wall. The XP gain was raised instead, so fighting an
+        // elite is still clearly worth it (it accelerates your upgrade pace,
+        // which is what actually carries you through the late waves).
+        hpMult: 2.2,
         speedMult: 1.08,
         dmgMult: 1.35,
-        xpMult: 3.2,
+        xpMult: 3.6,
         shardDropChance: 0.35,
         shardDropAmount: 3,
+    },
+    balance: {
+        // Flat heal granted when an event payout is claimed, so the late waves
+        // are not a pure war of attrition.
+        eventHealAmount: 12,
     },
 };

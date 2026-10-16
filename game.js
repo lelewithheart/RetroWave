@@ -5362,6 +5362,19 @@ const game = {
     },
 
     /**
+     * Base HP for a boss on the given wave, before the boss-modifier multipliers.
+     * Prefers the explicit per-wave table in CFG.bosses.hpByWave (which keeps
+     * bosses at a hand-tuned, beatable size) and falls back to the wave curve
+     * for any boss wave that is not listed.
+     */
+    bossHpForWave(waveNum) {
+        const table = CFG.bosses.hpByWave || {};
+        const explicit = table[String(waveNum)] || table[waveNum];
+        if (typeof explicit === "number" && explicit > 0) return explicit;
+        return Math.floor(ENEMY_BASE_HP * Math.pow(WAVE_HP_SCALE, waveNum - 1));
+    },
+
+    /**
      * Roll 0..max modifiers onto a freshly spawned boss, apply their onSpawn
      * hooks and store the defs for the HUD. Returns the applied defs.
      */
@@ -7607,6 +7620,11 @@ const game = {
             Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult),
             ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * mods.enemySpdMult,
             undefined, "endboss");
+        // Hand-tuned boss HP: overrides the generic wave curve so the fight is a
+        // real encounter rather than a scaling wall.
+        const bossHp = Math.floor(this.bossHpForWave(this.wave) * mods.enemyHpMult);
+        boss.maxHp = bossHp;
+        boss.hp = bossHp;
         boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
         this.enemies.push(boss);
         this.activeBoss = boss;
@@ -7682,6 +7700,11 @@ const game = {
             if (bossType === "bigboss") {
                 boss.displayName = getBigBossNameForWave(this.wave);
             }
+            // Hand-tuned boss HP (see bossHpForWave) - keeps milestone bosses
+            // beatable instead of letting the wave curve run away with them.
+            const bossHp = Math.floor(this.bossHpForWave(this.wave) * mods.enemyHpMult);
+            boss.maxHp = bossHp;
+            boss.hp = bossHp;
             boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
             this.enemies.push(boss);
             this.activeBoss = boss;
@@ -7962,6 +7985,11 @@ const game = {
     grantEventShards(amount) {
         if (!amount || amount <= 0) return;
         this.eventShardsEarned = (this.eventShardsEarned || 0) + amount;
+        // Small flat heal per payout so the late waves are not pure attrition.
+        const heal = (CFG.balance && CFG.balance.eventHealAmount) || 0;
+        if (heal > 0 && this.player && this.player.alive) {
+            this.player.hp = Math.min(this.player.maxHp, this.player.hp + heal);
+        }
     },
 
     /** Splitter death: spawn two half-strength children that cannot split again. */

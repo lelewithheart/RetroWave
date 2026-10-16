@@ -6,12 +6,20 @@ beta 16.10:1
 - Gameplay update "Run Variance": runs now diverge instead of repeating the same wave loop
 - Added between-wave run events (every 3rd wave from wave 3, never on boss waves): Elite Wave, Ion Storm, Repair Fountain, Ambush, Shard Cache, Bounty Hunt
 - The active event is shown in the HUD, announced with a banner and explains itself via toast
-- Added elite enemies: golden aura, 2.6x HP, stronger contact damage and 3.2x XP, with a chance to drop shards
+- Added elite enemies: golden aura, stronger contact damage and 3.6x XP, with a chance to drop shards
 - Added boss modifiers: bosses roll up to 2 random traits (Shield Wall, Berserker, Summoner, Siphon, Brutal, Brittle), shown as a label under the health bar. The first boss (wave 5) stays single-modifier so it is not overwhelming
 - Added two enemy types: Splitter (breaks into two weaker copies on death) and Warden (stationary turret with a rotating damage beam)
-- Event rewards (shard cache, bounty payout, elite drops) are banked during the run and added to the shard payout at run end
+- Event rewards (shard cache, bounty payout, elite drops) are banked during the run and added to the shard payout at run end, and grant a small heal
 - Wave kill targets now scale with events: Elite Wave needs more kills, Ambush needs fewer
 - All tuning lives in config.js under events, bossModifiers and elites - balance without touching code
+beta 16.10:1-hotfix1
+- Difficulty rebalance so the final boss is actually reachable: nobody was getting to wave 25 because the wave curve outran the player's upgrade scaling
+- Enemy HP growth per wave flattened from 1.22 to 1.18 (wave 25 trash: 3546 -> 1593 HP, -55%)
+- Contact damage growth flattened from 1.10 to 1.07 (wave 25 hit: 98 -> 50, -49%), so late-game contact is no longer a two-hit kill
+- Boss HP is now hand-tuned per boss wave instead of scaling with the wave curve (wave 5: 1000, wave 10: 7000, wave 15: 15000, wave 20: 55000, final boss: 260000). A mid-strength build now kills the final boss in roughly 60-70s instead of 185s
+- Elite HP softened from 2.6x to 2.2x, elite XP raised from 3.2x to 3.6x - elites are a speed bump that accelerates your build, not a wall
+- Event shard payouts now also heal for a small flat amount, so the late waves are not a pure war of attrition
+- All new numbers live in config.js (wave, bosses.hpByWave, elites, balance) for easy fine-tuning
 beta 08.10:1
 - Fixed run finalisation: Game Over now shows shards earned, high-score rank and the score table immediately instead of "+0"
 - Fixed lost level-ups: multiple level-ups arriving at once (big XP orbs) are queued instead of silently dropped
