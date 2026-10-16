@@ -2,6 +2,10 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 17.10:3
+- Fixed: killing the final boss did not award prestige. The end boss dropped an XP orb worth ~73,000 XP (xpMult 100), which queued dozens of level-ups; in the upgrade screen the victory timer does not tick, so pendingVictory never resolved. The end boss no longer drops an orb, upgrades are skipped once the run is won, and an open upgrade screen now closes itself when the boss dies
+- Difficulty rebalance: the previous pass overshot and made runs far too easy (kill-rate was 3-4x spawn-rate from wave 10). Spawn ramp 0.94 -> 0.91, spawn ceiling 0.30s -> 0.25s (the old cap flattened every wave past 19), contact damage 1.07 -> 1.12
+- Late waves now carry real pressure again: wave 25 contact damage 151 (was 51), and kill-rate runs ~0.5-1.3x spawn-rate instead of 3-4x
 beta 17.10:2
 - Start menu redesigned: it had grown crowded (meta upgrades, daily, high scores, skin preview and eight buttons all on one screen)
 - The menu is now a clean single column: title, a grouped "run setup" panel (difficulty + challenge), a large prominent PLAY button, one daily status line, and a six-button navigation bar

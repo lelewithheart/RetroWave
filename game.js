@@ -9506,7 +9506,10 @@ const game = {
         }
 
         const mods = modeModifiers();
-        if (this.xpOrbs.length < dynamicCap(MAX_XP_ORBS)) {
+        // The end boss drops a huge XP orb (xpMult 100), but the run is over the
+        // moment it dies — collecting it just queues dozens of level-ups while
+        // the victory timer is frozen, so skip the drop entirely.
+        if (enemy.type !== "endboss" && this.xpOrbs.length < dynamicCap(MAX_XP_ORBS)) {
             // XP per kill grows both linearly (with the wave) and exponentially
             // (CFG.balance.xpPerWaveGrowth), so upgrade income keeps pace with
             // exponentially growing enemy HP. Without the exponential term the
@@ -9660,6 +9663,11 @@ const game = {
     // ────── UPGRADE SCREEN ──────
 
     triggerUpgrade(isBonusWave = false, bossType = null) {
+        // Once the end boss is dead the run is decided: never open another
+        // upgrade screen, otherwise the victory timer (which only ticks inside
+        // updateGameplay) freezes and the win is never awarded.
+        if (this.pendingVictory || this.runFinalized) return;
+
         // A second level-up can arrive while the upgrade screen is already open
         // (multi-level XP orb, or several orbs in one frame). Queue it instead of
         // silently dropping the upgrade.
@@ -9693,6 +9701,14 @@ const game = {
     },
 
     updateUpgrade() {
+        // Safety net: if the end boss died while this screen was open, the run
+        // is already won. Close the screen and let the victory flow continue,
+        // otherwise the win is never awarded.
+        if (this.pendingVictory) {
+            this.upgradeQueue.length = 0;
+            this.state = STATE.GAMEPLAY;
+            return;
+        }
         // Selection via keyboard (1-N based on number of choices)
         for (let i = 0; i < this.upgradeChoices.length; i++) {
             if (Input.just(`Digit${i + 1}`)) {

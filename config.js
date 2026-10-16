@@ -11,16 +11,22 @@ window.RogueConfig = {
         baseKills: 10,
         killsGrowth: 5,
         baseSpawnCd: 1.5,
-        minSpawnCd: 0.30,
-        // Raised from 0.92: the old value ramped the spawn rate to ~3.3/s while
-        // the player could only kill ~1.7/s by wave 20, so the arena inevitably
-        // overran you around wave 18-20. Slower ramp keeps kill-rate ahead of
-        // spawn-rate (ratio stays >= ~1.2 through the whole run).
-        spawnCdDecay: 0.94,
+        // Lowered from 0.30: the old cap kicked in at wave 19, which flattened
+        // the whole late-game spawn curve (every decay change past wave 19 did
+        // nothing). 0.25 raises the ceiling to ~4/s so the late waves keep
+        // building pressure.
+        minSpawnCd: 0.25,
+        // The 0.94 that originally fixed the "overrun at wave 18" problem
+        // overshot: kill-rate ended up 3-4x spawn-rate and the run had no
+        // pressure at all. 0.91 keeps the player ahead of the arena without
+        // making it a walkover (ratio ~0.6-1.3 through the late waves).
+        spawnCdDecay: 0.91,
         // HP curve tuned together with the XP economy and spawn rate, see below.
         hpScale: 1.18,
         speedScale: 1.07,
-        damageScale: 1.07,
+        // Raised from 1.07: contact damage was the main thing keeping the late
+        // waves threatening, and 1.07 made wave 25 hits cost only ~51 HP.
+        damageScale: 1.12,
         restTime: 2.5,
         maxWave: 25,
     },
