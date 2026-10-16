@@ -2,6 +2,16 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 17.10:2
+- Start menu redesigned: it had grown crowded (meta upgrades, daily, high scores, skin preview and eight buttons all on one screen)
+- The menu is now a clean single column: title, a grouped "run setup" panel (difficulty + challenge), a large prominent PLAY button, one daily status line, and a six-button navigation bar
+- PLAY is now clearly the most important element on screen (large, glowing, centred)
+- Difficulty and challenge are visually grouped in one panel so they read as one step
+- Challenge chips are taller and show their effect text, so they no longer look like disabled toggles
+- Shards and prestige moved to a compact top-right status strip with labels
+- New LOCKER screen: permanent upgrades (with level pips), prestige progress, equipped skin and the gear loadout in one place
+- New STATS screen: daily mission card with progress bar plus a proper high-score table (rank, wave, kills, time)
+- All screens reachable from the bottom navigation; ESC returns to the menu everywhere
 beta 17.10:1
 - Added the INVENTORY / LOOT system: buy chests, roll random gear, build a loadout
 - 6 equipment slots (Weapon, Chest, Helm, Gloves, Boots, Augment), one item each

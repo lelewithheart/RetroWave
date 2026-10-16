@@ -178,6 +178,8 @@ const STATE = {
     SHOP:           "SHOP",
     INVENTORY:      "INVENTORY",
     CHESTS:         "CHESTS",
+    LOCKER:         "LOCKER",
+    STATS:          "STATS",
     GAMEPLAY:       "GAMEPLAY",
     PAUSED:         "PAUSED",
     CHEAT_MENU:     "CHEAT_MENU",
@@ -6122,6 +6124,8 @@ const game = {
             case STATE.SHOP:         this.updateShop(dt); break;
             case STATE.INVENTORY:    this.updateInventory(dt); break;
             case STATE.CHESTS:       this.updateChests(dt); break;
+            case STATE.LOCKER:       this.updateLocker(dt); break;
+            case STATE.STATS:        this.updateStats(dt); break;
             case STATE.GAMEPLAY:     this.updateGameplay(dt);  break;
             case STATE.PAUSED:       this.updatePaused(dt);  break;
             case STATE.CHEAT_MENU:   this.updateCheatMenu(dt); break;
@@ -6145,6 +6149,8 @@ const game = {
             case STATE.SHOP:         this.drawShop();         break;
             case STATE.INVENTORY:    this.drawInventory();    break;
             case STATE.CHESTS:       this.drawChests();       break;
+            case STATE.LOCKER:       this.drawLocker();       break;
+            case STATE.STATS:        this.drawStats();        break;
             case STATE.GAMEPLAY:     this.drawGameplay();     break;
             case STATE.PAUSED:       this.drawSettings();     break;
             case STATE.CHEAT_MENU:
@@ -6212,403 +6218,533 @@ const game = {
     },
 
     drawStartMenu() {
-        const portrait = isPortraitMobile();
-        const layoutMode = getViewportLayoutMode();
-        const compactMobile = portrait || layoutMode === "compact";
-        const narrowLayout = !compactMobile && layoutMode === "narrow";
         const profile = Progression.get();
-        const allSkins = Progression.getSkinCatalog();
         const daily = Progression.getDailyView();
 
-        // Atmosphere backdrop for menu readability
-        const bgGrad = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
-        bgGrad.addColorStop(0, "#0a0f25");
-        bgGrad.addColorStop(0.5, "#0d1533");
-        bgGrad.addColorStop(1, "#090e1f");
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-        ctx.fillStyle = "rgba(80,200,255,0.06)";
-        for (let i = 0; i < 6; i++) {
-            const y = 70 + i * 95;
-            drawRoundRect(40 + i * 12, y, CANVAS_W - 80 - i * 24, 2, 1);
-            ctx.fill();
-        }
+        this.drawMenuBackdrop();
 
-        // Title
-        ctx.fillStyle = COLOR.accent;
-        ctx.font = uiFont(compactMobile ? 50 : 60, "bold");
+        // ── Title block ──
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, compactMobile ? 70 : 66);
+        const titleGlow = 0.55 + 0.15 * Math.sin(frameNow * 0.002);
+        ctx.save();
+        ctx.shadowColor = `rgba(51,204,255,${titleGlow})`;
+        ctx.shadowBlur = 28;
+        ctx.fillStyle = "#eaf9ff";
+        ctx.font = uiFont(56, "bold");
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, 78);
+        ctx.restore();
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(13, "bold");
+        ctx.fillText("S U R V I V O R   R O G U E L I T E", CANVAS_W / 2, 116);
 
-        ctx.fillStyle = COLOR.textDim;
-        ctx.font = uiFont(compactMobile ? UI_FONT.lg : 20);
-        ctx.fillText("Survivor Roguelite", CANVAS_W / 2, compactMobile ? 98 : 96);
+        // ── Status strip (top right): shards + prestige, compact ──
+        this.drawStatusStrip(profile);
 
-        ctx.font = uiFont(compactMobile ? 13 : UI_FONT.md);
-        ctx.fillText(`Version: ${GAME_VERSION}`, CANVAS_W / 2, compactMobile ? 114 : 114);
+        // ── Centre: mode + challenge + PLAY ──
+        // Wrap the two setup rows in a subtle panel so they read as one group
+        // ("configure your run") separate from the PLAY action below.
+        const cW = 520;
+        const cX = CANVAS_W / 2 - cW / 2;
+        const panelY = 156;
+        drawPanel(cX - 22, panelY, cW + 44, 244, 14, {
+            fill: "rgba(8,12,26,0.72)",
+            strokeColor: "rgba(102,204,255,0.18)",
+            lineWidth: 1.2,
+        });
+        let y = panelY + 30;
 
-        const uiTop = compactMobile ? 148 : (narrowLayout ? 164 : 172);
-        const leftX = compactMobile ? 16 : (narrowLayout ? 14 : 22);
-        const leftW = compactMobile ? 270 : (narrowLayout ? 214 : 248);
-        const rightW = compactMobile ? 260 : (narrowLayout ? 214 : 248);
-        const rightX = compactMobile ? CANVAS_W - rightW - 16 : CANVAS_W - rightW - (narrowLayout ? 14 : 22);
-        const centerPad = compactMobile ? 0 : (narrowLayout ? 14 : 24);
-        const centerX = compactMobile ? 0 : leftX + leftW + centerPad;
-        const centerW = compactMobile ? CANVAS_W : (rightX - centerPad - centerX);
+        y = this.drawModeRow(cX, y, cW);
+        y = this.drawChallengeGrid(cX, y + 22, cW);
 
-        // ── Mode selector ──
-        const modes = [
-            { id: "easy",    label: "😊 EASY",    desc: "Faster XP progression" },
-            { id: "normal",  label: "⚔️ NORMAL",   desc: "Auto-aim"              },
-            { id: "hard",    label: "💀 HARD",    desc: isMobile ? "Manual aim (touch)" : "Manual aim (mouse)" },
-        ];
-        const mw = compactMobile ? 260 : (narrowLayout ? 104 : 112);
-        const mh = compactMobile ? 36 : (narrowLayout ? 42 : 46);
-        const mgap = compactMobile ? 7 : (narrowLayout ? 6 : 8);
-        const totalMW = compactMobile ? mw : modes.length * mw + (modes.length - 1) * mgap;
-        const mx0 = compactMobile ? (CANVAS_W / 2 - totalMW / 2) : (centerX + (centerW - totalMW) / 2);
-        const my = uiTop;
-
-        if (!compactMobile) {
-            const centerPanelY = narrowLayout ? 142 : 148;
-            const centerPanelH = narrowLayout ? 400 : 414;
-            drawRoundRect(centerX, centerPanelY, centerW, centerPanelH, 12);
-            ctx.fillStyle = "rgba(8, 12, 30, 0.90)";
-            ctx.fill();
-            ctx.strokeStyle = "rgba(102,204,255,0.35)";
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-        }
-
-        ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
-        ctx.fillStyle = COLOR.textDim;
+        // PLAY: the single most prominent element.
+        const playW = cW + 44;
+        const playH = 78;
+        const playY = panelY + 244 + 30;
+        const playX = cX - 22;
+        const playHov = Mouse.inRect(playX, playY, playW, playH);
+        const pulse = 0.94 + 0.06 * Math.sin(frameNow * 0.006);
+        ctx.save();
+        ctx.shadowColor = `rgba(51,204,255,${playHov ? 0.85 : 0.45})`;
+        ctx.shadowBlur = playHov ? 34 : 20;
+        const pg = ctx.createLinearGradient(playX, playY, playX, playY + playH);
+        pg.addColorStop(0, playHov ? "#8beeff" : "#4fd8ff");
+        pg.addColorStop(1, playHov ? "#33ccff" : "#1f9fd0");
+        drawRoundRect(playX, playY, playW, playH, 14);
+        ctx.fillStyle = pg;
+        ctx.globalAlpha = pulse;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = "rgba(220,250,255,0.9)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
         ctx.textAlign = "center";
-        ctx.fillText("SELECT MODE", CANVAS_W / 2, my - 16);
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#062033";
+        ctx.font = uiFont(32, "bold");
+        ctx.fillText("▶  PLAY", CANVAS_W / 2, playY + playH / 2);
+        if (playHov && Mouse.clicked) this.startGame();
+
+        // ── Daily mission: one slim line, not a whole panel ──
+        const dailyY = playY + playH + 24;
+        const dailyDone = daily.completed;
+        ctx.fillStyle = dailyDone ? "#66ff99" : "#ffcc66";
+        ctx.font = uiFont(13);
+        ctx.fillText(
+            `◆ Daily: ${daily.label}   ${daily.progress}/${daily.target}${dailyDone ? "  ✓" : ""}   ·   Streak ${daily.streak}`,
+            CANVAS_W / 2,
+            dailyY
+        );
+
+        // ── Bottom navigation: six even buttons, one clean row ──
+        this.drawMenuNav();
+
+        // ── Footer hint ──
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(12);
+        const aimHint = Settings.gameMode === "hard"
+            ? (isMobile ? "Touch right side to aim" : "Mouse to aim")
+            : "Auto-aim";
+        ctx.fillText(`WASD / Arrows to move  ·  ${aimHint}  ·  ENTER to play`, CANVAS_W / 2, CANVAS_H - 18);
+    },
+
+    /** Soft ambient backdrop shared by the menu screens. */
+    drawMenuBackdrop() {
+        const g = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
+        g.addColorStop(0, "#0a0f25");
+        g.addColorStop(0.5, "#0d1533");
+        g.addColorStop(1, "#090e1f");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        // Faint horizon lines, fading toward the edges.
+        for (let i = 0; i < 7; i++) {
+            const yy = 60 + i * 92;
+            ctx.fillStyle = `rgba(80,200,255,${0.05 - i * 0.005})`;
+            ctx.fillRect(60 + i * 10, yy, CANVAS_W - 120 - i * 20, 1.5);
+        }
+    },
+
+    /** Compact shards/prestige readout pinned top-right. */
+    drawStatusStrip(profile) {
+        const w = 300, h = 54;
+        const x = CANVAS_W - w - 24, y = 20;
+        drawPanel(x, y, w, h, 12, {
+            fill: "rgba(8,12,26,0.9)",
+            strokeColor: "rgba(102,204,255,0.42)",
+            lineWidth: 1.4,
+        });
+        const half = w / 2;
+
+        // Divider between the two readouts.
+        ctx.strokeStyle = "rgba(255,255,255,0.1)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + half, y + 10);
+        ctx.lineTo(x + half, y + h - 10);
+        ctx.stroke();
+
+        // Shards
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(9, "bold");
+        ctx.fillText("SHARDS", x + half / 2, y + 15);
+        ctx.fillStyle = "#66ff99";
+        ctx.font = uiFont(20, "bold");
+        ctx.fillText(`◆ ${profile.shards}`, x + half / 2, y + 34);
+
+        // Prestige
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(9, "bold");
+        ctx.fillText("PRESTIGE", x + half + half / 2, y + 15);
+        ctx.fillStyle = "#ffd166";
+        ctx.font = uiFont(20, "bold");
+        ctx.fillText(`✦ ${profile.prestige?.count || 0}`, x + half + half / 2, y + 34);
+    },
+
+    /**
+     * Mode picker: three equal cards in a row. Returns the y after the block.
+     */
+    drawModeRow(x, y, w) {
+        const modes = [
+            { id: "easy",   label: "EASY",   icon: "😊", desc: "Faster XP" },
+            { id: "normal", label: "NORMAL", icon: "⚔️", desc: "Auto-aim" },
+            { id: "hard",   label: "HARD",   icon: "💀", desc: "Manual aim" },
+        ];
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(11, "bold");
+        ctx.fillText("DIFFICULTY", x, y);
+
+        const top = y + 16;
+        const h = 64;
+        const gap = 12;
+        const cw = (w - gap * 2) / 3;
 
         for (let i = 0; i < modes.length; i++) {
             const m = modes[i];
-            const mbx = compactMobile ? mx0 : mx0 + i * (mw + mgap);
-            const mby = compactMobile ? my + i * (mh + mgap) : my;
+            const mx = x + i * (cw + gap);
             const selected = Settings.gameMode === m.id;
-            const hov = Mouse.inRect(mbx, mby, mw, mh);
+            const hov = Mouse.inRect(mx, top, cw, h);
 
-            drawRoundRect(mbx, mby, mw, mh, 8);
+            drawRoundRect(mx, top, cw, h, 10);
             if (selected) {
-                ctx.fillStyle = COLOR.accent;
-                ctx.globalAlpha = 0.9;
+                const g = ctx.createLinearGradient(mx, top, mx, top + h);
+                g.addColorStop(0, "rgba(51,204,255,0.95)");
+                g.addColorStop(1, "rgba(31,159,208,0.95)");
+                ctx.fillStyle = g;
             } else {
-                ctx.fillStyle = hov ? "rgba(51,204,255,0.18)" : "rgba(255,255,255,0.06)";
-                ctx.globalAlpha = 1;
+                ctx.fillStyle = hov ? "rgba(51,204,255,0.16)" : "rgba(255,255,255,0.05)";
             }
             ctx.fill();
-            ctx.globalAlpha = 1;
-            ctx.strokeStyle = selected ? COLOR.accent : (hov ? COLOR.accentHover : "#334");
-            ctx.lineWidth = selected ? 2 : 1.5;
+            ctx.strokeStyle = selected ? "#8beeff" : (hov ? "rgba(140,220,246,0.7)" : "rgba(255,255,255,0.14)");
+            ctx.lineWidth = selected ? 2 : 1.3;
             ctx.stroke();
 
-            ctx.fillStyle = selected ? "#000" : (hov ? COLOR.accentHover : COLOR.text);
-            ctx.font = compactMobile ? "bold 13px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "center";
-            ctx.fillText(m.label, mbx + mw / 2, mby + mh / 2 - (compactMobile ? 2 : 4), mw - 10);
-            ctx.font = compactMobile ? "9px 'Segoe UI', Arial, sans-serif" : "10px 'Segoe UI', Arial, sans-serif";
-            ctx.fillStyle = selected ? "#000" : COLOR.textDim;
-            ctx.fillText(m.desc, mbx + mw / 2, mby + mh / 2 + (compactMobile ? 10 : 11), mw - 10);
+            ctx.fillStyle = selected ? "#062033" : COLOR.text;
+            ctx.font = uiFont(21);
+            ctx.fillText(m.icon, mx + cw / 2, top + 20);
+            ctx.font = uiFont(14, "bold");
+            ctx.fillText(m.label, mx + cw / 2, top + 40);
+            ctx.fillStyle = selected ? "#0a2a3a" : COLOR.textDim;
+            ctx.font = uiFont(10);
+            ctx.fillText(m.desc, mx + cw / 2, top + 54);
 
-            if (hov && Mouse.clicked) {
-                Settings.gameMode = m.id;
-            }
+            if (hov && Mouse.clicked) Settings.gameMode = m.id;
         }
+        return top + h;
+    },
 
-        // Challenge selector – 2 columns inside the centre panel. The old single row
-        // of 4 buttons was wider than the panel and spilled over the meta/daily panels.
-        const cY = compactMobile ? my + (modes.length * (mh + mgap)) + 12 : my + 68;
-        const cH = compactMobile ? 30 : (narrowLayout ? 36 : 38);
-        const cGap = compactMobile ? 5 : (narrowLayout ? 6 : 8);
-        const cCols = compactMobile ? 1 : 2;
-        const cRows = Math.ceil(CHALLENGE_MODES.length / cCols);
-        const cW = compactMobile ? 260 : Math.floor((centerW - (cCols - 1) * cGap) / cCols);
-        const cTotal = cCols * cW + (cCols - 1) * cGap;
-        const cStartX = compactMobile
-            ? (CANVAS_W / 2 - cTotal / 2)
-            : (centerX + (centerW - cTotal) / 2);
-        ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+    /**
+     * Challenge picker: one compact row of four chips. Returns the y after.
+     */
+    drawChallengeGrid(x, y, w) {
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
         ctx.fillStyle = COLOR.textDim;
-        ctx.textAlign = "center";
-        ctx.fillText("CHALLENGE", CANVAS_W / 2, cY - 14);
+        ctx.font = uiFont(11, "bold");
+        ctx.fillText("CHALLENGE", x, y);
+
+        const top = y + 16;
+        const h = 54;
+        const gap = 10;
+        const cw = (w - gap * (CHALLENGE_MODES.length - 1)) / CHALLENGE_MODES.length;
+
         for (let i = 0; i < CHALLENGE_MODES.length; i++) {
             const cm = CHALLENGE_MODES[i];
-            const col = i % cCols;
-            const row = Math.floor(i / cCols);
-            const cx = cStartX + col * (cW + cGap);
-            const cy = cY + row * (cH + 5);
+            const mx = x + i * (cw + gap);
             const selected = Settings.challengeMode === cm.id;
-            const hov = Mouse.inRect(cx, cy, cW, cH);
-            drawRoundRect(cx, cy, cW, cH, 8);
-            ctx.fillStyle = selected ? "rgba(102,255,153,0.85)" : (hov ? "rgba(102,255,153,0.2)" : "rgba(255,255,255,0.06)");
+            const hov = Mouse.inRect(mx, top, cw, h);
+
+            drawRoundRect(mx, top, cw, h, 9);
+            if (selected) {
+                const g = ctx.createLinearGradient(mx, top, mx, top + h);
+                g.addColorStop(0, "rgba(120,255,175,0.95)");
+                g.addColorStop(1, "rgba(80,220,140,0.95)");
+                ctx.fillStyle = g;
+            } else {
+                ctx.fillStyle = hov ? "rgba(102,255,153,0.20)" : "rgba(255,255,255,0.06)";
+            }
             ctx.fill();
-            ctx.strokeStyle = selected ? "#66ff99" : "#355";
-            ctx.lineWidth = selected ? 2 : 1.2;
+            ctx.strokeStyle = selected ? "#c2ffd9" : (hov ? "rgba(102,255,153,0.7)" : "rgba(255,255,255,0.16)");
+            ctx.lineWidth = selected ? 2 : 1.3;
             ctx.stroke();
-            ctx.fillStyle = selected ? "#000" : COLOR.text;
-            ctx.font = compactMobile ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 13px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(cm.label, cx + cW / 2, cy + cH / 2 - 5, cW - 10);
-            ctx.fillStyle = selected ? "#001b10" : COLOR.textDim;
-            ctx.font = "10px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(cm.desc, cx + cW / 2, cy + cH / 2 + 8, cW - 10);
+
+            // Two lines: name + short effect, so the chips carry real info.
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = selected ? "#042314" : COLOR.text;
+            ctx.font = uiFont(13, "bold");
+            ctx.fillText(cm.label, mx + cw / 2, top + 20, cw - 10);
+            ctx.fillStyle = selected ? "#0b3a22" : COLOR.textDim;
+            ctx.font = uiFont(9);
+            ctx.fillText(cm.desc, mx + cw / 2, top + 38, cw - 8);
+
             if (hov && Mouse.clicked) Settings.challengeMode = cm.id;
         }
+        return top + h;
+    },
 
-        // Play button
-        const bw = compactMobile ? 260 : Math.min(narrowLayout ? 244 : 270, centerW - (narrowLayout ? 12 : 20));
-        const bh = compactMobile ? 36 : (narrowLayout ? 40 : 44);
-        const bhPlay = compactMobile ? 44 : (narrowLayout ? 50 : 56);
-        const bx = compactMobile ? (CANVAS_W / 2 - bw / 2) : (centerX + (centerW - bw) / 2);
-        const challengeEnd = cY + cRows * (cH + 5) - 5;
-        const btnGap = compactMobile ? 4 : 8;
-
-        // Optional rewarded pre-run booster
-        const boosterY = challengeEnd + btnGap + 2;
-        if (APP_CONFIG.monetization) {
-            const boosterHover = Mouse.inRect(bx, boosterY, bw, bh);
-            const boosterLabel = this.adBoosterPending
-                ? "✅ BOOSTER ARMED"
-                : (this.adBoosterLoading ? "⏳ LOADING AD..." : "⚡ WATCH AD: START BOOSTER");
-            if (drawButton(boosterLabel, bx, boosterY, bw, bh, boosterHover)
-                && !this.adBoosterPending && !this.adBoosterLoading) {
-                void this.requestMenuAdBooster();
-            }
-        }
-
-        const by = (APP_CONFIG.monetization ? boosterY + bh : boosterY) + btnGap;
-        const hovered = Mouse.inRect(bx, by, bw, bhPlay);
-        if (drawButton("▶  PLAY", bx, by, bw, bhPlay, hovered, 22)) {
-            this.startGame();
-        }
-
-        // Settings button
-        const settingsY = by + bhPlay + btnGap;
-        const sHover = Mouse.inRect(bx, settingsY, bw, bh);
-        if (drawButton("⚙  SETTINGS", bx, settingsY, bw, bh, sHover)) {
-            this.setState(STATE.SETTINGS);
-        }
-
-        // Shop button
-        const logBtnW = bw;
-        const logBtnH = bh;
-        const logBtnX = bx;
-        const logBtnY = settingsY + bh + btnGap;
-        const shopBtnHover = Mouse.inRect(logBtnX, logBtnY, logBtnW, logBtnH);
-        if (drawButton("🛍  SKIN SHOP", logBtnX, logBtnY, logBtnW, logBtnH, shopBtnHover)) {
-            this.setState(STATE.SHOP);
-        }
-
-        // Standalone full changelog button (recent-changelog panel removed)
-        const changelogY = logBtnY + bh + btnGap;
-        if (drawButton("📜  CHANGELOGS", logBtnX, changelogY, logBtnW, logBtnH, Mouse.inRect(logBtnX, changelogY, logBtnW, logBtnH))) {
-            this.setState(STATE.CHANGELOGS);
-        }
-
-        // Loot buttons: CHESTS (spend shards) and INVENTORY (equip gear).
-        // Share the row below changelogs, side by side.
-        const lootRowY = changelogY + bh + btnGap;
-        const halfW = (logBtnW - btnGap) / 2;
-        if (drawButton("🎁  CHESTS", logBtnX, lootRowY, halfW, logBtnH, Mouse.inRect(logBtnX, lootRowY, halfW, logBtnH), 13)) {
-            this.setState(STATE.CHESTS);
-        }
-        const invX = logBtnX + halfW + btnGap;
-        const itemCount = Progression.getItems().length;
-        if (drawButton(`🎒  ITEMS (${itemCount})`, invX, lootRowY, halfW, logBtnH, Mouse.inRect(invX, lootRowY, halfW, logBtnH), 12)) {
-            this.setState(STATE.INVENTORY);
-        }
-
-        // Meta progression panel
-        const mpX = leftX;
-        const mpY = compactMobile ? 42 : (narrowLayout ? 142 : 148);
-        const mpW = leftW;
-        const mpH = compactMobile ? 304 : (narrowLayout ? 400 : 432);
-        drawRoundRect(mpX, mpY, mpW, mpH, 10);
-        ctx.fillStyle = "rgba(8, 10, 22, 0.92)";
-        ctx.fill();
-        ctx.strokeStyle = "#66ff99";
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-        ctx.fillStyle = "#66ff99";
-        ctx.font = "bold 15px 'Segoe UI', Arial, sans-serif";
-        ctx.textAlign = "left";
-        ctx.fillText(`◆ SHARDS: ${profile.shards}`, mpX + 12, mpY + 20);
-        ctx.fillStyle = "#ffd166";
-        ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`✦ PRESTIGE: ${profile.prestige?.count || 0}`, mpX + 12, mpY + 38);
-        const nextPrestigeSkin = getNextPrestigeSkinPreview(allSkins, profile.prestige?.count || 0);
-        ctx.fillStyle = COLOR.textDim;
-        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(
-            nextPrestigeSkin
-                ? `Next reward: ${nextPrestigeSkin.name} at Prestige ${nextPrestigeSkin.requirement}`
-                : "Prestige track complete",
-            mpX + 12,
-            mpY + 54,
-            mpW - 24
-        );
-
-        const metaRows = [
-            { key: "hp", label: "Vital Core", bonus: "+10 max HP" },
-            { key: "dmg", label: "Pulse Cannon", bonus: "+2 base damage" },
-            { key: "xp", label: "Data Magnet", bonus: "+10% XP gain" },
-            { key: "speed", label: "Game Speed", bonus: "Each level unlocks next speed tier", max: GAME_SPEED_UNLOCK_MAX },
+    /** Bottom navigation bar: six even buttons with icon over label. */
+    drawMenuNav() {
+        const items = [
+            { icon: "🎒", label: "LOCKER",    state: STATE.LOCKER },
+            { icon: "🎁", label: "CHESTS",    state: STATE.CHESTS },
+            { icon: "🛍", label: "SKINS",     state: STATE.SHOP },
+            { icon: "📊", label: "STATS",      state: STATE.STATS },
+            { icon: "⚙",  label: "SETTINGS",  state: STATE.SETTINGS },
+            { icon: "📜", label: "CHANGELOG", state: STATE.CHANGELOGS },
         ];
-        // Leave room for the "next prestige reward" line above the first row –
-        // it used to overlap the "Vital Core" row in every layout.
-        const metaStartY = compactMobile ? mpY + 84 : mpY + 78;
-        const metaStepY = compactMobile ? 38 : 66;
-        for (let i = 0; i < metaRows.length; i++) {
-            const row = metaRows[i];
-            const ry = metaStartY + i * metaStepY;
+        const n = items.length;
+        const gap = 12;
+        const totalW = 704;
+        const bw = (totalW - gap * (n - 1)) / n;
+        const bh = 64;
+        const x0 = CANVAS_W / 2 - totalW / 2;
+        const y = CANVAS_H - bh - 44;
+
+        for (let i = 0; i < n; i++) {
+            const it = items[i];
+            const bx = x0 + i * (bw + gap);
+            const hov = Mouse.inRect(bx, y, bw, bh);
+
+            drawRoundRect(bx, y, bw, bh, 10);
+            ctx.fillStyle = hov ? "rgba(51,204,255,0.16)" : "rgba(255,255,255,0.045)";
+            ctx.fill();
+            ctx.strokeStyle = hov ? "rgba(140,220,246,0.75)" : "rgba(255,255,255,0.12)";
+            ctx.lineWidth = hov ? 1.8 : 1.2;
+            ctx.stroke();
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.font = uiFont(22);
+            ctx.fillStyle = COLOR.text;
+            ctx.fillText(it.icon, bx + bw / 2, y + 22);
+            ctx.font = uiFont(11, "bold");
+            ctx.fillStyle = hov ? COLOR.accentHover : COLOR.textDim;
+            ctx.fillText(it.label, bx + bw / 2, y + 46, bw - 8);
+
+            if (hov && Mouse.clicked) this.setState(it.state);
+        }
+    },
+
+    /** LOCKER: meta upgrades live here so the start menu stays clean. */
+    drawLocker() {
+        const profile = Progression.get();
+        const skin = Progression.getSelectedSkin();
+
+        this.drawMenuBackdrop();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(26, "bold");
+        ctx.fillText("LOCKER", CANVAS_W / 2, 40);
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#66ff99";
+        ctx.font = uiFont(14, "bold");
+        ctx.fillText(`◆ ${profile.shards}`, CANVAS_W - 24, 40);
+
+        // ── Meta upgrades ──
+        const px = 40, py = 84, pw = 460, ph = 372;
+        drawPanel(px, py, pw, ph, 12, { fill: "rgba(8,12,26,0.9)" });
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(14, "bold");
+        ctx.fillText("PERMANENT UPGRADES", px + 18, py + 24);
+
+        const rows = [
+            { key: "hp",    label: "Vital Core",   bonus: "+10 max HP",      max: 8 },
+            { key: "dmg",   label: "Pulse Cannon", bonus: "+2 base damage",  max: 8 },
+            { key: "xp",    label: "Data Magnet",  bonus: "+10% XP gain",    max: 8 },
+            { key: "speed", label: "Game Speed",   bonus: "unlocks a speed tier", max: GAME_SPEED_UNLOCK_MAX },
+        ];
+        const rowH = 72;
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const ry = py + 58 + i * rowH;
             const level = Progression.metaLevel(row.key);
             const cost = Progression.metaCost(row.key);
+            const maxed = cost === null;
 
-            const ubW = 104, ubH = 32;
-            const ubX = mpX + mpW - ubW - 10, ubY = ry - 16;
+            drawRoundRect(px + 16, ry, pw - 32, rowH - 12, 8);
+            ctx.fillStyle = "rgba(255,255,255,0.04)";
+            ctx.fill();
+            ctx.strokeStyle = maxed ? "rgba(102,255,153,0.45)" : "rgba(255,255,255,0.1)";
+            ctx.lineWidth = 1.1;
+            ctx.stroke();
 
             ctx.textAlign = "left";
             ctx.fillStyle = COLOR.text;
-            ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
-            const labelMaxW = ubX - (mpX + 12) - 4;
-            ctx.fillText(`${row.label}  Lv.${level}/${row.max || 8}`, mpX + 12, ry, labelMaxW);
+            ctx.font = uiFont(14, "bold");
+            ctx.fillText(row.label, px + 30, ry + 20);
             ctx.fillStyle = COLOR.textDim;
-            ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(row.bonus, mpX + 12, ry + 16, labelMaxW);
+            ctx.font = uiFont(11);
+            ctx.fillText(row.bonus, px + 30, ry + 38);
 
-            const hov = Mouse.inRect(ubX, ubY, ubW, ubH);
-            drawRoundRect(ubX, ubY, ubW, ubH, 6);
-            const locked = cost == null;
-            ctx.fillStyle = locked ? "rgba(120,120,120,0.28)" : (hov ? "rgba(102,255,153,0.25)" : "rgba(255,255,255,0.08)");
-            ctx.fill();
-            ctx.strokeStyle = locked ? "#666" : "#66ff99";
-            ctx.lineWidth = 1.1;
-            ctx.stroke();
-            ctx.fillStyle = locked ? "#aaa" : COLOR.text;
-            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-            ctx.textAlign = "center";
-            ctx.fillText(locked ? "MAX" : `UP ${cost}`, ubX + ubW / 2, ubY + ubH / 2 + 1);
-            if (!locked && hov && Mouse.clicked) {
-                Progression.buyMeta(row.key);
+            // Level pips
+            const pipY = ry + 50;
+            for (let lv = 0; lv < row.max; lv++) {
+                const on = lv < level;
+                drawRoundRect(px + 30 + lv * 15, pipY, 11, 5, 2);
+                ctx.fillStyle = on ? "#66ff99" : "rgba(255,255,255,0.14)";
+                ctx.fill();
             }
+
+            const ubW = 116, ubH = 40;
+            const ubX = px + pw - ubW - 28, ubY = ry + 12;
+            const hov = !maxed && Mouse.inRect(ubX, ubY, ubW, ubH);
+            drawRoundRect(ubX, ubY, ubW, ubH, 8);
+            ctx.fillStyle = maxed ? "rgba(255,255,255,0.06)" : (hov ? "rgba(102,255,153,0.28)" : "rgba(102,255,153,0.14)");
+            ctx.fill();
+            ctx.strokeStyle = maxed ? "rgba(255,255,255,0.15)" : "#66ff99";
+            ctx.lineWidth = 1.3;
+            ctx.stroke();
+            ctx.textAlign = "center";
+            ctx.fillStyle = maxed ? COLOR.textDim : "#b9ffd6";
+            ctx.font = uiFont(12, "bold");
+            ctx.fillText(maxed ? "MAX" : `${cost} ◆`, ubX + ubW / 2, ubY + 14);
+            ctx.font = uiFont(10);
+            ctx.fillText(maxed ? `Lv ${level}/${row.max}` : `Lv ${level}  →  ${level + 1}`, ubX + ubW / 2, ubY + 29);
+            if (hov && Mouse.clicked) Progression.buyMeta(row.key);
         }
 
-        // Selected skin info
-        const selectedSkin = Progression.getSelectedSkin();
-        const previewY = compactMobile ? (mpY + mpH - 74) : (mpY + mpH - 96);
-        drawRoundRect(mpX + 10, previewY, mpW - 20, 72, 8);
-        ctx.fillStyle = "rgba(255,255,255,0.04)";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(102,204,255,0.4)";
-        ctx.lineWidth = 1.1;
-        ctx.stroke();
-        ctx.fillStyle = selectedSkin.player;
+        // ── Prestige + equipped skin ──
+        const rx = 520, rw = CANVAS_W - rx - 40;
+        drawPanel(rx, py, rw, 176, 12, { fill: "rgba(8,12,26,0.9)" });
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ffd166";
+        ctx.font = uiFont(14, "bold");
+        ctx.fillText("PRESTIGE", rx + 18, py + 24);
+        ctx.fillStyle = "#ffd166";
+        ctx.font = uiFont(30, "bold");
+        ctx.fillText(String(profile.prestige?.count || 0), rx + 18, py + 58);
+        const allSkins = Progression.getSkinCatalog();
+        const nextSkin = getNextPrestigeSkinPreview(allSkins, profile.prestige?.count || 0);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = uiFont(11);
+        ctx.fillText(
+            nextSkin ? `Next: ${nextSkin.name} at Prestige ${nextSkin.requirement}` : "Prestige track complete",
+            rx + 18, py + 88, rw - 36
+        );
+        ctx.fillText("Clear the final boss to gain prestige.", rx + 18, py + 108, rw - 36);
+
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(12, "bold");
+        ctx.fillText("EQUIPPED SKIN", rx + 18, py + 140);
+        ctx.fillStyle = skin.player;
         ctx.beginPath();
-        ctx.arc(mpX + 30, previewY + 36, 12, 0, Math.PI * 2);
+        ctx.arc(rx + 30, py + 160, 10, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = COLOR.text;
-        ctx.textAlign = "left";
-        ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Equipped: ${selectedSkin.name}`, mpX + 50, previewY + 30, mpW - 70);
-        ctx.fillStyle = COLOR.textDim;
-        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText("Open SKIN SHOP to buy or equip skins", mpX + 50, previewY + 48, mpW - 70);
+        ctx.font = uiFont(12, "bold");
+        ctx.fillText(skin.name, rx + 48, py + 160);
 
-        // Daily panel
-        const dpW = rightW;
-        // Compact needs the same height as narrow – its progress bar used to be
-        // drawn below the panel because the panel was 28 px too short.
-        const dpH = compactMobile ? 118 : (narrowLayout ? 118 : 132);
-        const dpX = rightX;
-        const dpY = compactMobile ? CANVAS_H - dpH - 14 : (narrowLayout ? 142 : 148);
-        drawRoundRect(dpX, dpY, dpW, dpH, 9);
-        ctx.fillStyle = "rgba(16,8,24,0.92)";
-        ctx.fill();
-        ctx.strokeStyle = "#ffcc66";
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-        ctx.fillStyle = "#ffcc66";
-        ctx.textAlign = "left";
-        ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`Daily: ${daily.label}`, dpX + 10, dpY + 20);
-        ctx.fillStyle = daily.completed ? "#66ff99" : COLOR.text;
-        ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`${daily.progress} / ${daily.target}${daily.completed ? "  COMPLETED" : ""}`, dpX + 10, dpY + 42);
+        // ── Gear summary (links into the full inventory) ──
+        const gy = py + 196;
+        drawPanel(rx, gy, rw, 176, 12, { fill: "rgba(8,12,26,0.9)" });
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(14, "bold");
+        ctx.fillText("LOADOUT", rx + 18, gy + 24);
+
+        const equippedAll = Progression.getEquippedAll();
+        const setStatus = Progression.getSetStatus();
+        let ly = gy + 50;
+        const slotLabel = LOOT_CFG.slotLabels || {};
+        for (const slot of LOOT_SLOTS) {
+            const item = equippedAll[slot];
+            ctx.fillStyle = item ? this.rarityColor(item.rarity) : COLOR.textDim;
+            ctx.font = uiFont(11, item ? "bold" : "normal");
+            const name = item ? item.name : "—";
+            ctx.fillText(`${(slotLabel[slot] || slot)}: ${name}`, rx + 18, ly, rw - 36);
+            ly += 18;
+        }
         ctx.fillStyle = COLOR.textDim;
-        ctx.fillText(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"}`, dpX + 10, dpY + 62);
-        ctx.fillText("Complete to earn bonus shards", dpX + 10, dpY + 86);
-        drawRoundRect(dpX + 10, dpY + 100, dpW - 20, 10, 5);
+        ctx.font = uiFont(10);
+        const activeSets = Object.keys(setStatus).filter((k) => setStatus[k].have >= 2);
+        ctx.fillText(
+            activeSets.length ? `Active sets: ${activeSets.map((k) => setStatus[k].def.label).join(", ")}` : "No set bonuses active",
+            rx + 18, gy + 160, rw - 36
+        );
+
+        // Open inventory / chests
+        if (drawButton("OPEN GEAR", rx + 18, CANVAS_H - 66, 180, 38, Mouse.inRect(rx + 18, CANVAS_H - 66, 180, 38), 13)) {
+            this.setState(STATE.INVENTORY);
+        }
+        if (drawButton("OPEN CHESTS", rx + 208, CANVAS_H - 66, 180, 38, Mouse.inRect(rx + 208, CANVAS_H - 66, 180, 38), 13)) {
+            this.setState(STATE.CHESTS);
+        }
+
+        if (drawButton("BACK", 40, CANVAS_H - 66, 130, 38, Mouse.inRect(40, CANVAS_H - 66, 130, 38), 13)) {
+            this.setState(STATE.START_MENU);
+        }
+    },
+
+    /** STATS: high scores + daily, moved off the start menu. */
+    drawStats() {
+        const mode = gameModeLabel();
+        const scores = HighScores.getAll();
+        const daily = Progression.getDailyView();
+
+        this.drawMenuBackdrop();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(26, "bold");
+        ctx.fillText("STATS", CANVAS_W / 2, 40);
+
+        // ── Daily mission card ──
+        const dw = 420, dh = 210;
+        const dx = 60, dy = 96;
+        drawPanel(dx, dy, dw, dh, 12, { fill: "rgba(16,8,24,0.92)", strokeColor: "#ffcc66", lineWidth: 1.4 });
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#ffcc66";
+        ctx.font = uiFont(15, "bold");
+        ctx.fillText("DAILY MISSION", dx + 20, dy + 28);
+        ctx.fillStyle = COLOR.text;
+        ctx.font = uiFont(18, "bold");
+        ctx.fillText(daily.label, dx + 20, dy + 60);
+        ctx.fillStyle = daily.completed ? "#66ff99" : COLOR.textDim;
+        ctx.font = uiFont(14);
+        ctx.fillText(`${daily.progress} / ${daily.target}${daily.completed ? "   ✓ COMPLETED" : ""}`, dx + 20, dy + 88);
+        // progress bar
+        const barW = dw - 40;
+        drawRoundRect(dx + 20, dy + 106, barW, 12, 6);
         ctx.fillStyle = "rgba(255,255,255,0.1)";
         ctx.fill();
-        const dailyPct = clamp(daily.target > 0 ? daily.progress / daily.target : 0, 0, 1);
-        drawRoundRect(dpX + 10, dpY + 100, (dpW - 20) * dailyPct, 10, 5);
+        const pct = clamp(daily.target > 0 ? daily.progress / daily.target : 0, 0, 1);
+        drawRoundRect(dx + 20, dy + 106, barW * pct, 12, 6);
         ctx.fillStyle = daily.completed ? "#66ff99" : "#ffcc66";
         ctx.fill();
-
-        // High Scores panel (right side) – per-mode
-        const scores = HighScores.getAll();
-        if (scores.length > 0) {
-            const panelW = compactMobile ? 260 : rightW;
-            const panelX = rightX;
-            const shown = Math.min(scores.length, compactMobile ? 3 : 4);
-            const panelH = compactMobile ? 28 + shown * 22 : 34 + shown * 28;
-            // Compact puts it in the free space below the title instead of under the
-            // daily panel (which sits at the bottom there).
-            const panelY = compactMobile ? 148 : dpY + dpH + 14;
-            drawRoundRect(panelX, panelY, panelW, panelH, 8);
-            ctx.fillStyle = COLOR.panel;
-            ctx.fill();
-            ctx.strokeStyle = COLOR.accent;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            ctx.fillStyle = COLOR.accent;
-            ctx.font = compactMobile ? "bold 14px 'Segoe UI', Arial, sans-serif" : "bold 15px 'Segoe UI', Arial, sans-serif";
-            ctx.textAlign = "center";
-            ctx.fillText(`🏆 ${gameModeLabel()} SCORES`, panelX + panelW / 2, panelY + 18);
-
-            ctx.font = compactMobile ? "11px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
-            for (let i = 0; i < shown; i++) {
-                const s = scores[i];
-                const ty = panelY + (compactMobile ? 38 + i * 22 : 40 + i * 28);
-                ctx.fillStyle = i === 0 ? "#ffd700" : COLOR.text;
-                ctx.textAlign = "left";
-                ctx.fillText(`${i + 1}.`, panelX + 12, ty);
-                ctx.fillText(`W${s.wave}`, panelX + 32, ty);
-                ctx.fillStyle = COLOR.textDim;
-                ctx.fillText(`☠${s.kills}`, panelX + 80, ty);
-                ctx.textAlign = "right";
-                ctx.fillText(formatTime(s.time), panelX + panelW - 12, ty);
-            }
-        }
-
-        // Logged-in user indicator (bottom-left)
-        if (CrazyGamesSDK.isAvailable()) {
-            const user = CrazyGamesSDK.getUser();
-            if (user) {
-                ctx.fillStyle = COLOR.textDim;
-                ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-                ctx.textAlign = "left";
-                ctx.fillText(`👤 ${user.username}`, 24, CANVAS_H - 14);
-            }
-        }
-
-        // Controls hint
         ctx.fillStyle = COLOR.textDim;
-        ctx.font = compactMobile ? "12px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
+        ctx.font = uiFont(12);
+        ctx.fillText(`Streak: ${daily.streak} day${daily.streak === 1 ? "" : "s"}`, dx + 20, dy + 142);
+        ctx.fillText("Complete it for bonus shards.", dx + 20, dy + 166);
+
+        // ── High scores ──
+        const sw = CANVAS_W - dx - dw - 140;
+        const sx = dx + dw + 40;
+        drawPanel(sx, dy, sw, 420, 12, { fill: "rgba(8,12,26,0.9)", strokeColor: "rgba(102,204,255,0.4)", lineWidth: 1.4 });
         ctx.textAlign = "center";
-        if (isMobile) {
-            const mobileAimHint = Settings.gameMode === "hard" ? "Touch right side to aim" : "Auto-aim & fire";
-            ctx.fillText(`Virtual joystick to move  •  ${mobileAimHint}`, CANVAS_W / 2, compactMobile ? CANVAS_H - 74 : CANVAS_H - 60);
-            ctx.fillText("Tap PLAY to start  •  Tap SHOP for skins", CANVAS_W / 2, compactMobile ? CANVAS_H - 52 : CANVAS_H - 38);
-        } else {
-            const aimHint = Settings.gameMode === "hard" ? "Mouse to aim" : "Auto-aim";
-            ctx.fillText(`WASD / Arrow Keys to move  •  ${aimHint}`, CANVAS_W / 2, CANVAS_H - 30);
-            ctx.fillText("Press ENTER to play  •  Press K for shop", CANVAS_W / 2, CANVAS_H - 14);
+        ctx.fillStyle = COLOR.accent;
+        ctx.font = uiFont(16, "bold");
+        ctx.fillText(`🏆 ${mode} SCORES`, sx + sw / 2, dy + 30);
+
+        ctx.font = uiFont(11, "bold");
+        ctx.textAlign = "left";
+        ctx.fillStyle = COLOR.textDim;
+        ctx.fillText("RANK", sx + 24, dy + 60);
+        ctx.fillText("WAVE", sx + 90, dy + 60);
+        ctx.fillText("KILLS", sx + 180, dy + 60);
+        ctx.textAlign = "right";
+        ctx.fillText("TIME", sx + sw - 24, dy + 60);
+
+        if (scores.length === 0) {
+            ctx.textAlign = "center";
+            ctx.fillStyle = COLOR.textDim;
+            ctx.font = uiFont(13);
+            ctx.fillText("No runs recorded yet. Play a run!", sx + sw / 2, dy + 140);
+        }
+        const shown = Math.min(scores.length, 9);
+        for (let i = 0; i < shown; i++) {
+            const s = scores[i];
+            const ty = dy + 88 + i * 34;
+            ctx.textAlign = "left";
+            ctx.fillStyle = i === 0 ? "#ffd700" : COLOR.text;
+            ctx.font = uiFont(14, i === 0 ? "bold" : "normal");
+            ctx.fillText(`${i + 1}`, sx + 24, ty);
+            ctx.fillText(`W${s.wave}`, sx + 90, ty);
+            ctx.fillStyle = COLOR.textDim;
+            ctx.fillText(`☠ ${s.kills}`, sx + 180, ty);
+            ctx.textAlign = "right";
+            ctx.fillText(formatTime(s.time), sx + sw - 24, ty);
+        }
+
+        if (drawButton("BACK", 60, CANVAS_H - 66, 130, 38, Mouse.inRect(60, CANVAS_H - 66, 130, 38), 13)) {
+            this.setState(STATE.START_MENU);
         }
     },
 
@@ -6667,6 +6803,16 @@ const game = {
         // Drive the chest-opening animation.
         this.updateChestReveal(dt);
         if (this.lootToastTimer > 0) this.lootToastTimer -= dt;
+    },
+
+    /** Simple menu screens that only need an ESC-to-back handler. */
+    updateLocker(dt) {
+        if (Input.just("Escape")) this.setState(STATE.START_MENU);
+        if (this.lootToastTimer > 0) this.lootToastTimer -= dt;
+    },
+
+    updateStats(dt) {
+        if (Input.just("Escape")) this.setState(STATE.START_MENU);
     },
 
     /** Toast helper for loot feedback. */
