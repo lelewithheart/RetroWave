@@ -149,4 +149,87 @@ window.RogueConfig = {
             { prestigeLevel: 10, skinId: "prestige_emerald" },
         ],
     },
+    events: {
+        enabled: true,
+        // A run event is offered every `interval` waves, starting at `startWave`.
+        startWave: 3,
+        interval: 3,
+        // Never place an event on the waves leading into the final boss.
+        excludeFromWave: 23,
+        // Weighted pick. Higher weight = more common.
+        pool: {
+            eliteWave:  22,
+            storm:      18,
+            fountain:   16,
+            ambush:     16,
+            shardCache: 14,
+            hunt:       14,
+        },
+        // Balancing knobs, read by the event definitions.
+        eliteWave: {
+            extraKillShare: 0.25,   // +25% kills required
+            xpMult: 1.6,
+            hpMult: 1.35,
+        },
+        storm: {
+            enemySpeedMult: 1.3,
+            enemyHpMult: 0.75,
+            enemyDmgMult: 0.9,
+            playerDamageMult: 1.15, // player hits harder too - fast, glass-cannon wave
+        },
+        fountain: {
+            hpRegenPerSec: 4,
+            xpMult: 0.4,            // far less XP while healing
+        },
+        ambush: {
+            packSize: 6,            // enemies released per burst
+            burstInterval: 1.4,     // seconds between bursts
+            killsMult: 0.8,         // slightly fewer kills needed
+        },
+        shardCache: {
+            shardReward: 12,
+            carrierChance: 0.22,    // chance any given spawned enemy carries the cache
+        },
+        hunt: {
+            eliteHpMult: 2.2,
+            eliteSpeedMult: 1.15,
+            shardReward: 8,
+        },
+    },
+    bossModifiers: {
+        enabled: true,
+        // Max modifiers by boss kind. The first boss a player meets stays simple.
+        maxForMiniboss: 2,
+        maxForBigboss: 2,
+        maxForEndboss: 1,
+        // Bosses never roll the same modifier twice.
+        pool: {
+            shieldWall:  18,
+            berserker:   16,
+            summoner:    16,
+            siphon:      14,
+            brutal:      14,
+            brittle:     14,
+        },
+        shieldWall: { frontReduction: 0.72, arc: Math.PI * 0.6 },
+        berserker:  { hpThreshold: 0.4, speedMult: 1.5, dmgMult: 1.3 },
+        summoner:   { interval: 8, addCount: 2 },
+        siphon:     { radius: 220, healPerSec: 6 },
+        brutal:     { hpMult: 1.6, dmgMult: 1.4, speedMult: 0.9 },
+        brittle:    { hpMult: 0.65, shardMult: 2.2, xpMult: 2.0 },
+    },
+    elites: {
+        enabled: true,
+        startWave: 3,
+        baseChance: 0.06,
+        // Elite odds climb with the wave, capped so late waves are not all elites.
+        chancePerWave: 0.012,
+        maxChance: 0.22,
+        hpMult: 2.6,
+        speedMult: 1.08,
+        dmgMult: 1.35,
+        xpMult: 3.2,
+        shardDropChance: 0.35,
+        shardDropAmount: 3,
+    },
 };

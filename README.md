@@ -14,6 +14,10 @@ Open `index.html` in any modern browser — no build step required.
 | **Input** | Uses `event.code` (`KeyW`, `KeyA`, …) — works on QWERTY, AZERTY, QWERTZ, and more |
 | **Game States** | `START_MENU` → `GAMEPLAY` → `UPGRADE_SCREEN` / `SETTINGS` → `GAME_OVER` |
 | **Waves** | Enemy count, HP, and speed scale per wave |
+| **Run Events** | Every 3rd wave from wave 3 (never on boss waves) one of 6 events modifies the wave: Elite Wave, Ion Storm, Repair Fountain, Ambush, Shard Cache, Bounty Hunt. Shown in the HUD, announced by a banner |
+| **Elite Enemies** | Marked with a golden aura: 2.6x HP, stronger contact damage, 3.2x XP and a chance to drop shards. Odds rise with the wave |
+| **Boss Modifiers** | Bosses roll up to 2 random traits (Shield Wall, Berserker, Summoner, Siphon, Brutal, Brittle) shown under their HP bar. Wave 5 boss always gets exactly one |
+| **Enemy Variety** | 9 base types plus Splitter (splits into two weaker copies on death) and Warden (stationary turret with a rotating damage beam) |
 | **XP & Level-Up** | Collect XP orbs → pick 1 of 3 random power-ups (damage, fire-rate, speed, HP, etc.) |
 | **Particles** | Explosions on enemy death and player hit |
 | **Screen Shake** | Camera shake on hits for juicy feedback |

@@ -219,6 +219,8 @@ const ENEMY_TYPES = {
     miniboss: { hpMult: 12,  spdMult: 0.55, radius: 38, contactDmg: 30, color: "#dd2277", xpMult: 12  },
     bigboss:  { hpMult: 30,  spdMult: 0.35, radius: 56, contactDmg: 50, color: "#cc0000", xpMult: 30  },
     endboss:  { hpMult: 80,  spdMult: 0.3,  radius: 72, contactDmg: 40, color: "#ff00ff", xpMult: 100 },
+    splitter: { hpMult: 1.6, spdMult: 0.85, radius: 18, contactDmg: 14, color: "#a0ffdd", xpMult: 2.2 },
+    warden:   { hpMult: 4.0, spdMult: 0,    radius: 22, contactDmg: 12, color: "#ffaa33", xpMult: 3.0 },
 };
 
 const BOSS_NAMES = {
@@ -289,6 +291,142 @@ const WAVE_SPEED_SCALE = CFG.wave.speedScale;
 const WAVE_DAMAGE_SCALE = CFG.wave.damageScale;          // contact damage grows per wave
 const WAVE_REST_TIME = CFG.wave.restTime;                // seconds between waves
 const WAVE_MAX = CFG.wave.maxWave;                       // completing this wave triggers victory
+
+// ────── RUN EVENTS (between-wave modifiers) ──────
+// Every CFG.events.interval waves one event is drawn from the pool and applied
+// for the duration of that wave. Each definition exposes the same small
+// interface so the wave/spawn code never needs an if-chain:
+//   apply(game)   – called once when the event starts
+//   expire(game)  – called once when the event ends
+//   killTargetMult / enemyHpMult / enemySpeedMult / enemyDmgMult / xpMult
+//   spawnOverride(game) – optional; takes over enemy spawning for the wave
+const EVENT_DEFS = {
+    eliteWave: {
+        id: "eliteWave",
+        label: "ELITE WAVE",
+        desc: "Every enemy is an elite. Deadlier — and far more rewarding.",
+        color: "#ffcc66",
+        killTargetMult: 1 + CFG.events.eliteWave.extraKillShare,
+        enemyHpMult: CFG.events.eliteWave.hpMult,
+        xpMult: CFG.events.eliteWave.xpMult,
+        forceElite: true,
+    },
+    storm: {
+        id: "storm",
+        label: "ION STORM",
+        desc: "Enemies are fast and frail. Everything hits harder.",
+        color: "#88ddff",
+        enemySpeedMult: CFG.events.storm.enemySpeedMult,
+        enemyHpMult: CFG.events.storm.enemyHpMult,
+        enemyDmgMult: CFG.events.storm.enemyDmgMult,
+        playerDamageMult: CFG.events.storm.playerDamageMult,
+    },
+    fountain: {
+        id: "fountain",
+        label: "REPAIR FOUNTAIN",
+        desc: "You regenerate health this wave, but XP is scarce.",
+        color: "#66ff99",
+        xpMult: CFG.events.fountain.xpMult,
+        apply(game) { game.eventHpRegen = CFG.events.fountain.hpRegenPerSec; },
+        expire(game) { game.eventHpRegen = 0; },
+    },
+    ambush: {
+        id: "ambush",
+        label: "AMBUSH",
+        desc: "Enemies arrive in packs from a single direction. Hold the line.",
+        color: "#ff8899",
+        killTargetMult: CFG.events.ambush.killsMult,
+        spawnOverride(game) { game.spawnAmbushPack(); },
+    },
+    shardCache: {
+        id: "shardCache",
+        label: "SHARD CACHE",
+        desc: "One enemy carries a shard cache. Hunt it down before it dies elsewhere.",
+        color: "#c38bff",
+        apply(game) { game.eventShardCachePending = true; },
+        expire(game) { game.eventShardCachePending = false; },
+    },
+    hunt: {
+        id: "hunt",
+        label: "BOUNTY HUNT",
+        desc: "A marked elite prowls the arena. Kill it for a payout.",
+        color: "#ff66dd",
+        apply(game) { game.spawnBountyTarget(); },
+    },
+};
+
+const EVENT_INTERVAL = CFG.events.interval;
+const EVENT_START_WAVE = CFG.events.startWave;
+const EVENT_EXCLUDE_FROM = CFG.events.excludeFromWave;
+const EVENTS_ENABLED = CFG.events.enabled;
+
+// ────── BOSS MODIFIERS ──────
+// Rolled onto a boss when it spawns. Each def has an optional onSpawn and
+// per-frame onUpdate hook so behaviour code stays in one place.
+const BOSS_MODIFIER_DEFS = {
+    shieldWall: {
+        id: "shieldWall",
+        label: "Shield Wall",
+        color: "#66ddff",
+        desc: "Blocks most damage from the front",
+        onSpawn(boss) { boss.modShieldWall = true; },
+    },
+    berserker: {
+        id: "berserker",
+        label: "Berserker",
+        color: "#ff5566",
+        desc: "Enrages below 40% health",
+        onSpawn(boss) { boss.modBerserker = true; },
+    },
+    summoner: {
+        id: "summoner",
+        label: "Summoner",
+        color: "#c38bff",
+        desc: "Periodically calls in adds",
+        onSpawn(boss) { boss.modSummoner = true; boss.modSummonTimer = CFG.bossModifiers.summoner.interval; },
+    },
+    siphon: {
+        id: "siphon",
+        label: "Siphon",
+        color: "#66ff99",
+        desc: "Drains your health when close",
+        onSpawn(boss) { boss.modSiphon = true; },
+    },
+    brutal: {
+        id: "brutal",
+        label: "Brutal",
+        color: "#ff9900",
+        desc: "Tougher and hits much harder",
+        onSpawn(boss, game) {
+            boss.modBrutal = true;
+            const c = CFG.bossModifiers.brutal;
+            boss.maxHp = Math.floor(boss.maxHp * c.hpMult);
+            boss.hp = boss.maxHp;
+            boss.contactDamage = Math.floor(boss.contactDamage * c.dmgMult);
+            boss.baseSpeed *= c.speedMult;
+            boss.speed = boss.baseSpeed;
+        },
+    },
+    brittle: {
+        id: "brittle",
+        label: "Brittle",
+        color: "#b9f1ff",
+        desc: "Frail, but shatters into a huge payout",
+        onSpawn(boss) {
+            boss.modBrittle = true;
+            const c = CFG.bossModifiers.brittle;
+            boss.maxHp = Math.max(1, Math.floor(boss.maxHp * c.hpMult));
+            boss.hp = boss.maxHp;
+            boss.shardMult = (boss.shardMult || 1) * c.shardMult;
+            boss.xpMult = (boss.xpMult || 1) * c.xpMult;
+        },
+    },
+};
+
+const BOSS_MODIFIERS_ENABLED = CFG.bossModifiers.enabled;
+const ELITES_ENABLED = CFG.elites.enabled;
+const ELITE_START_WAVE = CFG.elites.startWave;
+
 
 // Upgrade choices per level-up
 const UPGRADE_CHOICES = 3;
@@ -3442,6 +3580,23 @@ class Enemy extends Entity {
                     game.bullets.push(new Projectile(this.x, this.y, angle + spread, Math.floor(this.contactDamage * 0.7), 0, 0.75, false, true));
                 }
             }
+        } else if (this.type === "warden") {
+            // Warden: stationary turret. It does not chase - it rotates a beam
+            // around itself and forces the player to keep moving.
+            this.beamAngle = (this.beamAngle || randRange(0, Math.PI * 2)) + dt * 0.9;
+            this.beamTick = (this.beamTick || 0) - dt;
+            if (this.beamTick <= 0) {
+                this.beamTick = 0.35;
+                // Damage the player if they are caught in the rotating beam.
+                const bx = this.x + Math.cos(this.beamAngle) * 150;
+                const by = this.y + Math.sin(this.beamAngle) * 150;
+                if (dist(bx, by, target.x, target.y) < 46) {
+                    target.takeDamage(this.contactDamage);
+                }
+            }
+            if (!game.lowPerf) {
+                this.spawnBeamParticles();
+            }
         } else {
             // All other types chase the player
             if (d > 1) {
@@ -3450,12 +3605,67 @@ class Enemy extends Entity {
             }
         }
 
+        // ── Boss modifier behaviour ──
+        if (this.modSummoner) this.updateSummoner(dt);
+        if (this.modSiphon) this.updateSiphon(dt, target, d);
+        if (this.modBerserker) this.updateBerserker();
+
         // Clamp to world
         this.x = clamp(this.x, this.radius, WORLD_W - this.radius);
         this.y = clamp(this.y, this.radius, WORLD_H - this.radius);
 
         this.hitFlash = Math.max(0, this.hitFlash - dt);
         this.contactTimer = Math.max(0, this.contactTimer - dt);
+    }
+
+    /** Summoner modifier: periodically calls in two normal adds. */
+    updateSummoner(dt) {
+        if (this.hp <= 0) return;
+        this.modSummonTimer -= dt;
+        if (this.modSummonTimer > 0) return;
+        const c = CFG.bossModifiers.summoner;
+        this.modSummonTimer = c.interval;
+        if (game.enemies.length >= dynamicCap(MAX_ENEMIES) - c.addCount) return;
+        for (let i = 0; i < c.addCount; i++) {
+            const a = randRange(0, Math.PI * 2);
+            const sx = clamp(this.x + Math.cos(a) * (this.radius + 60), 0, WORLD_W);
+            const sy = clamp(this.y + Math.sin(a) * (this.radius + 60), 0, WORLD_H);
+            const add = new Enemy(sx, sy, ENEMY_BASE_HP * Math.pow(WAVE_HP_SCALE, game.wave - 1),
+                ENEMY_BASE_SPEED, undefined, "normal");
+            game.enemies.push(add);
+        }
+        game.spawnParticles(this.x, this.y, "#c38bff", isMobile ? 4 : 12);
+    }
+
+    /** Siphon modifier: heals the boss while the player stays close. */
+    updateSiphon(dt, target, d) {
+        const c = CFG.bossModifiers.siphon;
+        if (d > c.radius) return;
+        const before = this.hp;
+        this.hp = Math.min(this.maxHp, this.hp + c.healPerSec * dt);
+        if (Math.floor(this.hp) !== Math.floor(before) && !game.lowPerf) {
+            game.spawnParticles(this.x, this.y, "#66ff99", 2);
+        }
+    }
+
+    /** Berserker modifier: enrages below the HP threshold, once. */
+    updateBerserker() {
+        if (this.enraged) return;
+        const c = CFG.bossModifiers.berserker;
+        if (this.hp / this.maxHp > c.hpThreshold) return;
+        this.enraged = true;
+        this.baseSpeed *= c.speedMult;
+        this.speed = this.baseSpeed;
+        this.contactDamage = Math.floor(this.contactDamage * c.dmgMult);
+        game.triggerEventToast(`${this.displayName || "Boss"} enrages!`, "#ff5566", 1.4);
+        game.camera.shake(5, 0.18);
+    }
+
+    /** Warden beam ambient particles (skipped in low-perf mode). */
+    spawnBeamParticles() {
+        const bx = this.x + Math.cos(this.beamAngle) * 150;
+        const by = this.y + Math.sin(this.beamAngle) * 150;
+        if (Math.random() < 0.35) game.spawnParticles(bx, by, "#ffaa33", 1);
     }
 
     updateEndboss(dt, target, dx, dy, d, currentSpeed) {
@@ -3838,6 +4048,56 @@ class Enemy extends Entity {
                 ctx.fillStyle = `${phaseGlow}0.2)`;
                 ctx.fill();
             }
+        } else if (this.type === "splitter") {
+            // Splitter: rounded blob with a visible seam, so the split reads.
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = col;
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = "#2a6b5a";
+            ctx.stroke();
+            // Seam line hinting at the two halves that will break apart.
+            ctx.beginPath();
+            ctx.moveTo(this.x - this.radius * 0.8, this.y);
+            ctx.lineTo(this.x + this.radius * 0.8, this.y);
+            ctx.strokeStyle = "rgba(20,60,50,0.75)";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        } else if (this.type === "warden") {
+            // Warden: stationary hex turret with a rotating damage beam.
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI * 2 / 6) * i;
+                const px = this.x + Math.cos(a) * this.radius;
+                const py = this.y + Math.sin(a) * this.radius;
+                i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fillStyle = col;
+            ctx.fill();
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = "#664400";
+            ctx.stroke();
+            // Rotating beam.
+            const beamAngle = this.beamAngle || 0;
+            const beamLen = 150;
+            const bxa = this.x + Math.cos(beamAngle) * beamLen;
+            const bya = this.y + Math.sin(beamAngle) * beamLen;
+            const grad = ctx.createLinearGradient(this.x, this.y, bxa, bya);
+            grad.addColorStop(0, "rgba(255,170,51,0.85)");
+            grad.addColorStop(1, "rgba(255,170,51,0)");
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(bxa, bya);
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 6;
+            ctx.stroke();
+            // Beam tip glow (the damaging spot).
+            ctx.beginPath();
+            ctx.arc(bxa, bya, 10, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255,220,120,0.6)";
+            ctx.fill();
         } else {
             // Normal: circle
             ctx.beginPath();
@@ -3847,6 +4107,43 @@ class Enemy extends Entity {
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = "#000000";
             ctx.stroke();
+        }
+
+        // ── Elite marker: golden aura ring so promoted enemies read instantly ──
+        if (this.isElite) {
+            const auraPulse = 0.5 + 0.25 * Math.sin(frameNow * 0.008);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 1.45, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255,209,102,${auraPulse})`;
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+            // Bounty targets get an extra magenta ring + marker on top.
+            if (this.isBounty) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 1.75, 0, Math.PI * 2);
+                ctx.strokeStyle = "rgba(255,102,221,0.9)";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.font = "bold 14px 'Segoe UI', Arial, sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillStyle = "#ff66dd";
+                ctx.fillText("★ BOUNTY", this.x, this.y - this.radius * 1.9);
+            }
+        }
+        // Shard cache carrier marker.
+        if (this.carriesShardCache) {
+            const c = 0.6 + 0.3 * Math.sin(frameNow * 0.01);
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 1.6, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(195,139,255,${c})`;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillStyle = "#c38bff";
+            ctx.fillText("◆ CACHE", this.x, this.y - this.radius * 2);
         }
 
         // HP bar (only if damaged)
@@ -3878,6 +4175,21 @@ class Enemy extends Entity {
                 ctx.fillText(`★ ${bossName} ★`, this.x, by - 2);
             }
         }
+
+        // Boss modifier labels - shown even at full HP so the boss's "thesis"
+        // is readable before the fight starts.
+        if ((this.type === "miniboss" || this.type === "bigboss" || this.type === "endboss")) {
+            const defs = this.modDefs;
+            if (defs && defs.length > 0) {
+                const labelY = this.y + this.radius + 18;
+                ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                const text = defs.map((d) => d.label).join("  ·  ");
+                ctx.fillStyle = defs[0].color;
+                ctx.fillText(text, this.x, labelY);
+            }
+        }
     }
 
     takeDamage(amount, isCrit) {
@@ -3885,6 +4197,27 @@ class Enemy extends Entity {
         let finalAmount = amount;
         if (this.type === "endboss" && this.shieldActive) {
             finalAmount = Math.max(1, Math.floor(amount * 0.4));
+        }
+        // Shield Wall modifier: blocks most damage coming from the boss's front
+        // arc. The player has to get around it. Direction is derived from where
+        // the player is relative to the boss's facing (towards the player), so
+        // the practical counter is strafing round the back.
+        if (this.modShieldWall) {
+            const c = CFG.bossModifiers.shieldWall;
+            // The boss has a facing that lerps slowly towards the player, so
+            // the player can genuinely flank around the shield by strafing.
+            const facing = game.player ? Math.atan2(game.player.y - this.y, game.player.x - this.x) : 0;
+            let fa = this.faceAngle === undefined ? facing : this.faceAngle;
+            let delta = ((facing - fa + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+            fa += delta * Math.min(1, 1.1 * (1 / 60));   // slow turn
+            this.faceAngle = fa;
+            // A hit is blocked when it comes from within the boss's front arc.
+            const fromAngle = Math.atan2(this.y - (game.player ? game.player.y : this.y),
+                                         this.x - (game.player ? game.player.x : this.x));
+            const rel = Math.abs(((fromAngle - fa + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+            if (rel < c.arc / 2) {
+                finalAmount = Math.max(1, Math.floor(finalAmount * (1 - c.frontReduction)));
+            }
         }
         this.hp -= finalAmount;
         this.hitFlash = 0.1;
@@ -4613,6 +4946,20 @@ const game = {
     waveActive: false,
     activeBoss: null,
 
+    // ── Run events ──
+    activeEvent: null,        // { id, def, wave } or null
+    lastEventId: "",          // to avoid repeating the same event twice in a row
+    eventHpRegen: 0,          // per-second HP regen granted by the fountain event
+    eventShardCachePending: false,
+    eventShardCarrier: null,  // the enemy currently holding the shard cache
+    eventShardsEarned: 0,     // shards banked by events this run (cashed in on game over)
+    bountyTarget: null,       // the marked elite from the hunt event
+    ambushTimer: 0,           // burst timer while the ambush event runs
+    ambushDir: null,          // { x, y } unit vector packs arrive from
+
+    // ── Boss modifiers ──
+    activeBossModifiers: [],  // defs rolled onto the current boss (for the HUD)
+
     // Upgrade
     upgradeChoices: [],
     upgradeQueue: [],        // level-ups that arrived while the screen was already open
@@ -4750,6 +5097,17 @@ const game = {
         this.waveRestTimer = 1;
         this.waveActive = false;
         this.activeBoss = null;
+        // Run events
+        this.activeEvent = null;
+        this.lastEventId = "";
+        this.eventHpRegen = 0;
+        this.eventShardCachePending = false;
+        this.eventShardCarrier = null;
+        this.eventShardsEarned = 0;
+        this.bountyTarget = null;
+        this.ambushTimer = 0;
+        this.ambushDir = null;
+        this.activeBossModifiers = [];
         this.upgradeChoices = [];
         this.upgradeQueue = [];
         this.upgradeIsBonusWave = false;
@@ -5001,6 +5359,141 @@ const game = {
 
     isBossWave(waveNum) {
         return waveNum === 5 || waveNum === 10 || waveNum === 15 || waveNum === 20;
+    },
+
+    /**
+     * Roll 0..max modifiers onto a freshly spawned boss, apply their onSpawn
+     * hooks and store the defs for the HUD. Returns the applied defs.
+     */
+    rollBossModifiers(boss) {
+        this.activeBossModifiers = [];
+        if (!BOSS_MODIFIERS_ENABLED) return this.activeBossModifiers;
+        let max;
+        if (boss.type === "endboss") max = CFG.bossModifiers.maxForEndboss;
+        else if (boss.type === "bigboss") max = CFG.bossModifiers.maxForBigboss;
+        else max = CFG.bossModifiers.maxForMiniboss;
+
+        // The very first boss (wave 5) keeps it simple: exactly one modifier.
+        if (this.wave === 5) max = 1;
+
+        const pool = CFG.bossModifiers.pool || {};
+        const ids = Object.keys(BOSS_MODIFIER_DEFS).filter((id) => (pool[id] || 0) > 0);
+        const chosen = [];
+        for (let i = 0; i < max && ids.length > 0; i++) {
+            let total = 0;
+            for (const id of ids) total += pool[id];
+            let roll = Math.random() * total;
+            let picked = ids[ids.length - 1];
+            for (const id of ids) {
+                roll -= pool[id];
+                if (roll <= 0) { picked = id; break; }
+            }
+            // Remove from the pool so the same modifier is never rolled twice.
+            ids.splice(ids.indexOf(picked), 1);
+            const def = BOSS_MODIFIER_DEFS[picked];
+            chosen.push(def);
+            if (typeof def.onSpawn === "function") def.onSpawn(boss, this);
+        }
+        this.activeBossModifiers = chosen;
+        boss.modDefs = chosen;
+        if (chosen.length > 0) {
+            const names = chosen.map((d) => d.label).join(" + ");
+            this.triggerEventToast(`${boss.displayName || "Boss"}: ${names}`, chosen[0].color, 2.2);
+        }
+        return chosen;
+    },
+
+    // ────── RUN EVENT SYSTEM ──────
+
+    /** True when a wave is eligible to host a run event. */
+    isEventWave(waveNum) {
+        if (!EVENTS_ENABLED) return false;
+        if (waveNum < EVENT_START_WAVE) return false;
+        if (waveNum >= EVENT_EXCLUDE_FROM) return false;
+        // Boss waves stay clean so the boss fight is never muddied by an event.
+        if (this.isBossWave(waveNum)) return false;
+        // Final boss setup wave stays clean too.
+        if (waveNum >= WAVE_MAX) return false;
+        return (waveNum - EVENT_START_WAVE) % EVENT_INTERVAL === 0;
+    },
+
+    /** Weighted pick from CFG.events.pool, skipping the previous event. */
+    pickEventDef() {
+        const pool = CFG.events.pool || {};
+        const ids = Object.keys(EVENT_DEFS).filter((id) => {
+            if (id === this.lastEventId) return false;      // no repeats in a row
+            const w = pool[id];
+            return typeof w === "number" && w > 0;
+        });
+        if (ids.length === 0) return null;
+        let total = 0;
+        for (const id of ids) total += pool[id];
+        let roll = Math.random() * total;
+        for (const id of ids) {
+            roll -= pool[id];
+            if (roll <= 0) return EVENT_DEFS[id];
+        }
+        return EVENT_DEFS[ids[ids.length - 1]];
+    },
+
+    /** Start an event for the current wave. */
+    startEvent(def) {
+        if (!def) return;
+        this.activeEvent = { id: def.id, def, wave: this.wave };
+        this.lastEventId = def.id;
+        this.lastRunEventId = def.id;
+        this.lastRunEventLabel = def.label;
+        if (typeof def.apply === "function") def.apply(this);
+
+        // Announce it
+        this.waveBannerTimer = 2.4;
+        this.waveBannerText = `◆ ${def.label} ◆`;
+        this.triggerEventToast(def.desc, def.color, 2.6);
+        this.triggerEventFlash(def.color, 0.25);
+        GameAudio.sfxWaveStart();
+    },
+
+    /** End the current event and run its cleanup. */
+    endEvent() {
+        const ev = this.activeEvent;
+        if (!ev) return;
+        if (typeof ev.def.expire === "function") ev.def.expire(this);
+        this.activeEvent = null;
+        // Clear per-event transient state that is not covered by expire().
+        this.eventShardCarrier = null;
+        this.bountyTarget = null;
+        this.ambushDir = null;
+        this.ambushTimer = 0;
+    },
+
+    /** Multiplier accessors so callers never touch the def shape directly. */
+    eventMult(key) {
+        const ev = this.activeEvent;
+        if (!ev || !ev.def) return 1;
+        const v = ev.def[key];
+        return typeof v === "number" ? v : 1;
+    },
+
+    eventForceElite() {
+        return !!(this.activeEvent && this.activeEvent.def && this.activeEvent.def.forceElite);
+    },
+
+    /** Per-frame event upkeep. Called from updateGameplay while a wave runs. */
+    updateEvent(dt) {
+        const ev = this.activeEvent;
+        if (!ev) return;
+        // Fountain regen
+        if (this.eventHpRegen > 0 && this.player && this.player.alive) {
+            this.player.hp = Math.min(this.player.maxHp, this.player.hp + this.eventHpRegen * dt);
+        }
+        // Ambush: release packs on a timer instead of the normal spawn drip.
+        if (ev.id === "ambush") {
+            this.ambushTimer -= dt;
+            if (this.ambushTimer <= 0) {
+                this.ambushTimer += CFG.events.ambush.burstInterval;
+                this.spawnAmbushPack();
+            }
+        }
     },
 
     maybeRequestMidroll() {
@@ -5987,6 +6480,8 @@ const game = {
         this.timePlayed += speedDt;
         this.trackPerformance(dt);
         this.updateCheatCode();
+        // Run-event upkeep (fountain regen, ambush bursts).
+        if (this.waveActive) this.updateEvent(speedDt);
 
         if (!this.tutorialDismissed) {
             const mv = Input.moveVector();
@@ -6818,6 +7313,15 @@ const game = {
             ctx.fillText(`Kills: ${this.waveKills} / ${this.waveKillsRequired}`, CANVAS_W / 2, pad + 36);
         }
 
+        // ── Active run event badge (below the wave/kill readout) ──
+        if (this.activeEvent && this.activeEvent.def) {
+            const ev = this.activeEvent.def;
+            ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = ev.color;
+            const y = this.endbossActive ? pad + 36 : pad + 56;
+            ctx.fillText(`◆ ${ev.label}`, CANVAS_W / 2, y);
+        }
+
         // ── Kill count (top-right) ──
         ctx.textAlign = "right";
         ctx.fillStyle = COLOR.text;
@@ -7106,6 +7610,7 @@ const game = {
         boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
         this.enemies.push(boss);
         this.activeBoss = boss;
+        this.rollBossModifiers(boss);
 
         // Switch to boss music
         GameAudio.startBossMusic();
@@ -7119,6 +7624,8 @@ const game = {
 
     startNextWave() {
         const mods = modeModifiers();
+        // Any event from the previous wave ends before the new one begins.
+        this.endEvent();
         this.wave++;
         this.waveKills = 0;
         this.waveKillsRequired = Math.max(5, Math.floor((WAVE_BASE_KILLS + (this.wave - 1) * WAVE_KILLS_GROWTH) * mods.waveKillsMult));
@@ -7128,6 +7635,24 @@ const game = {
         }
         this.spawnTimer = 0; // spawn immediately
         this.waveActive = true;
+
+        // Roll a run event for this wave, if the wave is eligible.
+        let eventDef = null;
+        if (this.isEventWave(this.wave)) {
+            eventDef = this.pickEventDef();
+        }
+        if (eventDef) {
+            this.startEvent(eventDef);
+            // Events may raise or lower the kill target.
+            const evKillMult = this.eventMult("killTargetMult");
+            if (evKillMult !== 1) {
+                this.waveKillsRequired = Math.max(5, Math.floor(this.waveKillsRequired * evKillMult));
+            }
+            // Ambush rewrites the spawn cadence entirely.
+            if (eventDef.id === "ambush") {
+                this.ambushTimer = CFG.events.ambush.burstInterval;
+            }
+        }
 
         // Switch music when biome changes
         GameAudio.startMusic(this.currentBiomeIndex());
@@ -7160,12 +7685,25 @@ const game = {
             boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
             this.enemies.push(boss);
             this.activeBoss = boss;
+            this.rollBossModifiers(boss);
         }
     },
 
     spawnWaveEnemy() {
+        // Ambush takes over spawning entirely - it releases packs instead.
+        if (this.activeEvent && this.activeEvent.id === "ambush") return;
+        const enemy = this.createWaveEnemy();
+        if (enemy) this.enemies.push(enemy);
+    },
+
+    /**
+     * Build one wave enemy with all wave scaling, event modifiers, elite rolls
+     * and optional shard-cache / bounty tagging applied. Returns null when the
+     * enemy cap is reached. Shared by normal spawning and the ambush event.
+     */
+    createWaveEnemy(spawnPos) {
         // Cap total enemy count to prevent frame drops on mobile
-        if (this.enemies.length >= dynamicCap(MAX_ENEMIES)) return;
+        if (this.enemies.length >= dynamicCap(MAX_ENEMIES)) return null;
         const mods = modeModifiers();
         const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
         const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
@@ -7178,36 +7716,49 @@ const game = {
         if (this.wave >= 7) typePool.push("ranged");
         if (this.wave >= 9) typePool.push("exploder");
         if (this.wave >= 12) typePool.push("phaser");
+        if (this.wave >= 14) typePool.push("splitter");
+        if (this.wave >= 16) typePool.push("warden");
 
         const specialChance = Math.min(0.9, (0.1 + this.wave * 0.04) * mods.specialChanceMult);
 
-        // Spawn outside camera view
-        const edge = randInt(0, 3);
+        // Spawn position: caller-supplied (ambush) or outside the camera view.
         let ex, ey;
-        const margin = 80;
-        switch (edge) {
-            case 0: // top
-                ex = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin);
-                ey = this.camera.y - margin;
-                break;
-            case 1: // bottom
-                ex = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin);
-                ey = this.camera.y + CANVAS_H + margin;
-                break;
-            case 2: // left
-                ex = this.camera.x - margin;
-                ey = randRange(this.camera.y - margin, this.camera.y + CANVAS_H + margin);
-                break;
-            default: // right
-                ex = this.camera.x + CANVAS_W + margin;
-                ey = randRange(this.camera.y - margin, this.camera.y + CANVAS_H + margin);
-                break;
+        if (spawnPos) {
+            ex = spawnPos.x;
+            ey = spawnPos.y;
+        } else {
+            const edge = randInt(0, 3);
+            const margin = 80;
+            switch (edge) {
+                case 0: // top
+                    ex = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin);
+                    ey = this.camera.y - margin;
+                    break;
+                case 1: // bottom
+                    ex = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin);
+                    ey = this.camera.y + CANVAS_H + margin;
+                    break;
+                case 2: // left
+                    ex = this.camera.x - margin;
+                    ey = randRange(this.camera.y - margin, this.camera.y + CANVAS_H + margin);
+                    break;
+                default: // right
+                    ex = this.camera.x + CANVAS_W + margin;
+                    ey = randRange(this.camera.y - margin, this.camera.y + CANVAS_H + margin);
+                    break;
+            }
         }
         ex = clamp(ex, 0, WORLD_W);
         ey = clamp(ey, 0, WORLD_H);
 
-        const hp = Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult);
-        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * this.earlyPacingMultiplier() * mods.enemySpdMult;
+        // Event modifiers fold into the base scaling.
+        const evHpMult = this.eventMult("enemyHpMult");
+        const evSpdMult = this.eventMult("enemySpeedMult");
+        const evDmgMult = this.eventMult("enemyDmgMult");
+        const evXpMult = this.eventMult("xpMult");
+
+        const hp = Math.floor(ENEMY_BASE_HP * hpMult * mods.enemyHpMult * evHpMult);
+        const spd = ENEMY_BASE_SPEED * spdMult * this.enemySpeedMult * this.earlyPacingMultiplier() * mods.enemySpdMult * evSpdMult;
 
         // Choose type
         let type = "normal";
@@ -7216,9 +7767,100 @@ const game = {
         }
 
         const enemy = new Enemy(ex, ey, hp, spd, undefined, type);
-        enemy.contactDamage = Math.floor(enemy.contactDamage * dmgMult * mods.enemyDmgMult);
-        this.enemies.push(enemy);
+        enemy.contactDamage = Math.floor(enemy.contactDamage * dmgMult * mods.enemyDmgMult * evDmgMult);
+        if (evXpMult !== 1) enemy.xpMult = (enemy.xpMult || 1) * evXpMult;
+
+        // Elite roll (forced during an elite wave).
+        const forceElite = this.eventForceElite();
+        if (forceElite || this.rollElite()) {
+            this.applyElite(enemy);
+            // A forced elite wave makes every enemy count, but does not stack
+            // the bounty/cache tags on top of an already-tagged enemy.
+        }
+
+        // Shard cache: tag one carrier for the run of the event.
+        if (this.eventShardCachePending && !this.eventShardCarrier &&
+            Math.random() < CFG.events.shardCache.carrierChance) {
+            enemy.carriesShardCache = true;
+            this.eventShardCarrier = enemy;
+        }
+
+        return enemy;
     },
+
+    /** Elite chance for the current wave, 0 when elites are not yet active. */
+    rollElite() {
+        if (!ELITES_ENABLED) return false;
+        if (this.wave < ELITE_START_WAVE) return false;
+        const c = CFG.elites;
+        const p = Math.min(c.maxChance, c.baseChance + (this.wave - c.startWave) * c.chancePerWave);
+        return Math.random() < p;
+    },
+
+    /** Promote an enemy to elite: stat buffs, a marker and better rewards. */
+    applyElite(enemy) {
+        const c = CFG.elites;
+        enemy.isElite = true;
+        enemy.maxHp = Math.floor(enemy.maxHp * c.hpMult);
+        enemy.hp = enemy.maxHp;
+        enemy.baseSpeed *= c.speedMult;
+        enemy.speed = enemy.baseSpeed;
+        enemy.contactDamage = Math.floor(enemy.contactDamage * c.dmgMult);
+        enemy.xpMult = (enemy.xpMult || 1) * c.xpMult;
+        enemy.eliteShardChance = c.shardDropChance;
+        enemy.eliteShardAmount = c.shardDropAmount;
+        return enemy;
+    },
+
+    /** Ambush event: dump a pack of enemies in from one direction. */
+    spawnAmbushPack() {
+        const dir = this.ambushDir || (this.ambushDir = randPick([
+            { x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 },
+        ]));
+        const size = CFG.events.ambush.packSize;
+        for (let i = 0; i < size; i++) {
+            // Spread the pack along the edge perpendicular to the arrival vector.
+            const spread = randRange(-260, 260);
+            const px = this.camera.x + CANVAS_W / 2 + (dir.x !== 0 ? dir.x * (CANVAS_W / 2 + 90) : spread);
+            const py = this.camera.y + CANVAS_H / 2 + (dir.y !== 0 ? dir.y * (CANVAS_H / 2 + 90) : spread);
+            const enemy = this.createWaveEnemy({ x: px, y: py });
+            if (!enemy) break;
+            this.enemies.push(enemy);
+        }
+        this.camera.shake(3, 0.1);
+    },
+
+    /** Bounty hunt event: spawn one heavily buffed, clearly marked elite. */
+    spawnBountyTarget() {
+        const c = CFG.events.hunt;
+        const near = this.findSpawnPointOutsideView();
+        const enemy = this.createWaveEnemy(near);
+        if (!enemy) return;
+        this.applyElite(enemy);
+        enemy.maxHp = Math.floor(enemy.maxHp * c.eliteHpMult);
+        enemy.hp = enemy.maxHp;
+        enemy.baseSpeed *= c.eliteSpeedMult;
+        enemy.speed = enemy.baseSpeed;
+        enemy.isBounty = true;
+        this.bountyTarget = enemy;
+        this.enemies.push(enemy);
+        this.triggerEventToast("Bounty is in the arena!", "#ff66dd", 1.8);
+    },
+
+    /** A point just outside the visible camera rect, clamped to the world. */
+    findSpawnPointOutsideView() {
+        const margin = 90;
+        const edge = randInt(0, 3);
+        let x, y;
+        switch (edge) {
+            case 0: x = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin); y = this.camera.y - margin; break;
+            case 1: x = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin); y = this.camera.y + CANVAS_H + margin; break;
+            case 2: x = this.camera.x - margin; y = randRange(this.camera.y - margin, this.camera.y + CANVAS_H + margin); break;
+            default: x = this.camera.x + CANVAS_W + margin; y = randRange(this.camera.y - margin, this.camera.y + CANVAS_H + margin); break;
+        }
+        return { x: clamp(x, 0, WORLD_W), y: clamp(y, 0, WORLD_H) };
+    },
+
 
     onEnemyKilled(enemy) {
         this.killCount++;
@@ -7244,6 +7886,10 @@ const game = {
         const particleCount = isMobile ? 4 : 12;
         const deathColor = enemy.color || COLOR.enemyA;
         this.spawnParticles(enemy.x, enemy.y, deathColor, particleCount);
+        if (enemy.isElite) {
+            // Elites pop with an extra ring so the promotion is visible on death.
+            this.spawnParticles(enemy.x, enemy.y, "#ffd166", isMobile ? 3 : 10);
+        }
         if (enemy.type === "tank") {
             this.spawnParticles(enemy.x, enemy.y, "#226622", isMobile ? 2 : 6);
         } else if (enemy.type === "miniboss" || enemy.type === "bigboss") {
@@ -7278,6 +7924,32 @@ const game = {
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
         GameAudio.sfxEnemyDeath();
+
+        // ── Event rewards ──
+        // Shard cache: the tagged carrier pays out when it dies, however it dies.
+        if (enemy.carriesShardCache) {
+            this.grantEventShards(CFG.events.shardCache.shardReward);
+            this.eventShardCarrier = null;
+            this.spawnParticles(enemy.x, enemy.y, "#c38bff", isMobile ? 5 : 16);
+            this.triggerEventToast(`Shard Cache +${CFG.events.shardCache.shardReward}`, "#c38bff", 1.6);
+        }
+        // Bounty target slain.
+        if (enemy.isBounty) {
+            this.grantEventShards(CFG.events.hunt.shardReward);
+            this.bountyTarget = null;
+            this.triggerEventToast(`Bounty claimed +${CFG.events.hunt.shardReward}`, "#ff66dd", 1.6);
+            this.triggerEventFlash("#ff66dd", 0.2);
+        }
+        // Regular elite shard drop.
+        if (enemy.isElite && !enemy.isBounty && typeof enemy.eliteShardChance === "number" &&
+            Math.random() < enemy.eliteShardChance) {
+            this.grantEventShards(enemy.eliteShardAmount || 1);
+        }
+        // Splitter: breaks into two smaller, weaker copies that do not split again.
+        if (enemy.type === "splitter" && !enemy.isSplitChild) {
+            this.spawnSplitChildren(enemy);
+        }
+
         // Boss kill rewards: grant instantly on miniboss/bigboss death.
         if (enemy.type === "miniboss" || enemy.type === "bigboss") {
             this.pendingBonusUpgrade = false;
@@ -7286,10 +7958,35 @@ const game = {
         }
     },
 
+    /** Bank shards earned from run events; cashed in when the run finalises. */
+    grantEventShards(amount) {
+        if (!amount || amount <= 0) return;
+        this.eventShardsEarned = (this.eventShardsEarned || 0) + amount;
+    },
+
+    /** Splitter death: spawn two half-strength children that cannot split again. */
+    spawnSplitChildren(enemy) {
+        const count = 2;
+        for (let i = 0; i < count; i++) {
+            if (this.enemies.length >= dynamicCap(MAX_ENEMIES)) break;
+            const angle = (Math.PI * 2 / count) * i + randRange(-0.4, 0.4);
+            const cx = enemy.x + Math.cos(angle) * 26;
+            const cy = enemy.y + Math.sin(angle) * 26;
+            const child = new Enemy(cx, cy, enemy.maxHp * 0.32, enemy.baseSpeed * 1.25, undefined, "splitter");
+            child.isSplitChild = true;
+            child.radius = Math.max(8, enemy.radius * 0.62);
+            child.contactDamage = Math.max(1, Math.floor(enemy.contactDamage * 0.6));
+            child.xpMult = (enemy.xpMult || 1) * 0.4;
+            this.enemies.push(child);
+            this.spawnParticles(cx, cy, child.color || COLOR.enemyA, isMobile ? 2 : 6);
+        }
+    },
+
     /** Shard payout of the current run. `won` = final boss cleared. */
     computeShardGain(won) {
         const base = Math.floor(this.killCount * 0.45 + this.wave * 3 + (won ? 35 : 0));
-        return Math.max(5, Math.floor(base * this.shardRewardMult));
+        const eventBonus = this.eventShardsEarned || 0;
+        return Math.max(5, Math.floor(base * this.shardRewardMult) + eventBonus);
     },
 
     finalizeRun(won) {

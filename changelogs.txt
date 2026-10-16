@@ -2,6 +2,16 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 16.10:1
+- Gameplay update "Run Variance": runs now diverge instead of repeating the same wave loop
+- Added between-wave run events (every 3rd wave from wave 3, never on boss waves): Elite Wave, Ion Storm, Repair Fountain, Ambush, Shard Cache, Bounty Hunt
+- The active event is shown in the HUD, announced with a banner and explains itself via toast
+- Added elite enemies: golden aura, 2.6x HP, stronger contact damage and 3.2x XP, with a chance to drop shards
+- Added boss modifiers: bosses roll up to 2 random traits (Shield Wall, Berserker, Summoner, Siphon, Brutal, Brittle), shown as a label under the health bar. The first boss (wave 5) stays single-modifier so it is not overwhelming
+- Added two enemy types: Splitter (breaks into two weaker copies on death) and Warden (stationary turret with a rotating damage beam)
+- Event rewards (shard cache, bounty payout, elite drops) are banked during the run and added to the shard payout at run end
+- Wave kill targets now scale with events: Elite Wave needs more kills, Ambush needs fewer
+- All tuning lives in config.js under events, bossModifiers and elites - balance without touching code
 beta 08.10:1
 - Fixed run finalisation: Game Over now shows shards earned, high-score rank and the score table immediately instead of "+0"
 - Fixed lost level-ups: multiple level-ups arriving at once (big XP orbs) are queued instead of silently dropped
