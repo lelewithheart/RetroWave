@@ -433,6 +433,21 @@ const ELITE_START_WAVE = CFG.elites.startWave;
 
 // ────── LOOT / INVENTORY ──────
 const LOOT_CFG = CFG.loot || {};
+// Stats stored as fractions that should read as percentages in the UI. The
+// stored affix key is the config key (e.g. "moveSpeed"), but it maps to a stat
+// (e.g. "speedMult"), so labels must resolve through the config's `stat` field.
+const PCT_AFFIX_STATS = ["speedMult", "fireRateMult", "critChance", "critMult", "xpGainMult"];
+
+// Flavour names for non-set gear, per slot. Without these every plain item of a
+// slot reads "Common Weapon" / "Common Augment" and duplicates are unreadable.
+const ITEM_NAME_POOL = {
+    weapon:  ["Pulse Carbine", "Ion Lance", "Shard Repeater", "Neon Sidearm", "Volt SMG", "Plasma Dirk"],
+    chest:   ["Alloy Vest", "Kinetic Plate", "Phase Harness", "Bulwark Core", "Riot Weave", "Aegis Frame"],
+    helm:    ["Circuit Visor", "Targeting Crown", "Nano Hood", "Signal Array", "Reflex Mask", "Optic Shell"],
+    gloves:  ["Grip Servos", "Talon Gauntlets", "Arc Grips", "Vector Wraps", "Contact Claws", "Pulse Mitts"],
+    boots:   ["Thruster Boots", "Blink Striders", "Mag Treads", "Impulse Greaves", "Dash Plates", "Glide Steps"],
+    augment: ["Neural Spike", "Cortex Chip", "Reflex Node", "Shard Core", "Optics Module", "Synapse Weave"],
+};
 const LOOT_ENABLED = LOOT_CFG.enabled !== false;
 const LOOT_RARITIES = LOOT_CFG.rarities || {};
 const LOOT_SLOTS = LOOT_CFG.slots || [];
@@ -2659,6 +2674,10 @@ const Progression = (() => {
         function itemNameFor(slot, rarity, set) {
             const slotLabel = (LOOT_CFG.slotLabels && LOOT_CFG.slotLabels[slot]) || slot;
             if (set && LOOT_SETS[set]) return `${LOOT_SETS[set].label} ${slotLabel}`;
+            // Give plain items a concrete name per slot so two items of the same
+            // slot and rarity don't both read "Common Augment".
+            const pool = ITEM_NAME_POOL[slot];
+            if (pool && pool.length) return randPick(pool);
             return defaultItemName(slot, rarity);
         }
 
@@ -6960,9 +6979,12 @@ const game = {
     affixLabel(statKey, value) {
         const def = LOOT_AFFIXES[statKey];
         const label = (def && def.label) || statKey;
-        // Stats stored as fractions should read as percentages. Keep this in
-        // sync with the stat keys used in config.js loot.affixes.
-        const isPct = ["speedMult", "fireRateMult", "critChance", "critMult", "xpGain"].indexOf(statKey) !== -1;
+        // A stored affix keeps the config key (e.g. "moveSpeed"), while the
+        // underlying stat is a fraction (e.g. "speedMult"). Resolve the actual
+        // stat name first so percentage affixes format correctly, otherwise a
+        // fractional value like 0.034 renders as "+0".
+        const stat = (def && def.stat) || statKey;
+        const isPct = PCT_AFFIX_STATS.indexOf(stat) !== -1;
         if (isPct) return `+${Math.round(value * 100)}% ${label}`;
         const rounded = Math.round(value * 10) / 10;
         return `+${rounded} ${label}`;

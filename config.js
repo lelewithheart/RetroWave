@@ -310,7 +310,7 @@ window.RogueConfig = {
             xpGain:     { label: "XP Gain",       stat: "xpGainMult", perRarity: [0.05, 0.10, 0.18, 0.30] },
             magnet:     { label: "Pickup Range",  stat: "magnet",     perRarity: [15, 30, 55, 90] },
             piercing:   { label: "Piercing",      stat: "piercing",   perRarity: [1, 1, 2, 3] },
-            multiShot:  { label: "Multi-Shot",    stat: "multiShot",  perRarity: [0, 1, 1, 2] },
+            multiShot:  { label: "Multi-Shot",    stat: "multiShot",  perRarity: [1, 1, 1, 2] },
         },
 
         // Enchantments. `onDrop` items can roll one; the rest are applied later
