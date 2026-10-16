@@ -2,6 +2,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 17.10:4
+- Added ENDLESS MODE for fully upgraded accounts: after beating the wave-25 end boss you can keep going instead of ending the run
+- Waves past 25 stack an extra curve on top of the normal one (enemy HP +10% per wave, contact damage +6%, tighter spawns, +6 kills per wave), so a maxed account still meets real resistance. By wave 30 enemies are ~3.7x tougher than at 25, by wave 35 ~13x
+- Every 5th endless wave is another end boss; each one cleared pays out bonus shards
+- Victory and prestige are still awarded for beating wave 25 — Endless is an optional continuation, and your deepest endless wave is saved
+- Bounties are much harder: elite HP 2.2x -> 3.4x, speed 1.15x -> 1.3x, shard reward 8 -> 12. They were barely tougher than the elites around them
 beta 17.10:3
 - Fixed: killing the final boss did not award prestige. The end boss dropped an XP orb worth ~73,000 XP (xpMult 100), which queued dozens of level-ups; in the upgrade screen the victory timer does not tick, so pendingVictory never resolved. The end boss no longer drops an orb, upgrades are skipped once the run is won, and an open upgrade screen now closes itself when the boss dies
 - Difficulty rebalance: the previous pass overshot and made runs far too easy (kill-rate was 3-4x spawn-rate from wave 10). Spawn ramp 0.94 -> 0.91, spawn ceiling 0.30s -> 0.25s (the old cap flattened every wave past 19), contact damage 1.07 -> 1.12

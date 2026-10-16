@@ -296,6 +296,28 @@ const WAVE_DAMAGE_SCALE = CFG.wave.damageScale;          // contact damage grows
 const WAVE_REST_TIME = CFG.wave.restTime;                // seconds between waves
 const WAVE_MAX = CFG.wave.maxWave;                       // completing this wave triggers victory
 
+// ────── ENDLESS MODE ──────
+// After beating the wave-WAVE_MAX end boss the player may keep going. From
+// wave WAVE_MAX+1 on, these extra multipliers stack on top of the normal wave
+// scaling so a fully upgraded account still meets real resistance.
+const ENDLESS_CFG = (CFG.wave && CFG.wave.endless) || {};
+const ENDLESS_ENABLED = ENDLESS_CFG.enabled !== false;
+
+/** How many waves past WAVE_MAX we are (0 during the normal run). */
+function endlessDepth(waveNum) {
+    return Math.max(0, (waveNum | 0) - WAVE_MAX);
+}
+/** Extra HP multiplier for endless waves (1 during the normal run). */
+function endlessHpMult(waveNum) {
+    const d = endlessDepth(waveNum);
+    return d > 0 ? Math.pow(ENDLESS_CFG.hpScalePerWave || 1.10, d) : 1;
+}
+/** Extra contact-damage multiplier for endless waves. */
+function endlessDamageMult(waveNum) {
+    const d = endlessDepth(waveNum);
+    return d > 0 ? Math.pow(ENDLESS_CFG.damageScalePerWave || 1.06, d) : 1;
+}
+
 // ────── RUN EVENTS (between-wave modifiers) ──────
 // Every CFG.events.interval waves one event is drawn from the pool and applied
 // for the duration of that wave. Each definition exposes the same small
@@ -2147,6 +2169,8 @@ const Progression = (() => {
         meta: { hp: 0, dmg: 0, xp: 0, speed: 0 },
         gameSpeedIndex: 0,
         prestige: { count: 0 },
+        // Best wave ever reached in Endless mode (0 = never entered).
+        endlessBestWave: 0,
         skins: { unlocked: ["default"], selected: "default" },
         daily: {
             key: "",
@@ -2251,6 +2275,10 @@ const Progression = (() => {
 
         const lp = loaded.prestige || {};
         base.prestige.count = Number.isFinite(lp.count) ? Math.max(0, Math.floor(lp.count)) : 0;
+
+        base.endlessBestWave = Number.isFinite(loaded.endlessBestWave)
+            ? Math.max(0, Math.floor(loaded.endlessBestWave))
+            : 0;
 
         const ls = loaded.skins || {};
         const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
@@ -2513,6 +2541,21 @@ const Progression = (() => {
 
     function getPrestigeCount() {
         return Math.max(0, Math.floor(data.prestige?.count || 0));
+    }
+
+    /** Record the deepest Endless wave reached (persisted across sessions). */
+    function recordEndlessWave(waveNum) {
+        const w = Math.max(0, Math.floor(waveNum || 0));
+        if (w > (data.endlessBestWave || 0)) {
+            data.endlessBestWave = w;
+            save();
+            return true;
+        }
+        return false;
+    }
+
+    function getEndlessBestWave() {
+        return Math.max(0, Math.floor(data.endlessBestWave || 0));
     }
 
     function applyPrestigeFromFinalBoss() {
@@ -2920,6 +2963,8 @@ const Progression = (() => {
         setGameSpeedIndex,
         getPrestigeCount,
         applyPrestigeFromFinalBoss,
+        recordEndlessWave,
+        getEndlessBestWave,
         getSkinCatalog,
         getFeaturedSkinCatalog,
         getSelectedSkin,
@@ -5477,6 +5522,10 @@ const game = {
     pendingBonusUpgrade: false,
     pendingBossType: null,
     pendingVictory: false,
+    // Endless mode: set from the victory screen to keep the run going past the
+    // wave-25 end boss. Waves keep coming with a much steeper curve.
+    endless: false,
+    endlessBestWave: 0,
     pendingEndboss: false,
     endbossActive: false,
 
@@ -5638,6 +5687,7 @@ const game = {
         this.pendingVictory = false;
         this.pendingEndboss = false;
         this.endbossActive = false;
+        this.endless = false;
         this.killCount = 0;
         this.timePlayed = 0;
         this.lastHighScoreRank = 0;
@@ -5881,7 +5931,11 @@ const game = {
     },
 
     isBossWave(waveNum) {
-        return waveNum === 5 || waveNum === 10 || waveNum === 15 || waveNum === 20;
+        if (waveNum === 5 || waveNum === 10 || waveNum === 15 || waveNum === 20) return true;
+        // Endless: every 5th wave is a mini/big boss (the end-boss waves at
+        // multiples of 5 past WAVE_MAX are handled separately).
+        if (this.endless && endlessDepth(waveNum) > 0 && waveNum % 5 === 0) return true;
+        return false;
     },
 
     /**
@@ -6035,7 +6089,8 @@ const game = {
     maybeRequestMidroll() {
         if (!APP_CONFIG.monetization) return;
         if (this.wave < 2) return;
-        if (this.pendingVictory || this.wave >= WAVE_MAX) return;
+        // No ads once the run is decided, and none at all in Endless.
+        if (this.pendingVictory || this.endless || this.wave >= WAVE_MAX) return;
         if (this.isBossWave(this.wave)) return;
         if (this.timePlayed - this.lastMidrollAt < 90) return;
         if (this.wave - this.lastMidrollWave < 3) return;
@@ -6112,6 +6167,8 @@ const game = {
             CrazyGamesSDK.happyTime();
         }
         CrazyGamesSDK.submitScore(this.wave, this.killCount, this.timePlayed, false, runContext);
+        // Bank the deepest Endless wave reached before the run is sealed.
+        if (this.endless) Progression.recordEndlessWave(this.wave);
         this.runFinalized = true;
     },
 
@@ -8880,7 +8937,7 @@ const game = {
                 ctx.fillText(`Phase ${this.activeBoss.phase} — ${Math.ceil(ebPct * 100)}%`, CANVAS_W / 2, ebY + ebHpH / 2);
             }
         } else {
-            ctx.fillText(`Wave ${this.wave}`, CANVAS_W / 2, pad + 14);
+            ctx.fillText(this.endless ? `♾ ENDLESS ${this.wave}` : `Wave ${this.wave}`, CANVAS_W / 2, pad + 14);
         }
 
         // Enemies remaining
@@ -9135,8 +9192,11 @@ const game = {
                 this.waveBannerText = `WAVE ${this.wave} CLEARED!`;
                 this.triggerEventFlash("#77ccff", 0.2);
                 this.triggerEventToast(`Wave ${this.wave} Clear`, "#77ccff", 1.0);
-                // Wave 25 triggers endboss instead of pending victory
+                // Wave 25 triggers the end boss. In Endless every 5th wave after
+                // that is another end boss, so the mode keeps its climax beats.
                 if (this.wave === WAVE_MAX) {
+                    this.pendingEndboss = true;
+                } else if (this.endless && endlessDepth(this.wave) % 5 === 0) {
                     this.pendingEndboss = true;
                 }
                 this.maybeRequestMidroll();
@@ -9175,9 +9235,9 @@ const game = {
         this.enemies = [];
         // Spawn the endboss near the player
         const mods = modeModifiers();
-        const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
+        const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1) * endlessHpMult(this.wave);
         const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
-        const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
+        const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1) * endlessDamageMult(this.wave);
         const bx = clamp(this.player.x + randRange(-150, 150), 200, WORLD_W - 200);
         const by = clamp(this.camera.y - 200, 200, WORLD_H - 200);
         const boss = new Enemy(bx, by,
@@ -9210,8 +9270,15 @@ const game = {
         this.endEvent();
         this.wave++;
         this.waveKills = 0;
-        this.waveKillsRequired = Math.max(5, Math.floor((WAVE_BASE_KILLS + (this.wave - 1) * WAVE_KILLS_GROWTH) * mods.waveKillsMult));
-        this.spawnCooldown = Math.max(WAVE_SPAWN_CD_MIN, WAVE_BASE_SPAWN_CD * Math.pow(WAVE_SPAWN_CD_DECAY, this.wave - 1) * mods.spawnCdMult);
+        // Endless waves demand more kills per wave on top of the normal growth.
+        const endlessExtraKills = endlessDepth(this.wave) * (ENDLESS_CFG.extraKillsPerWave || 0);
+        this.waveKillsRequired = Math.max(5, Math.floor((WAVE_BASE_KILLS + (this.wave - 1) * WAVE_KILLS_GROWTH + endlessExtraKills) * mods.waveKillsMult));
+        // Endless also tightens the spawn ramp further; the floor still applies.
+        const cdDecay = endlessDepth(this.wave) > 0
+            ? (ENDLESS_CFG.spawnCdDecay || WAVE_SPAWN_CD_DECAY)
+            : WAVE_SPAWN_CD_DECAY;
+        const cdWave = endlessDepth(this.wave) > 0 ? WAVE_MAX : this.wave;
+        this.spawnCooldown = Math.max(WAVE_SPAWN_CD_MIN, WAVE_BASE_SPAWN_CD * Math.pow(cdDecay, cdWave - 1) * mods.spawnCdMult);
         if (this.expEarlyPacing === "softstart" && this.timePlayed < 60) {
             this.spawnCooldown *= 1.16;
         }
@@ -9241,9 +9308,10 @@ const game = {
 
         // Animated wave banner
         this.waveBannerTimer = 2.0;
+        const wavePrefix = this.endless ? "♾ ENDLESS WAVE " : "WAVE ";
         this.waveBannerText = this.isBossWave(this.wave)
             ? `⚠ BOSS WAVE ${this.wave} ⚠`
-            : `WAVE ${this.wave}`;
+            : `${wavePrefix}${this.wave}`;
 
         GameAudio.sfxWaveStart();
 
@@ -9251,9 +9319,9 @@ const game = {
         if (this.isBossWave(this.wave)) {
             const bossType = (this.wave === 10 || this.wave === 20) ? "bigboss" : "miniboss";
             const mods = modeModifiers();
-            const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
+            const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1) * endlessHpMult(this.wave);
             const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
-            const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
+            const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1) * endlessDamageMult(this.wave);
             // Spawn boss outside camera view (top edge)
             const bx = clamp(this.player.x + randRange(-200, 200), 100, WORLD_W - 100);
             const by = clamp(this.camera.y - 120, 100, WORLD_H - 100);
@@ -9292,9 +9360,9 @@ const game = {
         // Cap total enemy count to prevent frame drops on mobile
         if (this.enemies.length >= dynamicCap(MAX_ENEMIES)) return null;
         const mods = modeModifiers();
-        const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1);
+        const hpMult = Math.pow(WAVE_HP_SCALE, this.wave - 1) * endlessHpMult(this.wave);
         const spdMult = Math.pow(WAVE_SPEED_SCALE, this.wave - 1);
-        const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1);
+        const dmgMult = Math.pow(WAVE_DAMAGE_SCALE, this.wave - 1) * endlessDamageMult(this.wave);
 
         // Determine enemy type mix based on wave
         const typePool = ["normal"];
@@ -9496,13 +9564,21 @@ const game = {
             GameAudio.sfxExplosion();
             this.triggerEventFlash("#ff55cc", 0.32);
             this.triggerEventToast("FINAL BOSS SLAIN!", "#ff66dd", 1.5);
-            // Trigger victory!
             this.endbossActive = false;
             this.activeBoss = null;
-            // Small delay before victory screen
-            this.pendingVictory = true;
             this.waveActive = false;
-            this.waveRestTimer = 1.5 * modeModifiers().waveRestMult;
+            if (this.endless) {
+                // Endless: the run continues. Credit the endless-clear payout and
+                // roll straight into the next wave instead of ending the run.
+                this.pendingVictory = false;
+                this.grantEventShards(ENDLESS_CFG.shardsPerWave || 25);
+                this.triggerEventToast(`Endless Wave ${this.wave} cleared  +${ENDLESS_CFG.shardsPerWave || 25}✦`, "#c38bff", 2.0);
+                this.waveRestTimer = 2.5 * modeModifiers().waveRestMult;
+            } else {
+                // Normal run: wave-25 end boss ends the run in victory.
+                this.pendingVictory = true;
+                this.waveRestTimer = 1.5 * modeModifiers().waveRestMult;
+            }
         }
 
         const mods = modeModifiers();
@@ -10302,6 +10378,29 @@ const game = {
         }
     },
 
+    /**
+     * Continue the current run past the wave-25 end boss. The victory (and its
+     * prestige) is already banked, so this only resumes gameplay — but the wave
+     * counter keeps climbing and the endless curve applies from wave 26 on.
+     */
+    startEndless() {
+        if (!ENDLESS_ENABLED) return;
+        this.endless = true;
+        // Undo the "run finished" flags so gameplay and scoring resume.
+        this.runFinalized = false;
+        this.pendingVictory = false;
+        this.state = STATE.GAMEPLAY;
+        this.waveActive = false;
+        this.waveRestTimer = 2.0;
+        this.endlessBestWave = Math.max(this.endlessBestWave, this.wave);
+        GameAudio.startMusic();
+        CrazyGamesSDK.gameplayStart();
+        this.triggerEventFlash("#c38bff", 0.35);
+        this.waveBannerTimer = 3.0;
+        this.waveBannerText = `♾ ENDLESS MODE — WAVE ${this.wave + 1}`;
+        this.triggerEventToast("Endless mode: the waves do not stop", "#c38bff", 2.4);
+    },
+
     drawVictory() {
         ctx.fillStyle = COLOR.bg;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -10365,13 +10464,24 @@ const game = {
         const bw = 220, bh = 48;
         const bx = CANVAS_W / 2 - bw / 2;
 
-        const restartY = 306;
+        // Endless entry: only offered on a real (non-endless) victory.
+        let nextButtonY = 306;
+        if (ENDLESS_ENABLED && !this.endless) {
+            const endHover = Mouse.inRect(bx, nextButtonY, bw, bh);
+            const label = `♾  ENDLESS  (Wave ${WAVE_MAX + 1}+)`;
+            if (drawButton(label, bx, nextButtonY, bw, bh, endHover)) {
+                this.startEndless();
+            }
+            nextButtonY += bh + 8;
+        }
+
+        const restartY = nextButtonY;
         const restartHover = Mouse.inRect(bx, restartY, bw, bh);
         if (drawButton("↻  PLAY AGAIN", bx, restartY, bw, bh, restartHover)) {
             this.startGame();
         }
 
-        const menuY = restartY + bh + 8;   // 362
+        const menuY = restartY + bh + 8;
         const menuHover = Mouse.inRect(bx, menuY, bw, bh);
         if (drawButton("🏠  MAIN MENU", bx, menuY, bw, bh, menuHover)) {
             this.setState(STATE.START_MENU);

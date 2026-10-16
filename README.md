@@ -21,6 +21,7 @@ Open `index.html` in any modern browser — no build step required.
 | **Loot & Inventory** | Buy chests with shards, roll gear across 6 slots and 4 rarities, build a loadout. 12 affix types, 3 sets with 2/4/6-piece bonuses, 6 enchantments (incl. Afterlife, which saves an item from the death penalty) |
 | **Chests** | Three tiers: Standard (100), Premium (300), Elite (800). Opening plays an animated sequence — the chest rattles and glows, bursts open, then item cards fly in with a rarity aura |
 | **Death Penalty** | Equipped gear is destroyed when you die. Unequipped items are safe, so equipping is a real risk decision |
+| **Endless Mode** | After the wave-25 end boss you can keep going. Waves past 25 stack an extra curve (HP +10%/wave, damage +6%, tighter spawns) with an end boss every 5th wave. Victory and prestige are still awarded for wave 25 |
 | **Menus** | Lean start menu (titled setup panel + one prominent PLAY button + six-button nav). LOCKER holds permanent upgrades, prestige and the loadout. STATS holds the daily mission and high-score table |
 | **XP & Level-Up** | Collect XP orbs → pick 1 of 3 random power-ups (damage, fire-rate, speed, HP, etc.) |
 | **Particles** | Explosions on enemy death and player hit |

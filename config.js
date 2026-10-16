@@ -29,6 +29,23 @@ window.RogueConfig = {
         damageScale: 1.12,
         restTime: 2.5,
         maxWave: 25,
+        // ── Endless mode ──
+        // Beating the wave-25 end boss still awards victory and prestige. The
+        // player can then opt into Endless, where waves keep coming with a much
+        // steeper curve so a fully upgraded account still gets pushed.
+        endless: {
+            enabled: true,
+            // Extra HP scaling per endless wave, ON TOP of the normal hpScale.
+            hpScalePerWave: 1.10,
+            // Contact damage grows faster too.
+            damageScalePerWave: 1.06,
+            // Spawn rate keeps tightening (but is floored by minSpawnCd).
+            spawnCdDecay: 0.965,
+            // Kill target per endless wave grows on top of the usual growth.
+            extraKillsPerWave: 6,
+            // Shard payout per endless wave cleared, so the risk pays something.
+            shardsPerWave: 25,
+        },
     },
     bosses: {
         minibossName: "Shard Warden",
@@ -213,9 +230,12 @@ window.RogueConfig = {
             carrierChance: 0.22,    // chance any given spawned enemy carries the cache
         },
         hunt: {
-            eliteHpMult: 2.2,
-            eliteSpeedMult: 1.15,
-            shardReward: 8,
+            // Bounty targets were barely tougher than the elites around them, so
+            // the "hunt" read as a free shard pickup. Pushed up and made them
+            // noticeably faster so they must actually be chased down.
+            eliteHpMult: 3.4,
+            eliteSpeedMult: 1.3,
+            shardReward: 12,
         },
     },
     bossModifiers: {
