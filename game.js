@@ -4883,6 +4883,8 @@ const game = {
 
     /** Handles the performance-mode prompt. Returns true while it is open. */
     updatePerfPrompt() {
+        // Never leave the prompt visible in a state where update() is not
+        // processing it — otherwise it renders as a dead overlay.
         if (!this.perfPromptVisible) return false;
         const l = this.getPerfPromptLayout();
         const clickedYes = Mouse.clicked && Mouse.inRect(l.yes.x, l.yes.y, l.yes.w, l.yes.h);
@@ -4907,6 +4909,17 @@ const game = {
 
     drawPerfPrompt() {
         if (!this.perfPromptVisible) return;
+        // Safety net: the prompt is only ever actionable during an active run.
+        // If it somehow survives into a menu state, drop it instead of drawing
+        // an overlay the player cannot dismiss.
+        if (this.state !== STATE.GAMEPLAY &&
+            this.state !== STATE.UPGRADE_SCREEN &&
+            this.state !== STATE.PAUSED &&
+            this.state !== STATE.SETTINGS &&
+            this.state !== STATE.CHEAT_MENU) {
+            this.perfPromptVisible = false;
+            return;
+        }
         const l = this.getPerfPromptLayout();
 
         ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -5075,6 +5088,14 @@ const game = {
 
     update(dt) {
         this.updateTransition(dt);
+
+        // The one-time performance prompt is drawn on top of every state, so it
+        // must also be handled in every state. Keeping this here (instead of only
+        // in updateGameplay) prevents the prompt from becoming an unresponsive
+        // overlay during UPGRADE_SCREEN / PAUSED / GAME_OVER / VICTORY.
+        const perfPromptOpen = this.updatePerfPrompt();
+        if (perfPromptOpen) return;
+
         switch (this.state) {
             case STATE.START_MENU:   this.updateStartMenu(dt); break;
             case STATE.CHANGELOGS:   this.updateChangelogs(dt); break;
@@ -5953,9 +5974,6 @@ const game = {
     // ────── GAMEPLAY ──────
 
     updateGameplay(dt) {
-        // Freeze the arena while the one-time performance prompt is open.
-        if (this.updatePerfPrompt()) return;
-
         this.updateGameSpeedSelection();
         const speedDt = dt * this.gameSpeedMult;
 
