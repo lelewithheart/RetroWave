@@ -10,6 +10,9 @@ Open `index.html` in any modern browser — no build step required.
 
 | Feature | Details |
 |---|---|
+| **Dash** | SPACE or SHIFT (DASH button on touch): a short dodge with invincibility and a 2.4 s cooldown |
+| **Power-ups** | Magnet, Repair, EMP Blast and Overdrive drop during runs, bosses always drop Overdrive |
+| **Supporter Cache** | Optional purchase with 3 cosmetic skins. Fixed contents, no random drops, no gameplay advantage. Code check is in `fx.js`, codes come from `tools/rw_code.py` in the company workspace |
 | **Engine** | `requestAnimationFrame` game-loop with delta-time; runs smoothly at 60 Hz and 144 Hz |
 | **Input** | Uses `event.code` (`KeyW`, `KeyA`, …) — works on QWERTY, AZERTY, QWERTZ, and more |
 | **Game States** | `START_MENU` → `GAMEPLAY` → `UPGRADE_SCREEN` / `SETTINGS` → `GAME_OVER` |

@@ -10,6 +10,19 @@ schiefging und warum. Nicht die Marketing-Version.
 
 ---
 
+## Eintrag 0 — Polish und Supporter Cache (beta 4.11:1)
+
+Neu sind `fx.js` für Effekte, Skins, Power-ups und den Cache, außerdem Dash und vier Upgrades.
+Das Bild rendert jetzt in Bildschirmauflösung statt fest 960×640. Die Kamera wackelt nicht mehr
+bei jedem Treffer, Gegner stapeln sich nicht mehr, und jeder Run startet direkt beim Spieler.
+
+Der Supporter Cache hat bewusst festen Inhalt und bringt keine Vorteile im Spiel. Eine bezahlte
+Zufallstruhe wäre in Österreich ein Glücksspiel-Risiko. Shards bleiben reine Spielwährung.
+
+Nicht von Menschen geprüft: Balance mit Dash und Power-ups sowie die Touch-Steuerung am Handy.
+
+---
+
 ## Eintrag 1 — Der große Gameplay-Umbau (beta 16.10:1)
 
 Bis hierhin lief jeder Run gleich ab: dieselben Wellen, dieselben Gegner,

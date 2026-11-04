@@ -1,7 +1,7 @@
 """
 Generate the missing RogueWave player-skin sprites.
 
-Style is matched to the two existing assets (rainbow.png, SpidermanSkin.png):
+Style is matched to the existing rainbow.png asset:
   * pixel-art, 128x128, RGBA, transparent outside the disc
   * flat colours, no gradients
   * 1px-crisp dark outline around the disc
