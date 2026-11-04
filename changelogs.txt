@@ -2,6 +2,19 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 4.11:1
+- NEW: Dash! Press SPACE or SHIFT (DASH button on touch) to dodge through enemies
+- NEW: Power-ups drop in runs: Magnet, Repair, EMP Blast and Overdrive
+- NEW: 4 upgrades: Dash Cooldown, Shock Dash, Scavenger, Overclock
+- NEW: 6 animated skins in the shop: Hexcore, Circuit, Magma, Frostbite, Synthwave, Vortex
+- NEW: Supporter Cache with 3 exclusive skins. Fixed contents, no random drops, no gameplay advantage
+- Sharper graphics on high-resolution screens, new backgrounds, glow, bullet streaks and sparks
+- Smoother movement and camera, the screen no longer shakes on every hit
+- Enemies now spread out, get pushed back by hits and fade in when they spawn
+- Arrows point to bosses and bounty targets outside the screen
+- Fixed HUD texts overlapping, and touchscreen laptops being treated like phones
+- Removed one old shop skin. Owners get their 240 shards back
+
 beta 17.10:4
 - Added ENDLESS MODE for fully upgraded accounts: after beating the wave-25 end boss you can keep going instead of ending the run
 - Waves past 25 stack an extra curve on top of the normal one (enemy HP +10% per wave, contact damage +6%, tighter spawns, +6 kills per wave), so a maxed account still meets real resistance. By wave 30 enemies are ~3.7x tougher than at 25, by wave 35 ~13x
@@ -174,9 +187,6 @@ beta 20.04:10
 - Parser default-skin fallback now pulls from centralized config defaults instead of hardcoded duplicate values
 
 beta 20.04:09-4
-- Added new Spiderman Skin to the shop using assets/playerskins/SpidermanSkin.png
-- Defined Spiderman skin colors: player color #d32f2f and glow color rgba(30,90,200,0.35)
-- Added Spiderman skin to featured shop entries
 
 beta 20.04:09-3
 - Choosing Yes on the low-FPS prompt now keeps Performance Mode always ON for the rest of that run

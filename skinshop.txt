@@ -4,6 +4,7 @@
 #
 # Section [skins] format:
 # id|name|playerColor|glowColor|cost|assetPath
+# Skins without assetPath are drawn in fx.js. Cost 0 with a supporter flag in fx.js is not for sale here.
 #
 # Section [featured] format:
 # skinId
@@ -14,7 +15,15 @@ surge|Lime Surge|#66ff99|rgba(102,255,153,0.25)|140|assets/playerskins/surge.png
 ember|Ember Pulse|#ff6688|rgba(255,102,136,0.25)|140|assets/playerskins/ember.png
 nova|Nova Gold|#ffd166|rgba(255,209,102,0.28)|180|assets/playerskins/nova.png
 rainbow|Rainbow|#ff00ff|rgba(255, 0, 255, 0.4)|200|assets/playerskins/rainbow.png
-spiderman|Spiderman Skin|#d32f2f|rgba(30, 90, 200, 0.35)|240|assets/playerskins/SpidermanSkin.png
+hexcore|Hexcore|#40f0d6|rgba(64,240,214,0.28)|260|
+circuit|Circuit|#62ff8a|rgba(98,255,138,0.26)|300|
+magma|Magma|#ff7a1a|rgba(255,122,26,0.3)|360|
+frostbite|Frostbite|#9fe3ff|rgba(159,227,255,0.3)|360|
+synthwave|Synthwave|#ff5a8a|rgba(255,90,138,0.3)|420|
+vortex|Vortex|#9a5cff|rgba(154,92,255,0.3)|500|
+solar_crown|Solar Crown|#ffb52e|rgba(255,181,46,0.36)|0|
+void_reaper|Void Reaper|#6b21d6|rgba(139,61,255,0.36)|0|
+prism_phantom|Prism Phantom|#ff66dd|rgba(255,102,221,0.34)|0|
 prestige_bronze|Prestige Bronze|#d4a574|rgba(212,165,116,0.25)|0|assets/playerskins/prestige_bronze.png
 prestige_silver|Prestige Silver|#c0c0c0|rgba(192,192,192,0.25)|0|assets/playerskins/prestige_silver.png
 prestige_gold|Prestige Gold|#ffd700|rgba(255,215,0,0.25)|0|assets/playerskins/prestige_gold.png
@@ -23,6 +32,6 @@ prestige_platinum|Prestige Platinum|#e5e4e2|rgba(229,228,226,0.25)|0|assets/play
 prestige_emerald|Prestige Emerald|#50c878|rgba(80,200,120,0.25)|0|assets/playerskins/prestige_emerald.png
 
 [featured]
-rainbow
-nova
-spiderman
+solar_crown
+vortex
+magma

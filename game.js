@@ -43,9 +43,17 @@ const CFG = (typeof window !== "undefined" && window.RogueConfig)
                 { id: "ember", name: "Ember Pulse", player: "#ff6688", glow: "rgba(255,102,136,0.25)", cost: 140, asset: "assets/playerskins/ember.png" },
                 { id: "nova", name: "Nova Gold", player: "#ffd166", glow: "rgba(255,209,102,0.28)", cost: 180, asset: "assets/playerskins/nova.png" },
                 { id: "rainbow", name: "Rainbow", player: "#ff00ff", glow: "rgba(255,0,255,0.4)", cost: 200, asset: "assets/playerskins/rainbow.png" },
-                { id: "spiderman", name: "Spiderman Skin", player: "#d32f2f", glow: "rgba(30,90,200,0.35)", cost: 240, asset: "assets/playerskins/SpidermanSkin.png" },
+                { id: "hexcore", name: "Hexcore", player: "#40f0d6", glow: "rgba(64,240,214,0.28)", cost: 260, asset: "" },
+                { id: "circuit", name: "Circuit", player: "#62ff8a", glow: "rgba(98,255,138,0.26)", cost: 300, asset: "" },
+                { id: "magma", name: "Magma", player: "#ff7a1a", glow: "rgba(255,122,26,0.3)", cost: 360, asset: "" },
+                { id: "frostbite", name: "Frostbite", player: "#9fe3ff", glow: "rgba(159,227,255,0.3)", cost: 360, asset: "" },
+                { id: "synthwave", name: "Synthwave", player: "#ff5a8a", glow: "rgba(255,90,138,0.3)", cost: 420, asset: "" },
+                { id: "vortex", name: "Vortex", player: "#9a5cff", glow: "rgba(154,92,255,0.3)", cost: 500, asset: "" },
+                { id: "solar_crown", name: "Solar Crown", player: "#ffb52e", glow: "rgba(255,181,46,0.36)", cost: 0, asset: "" },
+                { id: "void_reaper", name: "Void Reaper", player: "#6b21d6", glow: "rgba(139,61,255,0.36)", cost: 0, asset: "" },
+                { id: "prism_phantom", name: "Prism Phantom", player: "#ff66dd", glow: "rgba(255,102,221,0.34)", cost: 0, asset: "" },
             ],
-            featuredIds: ["rainbow", "nova", "spiderman"],
+            featuredIds: ["solar_crown", "vortex", "magma"],
         },
         upgrades: {
             rarityBaseWeights: {
@@ -118,7 +126,7 @@ const CANVAS_W = 960;
 const CANVAS_H = 640;
 const MIN_READABLE_SCALE = CFG.perf.minReadableScale;
 const TARGET_FPS = 60;
-const MAX_DT = 0.1;                      // Cap to avoid spiral of death
+const MAX_DT = 0.05;                     // Cap to avoid spiral of death
 let GAME_VERSION = "loading...";
 let CHANGELOG_ENTRIES = [];
 
@@ -278,7 +286,7 @@ const PERF_SAMPLE_WINDOW = CFG.perf.sampleWindow;
 const TUTORIAL_HINT_DURATION = 8;
 
 // Camera
-const CAMERA_LERP_SPEED = 5;             // Higher = snappier follow
+const CAMERA_LERP_SPEED = 7;             // Higher = snappier follow
 
 // Screen-shake
 const SHAKE_DURATION = 0.15;
@@ -664,6 +672,11 @@ const GAME_SPEED_UNLOCK_MAX = GAME_SPEED_OPTIONS.length - 1;
 const canvas = document.getElementById("gameCanvas");
 const ctx    = canvas.getContext("2d");
 
+const MAX_RENDER_SCALE = 2;
+let renderScaleTarget = 1;
+let renderScaleCap = MAX_RENDER_SCALE;
+let renderScale = 1;
+
 const LAYOUT_BREAKPOINTS = {
     compact: 700,
     narrow: 900,
@@ -703,8 +716,19 @@ function resizeCanvas() {
 
     canvas.style.width  = (CANVAS_W * scale) + "px";
     canvas.style.height = (CANVAS_H * scale) + "px";
-    canvas.width  = CANVAS_W;
-    canvas.height = CANVAS_H;
+    renderScaleTarget = clamp(scale * (window.devicePixelRatio || 1), 1, MAX_RENDER_SCALE);
+    applyRenderScale();
+}
+
+/** Sharp output: the backing store follows the display size, the game keeps its 960x640 logic. */
+function applyRenderScale(lowPerf = false) {
+    const want = lowPerf ? 1 : Math.min(renderScaleTarget, renderScaleCap);
+    const w = Math.round(CANVAS_W * want), h = Math.round(CANVAS_H * want);
+    if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+    }
+    renderScale = want;
 }
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
@@ -1153,14 +1177,14 @@ function parseSkinShopText(text) {
 
         if (section === "skins") {
             const parts = line.split("|").map(s => s.trim());
-            if (parts.length < 6) continue;
+            if (parts.length < 5) continue;
 
             const id = parts[0];
             const name = parts[1];
             const player = parts[2];
             const glow = parts[3];
             const cost = Math.max(0, Math.floor(Number(parts[4]) || 0));
-            const asset = parts[5];
+            const asset = parts[5] || "";
 
             if (!id || !name || !player || !glow) continue;
             skins.push({ id, name, player, glow, cost, asset });
@@ -1491,6 +1515,7 @@ const SkinAssets = (() => {
 
 function drawSkinIcon(x, y, radius, skin) {
     if (!skin) return;
+    if (FX.drawSkin(skin.id, x, y, radius)) return;
 
     ctx.fillStyle = skin.player;
     ctx.beginPath();
@@ -1689,6 +1714,32 @@ const GameAudio = (() => {
         g.connect(sfxGain);
         osc.start(t);
         osc.stop(t + 0.1);
+    }
+
+    function sfxDash() {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(240, t);
+        osc.frequency.exponentialRampToValueAtTime(900, t + 0.12);
+        g.gain.setValueAtTime(0.12, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+        osc.connect(g);
+        g.connect(sfxGain);
+        osc.start(t);
+        osc.stop(t + 0.16);
+    }
+
+    function sfxPowerUp() {
+        if (!Settings.soundEnabled) return;
+        const ctx = ensureContext();
+        const t = ctx.currentTime;
+        playTone(523, "square", 0.1, 0.13, sfxGain, t);
+        playTone(784, "square", 0.1, 0.13, sfxGain, t + 0.07);
+        playTone(1047, "square", 0.16, 0.13, sfxGain, t + 0.14);
     }
 
     function sfxHit() {
@@ -2040,6 +2091,8 @@ const GameAudio = (() => {
     return {
         ensureContext,
         sfxShoot,
+        sfxDash,
+        sfxPowerUp,
         sfxHit,
         sfxEnemyDeath,
         sfxPlayerHit,
@@ -2169,6 +2222,7 @@ const Progression = (() => {
         meta: { hp: 0, dmg: 0, xp: 0, speed: 0 },
         gameSpeedIndex: 0,
         prestige: { count: 0 },
+        supporter: false,
         // Best wave ever reached in Endless mode (0 = never entered).
         endlessBestWave: 0,
         skins: { unlocked: ["default"], selected: "default" },
@@ -2280,8 +2334,15 @@ const Progression = (() => {
             ? Math.max(0, Math.floor(loaded.endlessBestWave))
             : 0;
 
+        base.supporter = loaded.supporter === true;
+
         const ls = loaded.skins || {};
+        // The Spiderman skin was removed. Owners get their 240 shards back.
+        if (Array.isArray(ls.unlocked) && ls.unlocked.includes("spiderman")) base.shards += 240;
         const unlocked = Array.isArray(ls.unlocked) ? ls.unlocked.filter(id => !!SKINS[id]) : ["default"];
+        if (base.supporter) {
+            for (const id of FX.CACHE_SKINS) if (SKINS[id] && !unlocked.includes(id)) unlocked.push(id);
+        }
         const prestigeUnlocked = getUnlockedSkinsForPrestige(base.prestige.count);
         const prestigeUnlockedSet = new Set(prestigeUnlocked);
         for (let i = unlocked.length - 1; i >= 0; i--) {
@@ -2423,6 +2484,7 @@ const Progression = (() => {
             return { ok: false, reason: "prestige", required: prestigeRequirement };
         }
         if (!data.skins.unlocked.includes(id)) {
+            if (FX.isSupporterSkin(id)) return { ok: false, reason: "supporter" };
             if (data.shards < skin.cost) return { ok: false, reason: "shards" };
             data.shards -= skin.cost;
             data.skins.unlocked.push(id);
@@ -2432,9 +2494,23 @@ const Progression = (() => {
         return { ok: true };
     }
 
+    function isSupporter() { return data.supporter === true; }
+
+    /** Unlocks the fixed Supporter Cache contents. Safe to call twice. */
+    function grantSupporter() {
+        data.supporter = true;
+        for (const id of FX.CACHE_SKINS) {
+            if (SKINS[id] && !data.skins.unlocked.includes(id)) data.skins.unlocked.push(id);
+        }
+        save();
+    }
+
     function getSkinCatalog() {
         const unlocked = new Set(data.skins.unlocked);
-        return SKIN_CATALOG.map((s) => {
+        const visible = FX.cacheAvailable()
+            ? SKIN_CATALOG
+            : SKIN_CATALOG.filter((s) => !FX.isSupporterSkin(s.id) || unlocked.has(s.id));
+        return visible.map((s) => {
             const prestigeRequirement = getPrestigeSkinRequirement(s.id);
             const prestigeUnlocked = prestigeRequirement > 0 && getPrestigeCount() >= prestigeRequirement;
             const unlockedByData = unlocked.has(s.id);
@@ -2446,6 +2522,7 @@ const Progression = (() => {
                 prestigeRequirement,
                 prestigeLocked: prestigeRequirement > 0 && !prestigeUnlocked,
                 prestigeSkin: prestigeRequirement > 0,
+                supporterSkin: FX.isSupporterSkin(s.id),
             };
         });
     }
@@ -2966,6 +3043,8 @@ const Progression = (() => {
         recordEndlessWave,
         getEndlessBestWave,
         getSkinCatalog,
+        isSupporter,
+        grantSupporter,
         getFeaturedSkinCatalog,
         getSelectedSkin,
         unlockOrSelectSkin,
@@ -3049,6 +3128,7 @@ const Input = {
 
     init() {
         window.addEventListener("keydown", (e) => {
+            if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
             if (!this._pressed.has(e.code)) this._justPressed.add(e.code);
             this._pressed.add(e.code);
         });
@@ -3205,6 +3285,8 @@ const Mouse = {
 // ─────────────────────────────────────────────
 
 const isMobile = (() => {
+    // A touchscreen laptop is still a mouse device, so ask for the primary pointer.
+    if (window.matchMedia) return window.matchMedia("(pointer: coarse)").matches;
     return ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
 })();
 
@@ -3233,6 +3315,7 @@ const TouchControls = {
     maxDist: 50,          // max travel from center
 
     pauseTapped: false,
+    dashTapped: false,
 
     getPauseButtonRect() {
         if (isPortraitMobile()) {
@@ -3260,6 +3343,12 @@ const TouchControls = {
 
                 // Only activate joystick during gameplay states
                 if (game.state !== STATE.GAMEPLAY) continue;
+
+                const dashBtn = FX.dashButtonRect();
+                if (Math.hypot(pos.x - dashBtn.x, pos.y - dashBtn.y) <= dashBtn.r + 10) {
+                    this.dashTapped = true;
+                    continue;
+                }
 
                 // Left half of screen → movement joystick
                 if (!this.moveActive && pos.x < CANVAS_W / 2) {
@@ -3398,6 +3487,7 @@ const TouchControls = {
 
         // Pause button
         this.drawPauseButton();
+        FX.drawDashButton();
 
         // Aim joystick (right side) – always shown in hard mode
         if (Settings.gameMode !== "hard") return;
@@ -3461,6 +3551,7 @@ const TouchControls = {
 
     flush() {
         this.pauseTapped = false;
+        this.dashTapped = false;
     },
 };
 
@@ -3479,6 +3570,8 @@ class Camera {
         this.shakeIntensity = SHAKE_INTENSITY;
         this.shakeOffsetX = 0;
         this.shakeOffsetY = 0;
+        this.trauma = 0;
+        this.shakeClock = 0;
     }
 
     follow(entity) {
@@ -3497,12 +3590,13 @@ class Camera {
         this.y = clamp(this.y, 0, WORLD_H - CANVAS_H);
 
         // Screen shake
-        if (this.shakeTimer > 0) {
-            this.shakeTimer -= dt;
-            const safeDuration = Math.max(0.0001, this.shakeDuration);
-            const intensity = this.shakeIntensity * (this.shakeTimer / safeDuration);
-            this.shakeOffsetX = randRange(-intensity, intensity);
-            this.shakeOffsetY = randRange(-intensity, intensity);
+        if (this.trauma > 0) {
+            this.trauma = Math.max(0, this.trauma - dt * 2.2);
+            this.shakeClock += dt;
+            const amount = 15 * this.trauma * this.trauma;
+            const c = this.shakeClock;
+            this.shakeOffsetX = amount * (Math.sin(c * 47.3) + Math.sin(c * 71.9)) * 0.5;
+            this.shakeOffsetY = amount * (Math.sin(c * 53.1) + Math.sin(c * 67.7)) * 0.5;
         } else {
             this.shakeOffsetX = 0;
             this.shakeOffsetY = 0;
@@ -3511,17 +3605,16 @@ class Camera {
 
     shake(intensity = SHAKE_INTENSITY, duration = SHAKE_DURATION) {
         if (!Settings.shakeEnabled) return;
-        this.shakeIntensity = Math.max(1, Number(intensity) || SHAKE_INTENSITY);
-        this.shakeDuration = Math.max(0.03, Number(duration) || SHAKE_DURATION);
-        this.shakeTimer = this.shakeDuration;
+        const added = (Number(intensity) || SHAKE_INTENSITY) * 0.09;
+        this.trauma = Math.min(1, this.trauma + added);
     }
 
     /** Apply camera transform before drawing world objects */
     applyTransform() {
         ctx.save();
         ctx.translate(
-            -Math.round(this.x + this.shakeOffsetX),
-            -Math.round(this.y + this.shakeOffsetY)
+            -(this.x + this.shakeOffsetX),
+            -(this.y + this.shakeOffsetY)
         );
     }
 
@@ -3574,6 +3667,22 @@ class Player extends Entity {
         this.xpToNext  = 50;
         this.angle     = 0;       // facing direction
         this.invTimer  = 0;       // invincibility frames after hit
+        this.vx = 0;
+        this.vy = 0;
+        this.aimShown = 0;        // eased barrel angle, purely visual
+        this.recoil = 0;
+        this.dashT = 0;
+        this.dashCd = 0;
+        this.dashCooldown = 2.4;
+        this.dashDx = 0;
+        this.dashDy = 0;
+        this.dashGhostT = 0;
+        this.dashSerial = 0;
+        this.shockDash = 0;
+        this.pickupLuck = 1;
+        this.overdriveT = 0;
+        this.overdriveMax = 1;
+        this.overdriveBonus = 0;
 
         // New stats
         this.armor        = 0;    // flat damage reduction
@@ -3599,6 +3708,8 @@ class Player extends Entity {
         };
 
         const skin = Progression.getSelectedSkin();
+        this.skinId = skin.id;
+        FX.setRunSkin(skin.id);
         this.skinColor = skin.player;
         this.skinGlow = skin.glow;
         this.skinAssetPath = skin.asset || "";
@@ -3640,8 +3751,25 @@ class Player extends Entity {
     update(dt) {
         // Movement
         const mv = Input.moveVector();
-        this.x += mv.x * this.speed * dt;
-        this.y += mv.y * this.speed * dt;
+        const od = this.overdriveT > 0;
+        if (od) this.overdriveT -= dt;
+        if (this.dashCd > 0) this.dashCd -= dt;
+        const wantsDash = Input.just("Space") || Input.just("ShiftLeft") || Input.just("ShiftRight") || TouchControls.dashTapped;
+        if (wantsDash && this.dashCd <= 0 && this.dashT <= 0) this.startDash(mv);
+
+        const moveSpeed = this.speed * (od ? 1.15 : 1);
+        const blend = 1 - Math.exp(-16 * dt);
+        this.vx = lerp(this.vx, mv.x * moveSpeed, blend);
+        this.vy = lerp(this.vy, mv.y * moveSpeed, blend);
+        if (this.dashT > 0) {
+            this.dashT -= dt;
+            this.x += this.dashDx * 640 * dt;
+            this.y += this.dashDy * 640 * dt;
+            this.updateDashTrail(dt);
+        } else {
+            this.x += this.vx * dt;
+            this.y += this.vy * dt;
+        }
 
         // Clamp to world
         this.x = clamp(this.x, this.radius, WORLD_W - this.radius);
@@ -3674,10 +3802,11 @@ class Player extends Entity {
         }
 
         // Auto-fire
-        this.fireTimer -= dt;
+        this.fireTimer -= dt * (od ? 1.8 : 1);
         const canFire = Settings.gameMode === "hard" ? true : !!nearest;
         if (this.fireTimer <= 0 && canFire) {
             this.fireTimer = this.fireRate;
+            this.recoil = 1;
             // Multi-shot: spread bullets
             const totalBullets = 1 + this.multiShot;
             const spreadAngle = 0.12; // radians between each extra bullet
@@ -3694,8 +3823,44 @@ class Player extends Entity {
         // Invincibility
         if (this.invTimer > 0) this.invTimer -= dt;
 
+        // Visual barrel easing
+        const turn = ((this.angle - this.aimShown + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        this.aimShown += turn * (1 - Math.exp(-22 * dt));
+        this.recoil = Math.max(0, this.recoil - dt * 9);
+
         // Update weapons
         this.updateWeapons(dt);
+    }
+
+    startDash(mv) {
+        const moving = mv.x !== 0 || mv.y !== 0;
+        this.dashDx = moving ? mv.x : Math.cos(this.angle);
+        this.dashDy = moving ? mv.y : Math.sin(this.angle);
+        this.dashT = 0.16;
+        this.dashCd = this.dashCooldown;
+        this.invTimer = Math.max(this.invTimer, 0.26);
+        this.dashGhostT = 0;
+        this.dashSerial++;
+        FX.ring(this.x, this.y, "#9fe7ff", 44, 0.24, 2);
+        GameAudio.sfxDash();
+    }
+
+    updateDashTrail(dt) {
+        this.dashGhostT -= dt;
+        if (this.dashGhostT <= 0) {
+            this.dashGhostT = 0.022;
+            FX.ghost(this.x, this.y, this.radius, this.skinColor);
+        }
+        if (this.shockDash <= 0) return;
+        const dmg = Math.floor(this.damage * (1.5 + this.shockDash));
+        for (const e of game.enemies.slice()) {
+            if (!e.alive || e.dashHitSerial === this.dashSerial) continue;
+            if (dist(this.x, this.y, e.x, e.y) < this.radius + e.radius + 14) {
+                e.dashHitSerial = this.dashSerial;
+                e.takeDamage(dmg);
+                game.spawnParticles(e.x, e.y, "#9fe7ff", isMobile ? 2 : 6);
+            }
+        }
     }
 
     updateWeapons(dt) {
@@ -3853,16 +4018,26 @@ class Player extends Entity {
             ctx.fill();
         }
 
+        if (this.overdriveT > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = "lighter";
+            FX.glow(this.x, this.y, this.radius * 7, "#ffcc33", 0.65 + 0.2 * Math.sin(frameNow * 0.02));
+            ctx.restore();
+        }
+
         // Body
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        const flash = this.invTimer > 0 && Math.floor(this.invTimer * 20) % 2;
+        const flash = this.dashT <= 0 && this.invTimer > 0 && Math.floor(this.invTimer * 20) % 2;
         ctx.fillStyle = flash ? "#ffffff" : this.skinColor;
         ctx.fill();
 
+        // Procedural skins draw themselves, sprite skins use their asset.
+        const procedural = !flash && FX.drawSkin(this.skinId, this.x, this.y, this.radius);
+
         // Skin sprite overlay (opaque assets fully cover the body area).
         const img = this.skinImage;
-        if (!flash && img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        if (!procedural && !flash && img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0) {
             ctx.save();
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -3872,8 +4047,10 @@ class Player extends Entity {
             ctx.restore();
         }
 
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.lineWidth = 2;
-        ctx.strokeStyle = "#ffffff";
+        ctx.strokeStyle = "rgba(255,255,255,0.9)";
         ctx.stroke();
 
         // Inner highlight
@@ -3882,20 +4059,20 @@ class Player extends Entity {
         ctx.fillStyle = "rgba(255,255,255,0.2)";
         ctx.fill();
 
-        // Direction indicator (gun barrel)
-        const tipX = this.x + Math.cos(this.angle) * (this.radius + 8);
-        const tipY = this.y + Math.sin(this.angle) * (this.radius + 8);
+        // Direction indicator (gun barrel with a small recoil kick)
+        const reach = this.radius + 10 - this.recoil * 4;
+        const ca = Math.cos(this.aimShown), sa = Math.sin(this.aimShown);
+        const tipX = this.x + ca * reach;
+        const tipY = this.y + sa * reach;
         ctx.beginPath();
-        ctx.arc(tipX, tipY, 4, 0, Math.PI * 2);
-        ctx.fillStyle = COLOR.bullet;
+        ctx.moveTo(tipX + ca * 6, tipY + sa * 6);
+        ctx.lineTo(tipX - ca * 4 - sa * 6, tipY - sa * 4 + ca * 6);
+        ctx.lineTo(tipX - ca * 1, tipY - sa * 1);
+        ctx.lineTo(tipX - ca * 4 + sa * 6, tipY - sa * 4 - ca * 6);
+        ctx.closePath();
+        ctx.fillStyle = FX.bulletColor() || COLOR.bullet;
         ctx.fill();
-        // Barrel glow
-        if (!game.lowPerf) {
-            ctx.beginPath();
-            ctx.arc(tipX, tipY, 7, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255,238,85,0.15)";
-            ctx.fill();
-        }
+        FX.drawDashRing(this);
 
         // Draw orbit shield orbs
         const w = this.weapons;
@@ -3931,7 +4108,8 @@ class Player extends Entity {
         const finalDmg = Math.max(1, amount - this.armor);
         this.hp -= finalDmg;
         this.invTimer = 0.35;
-        game.camera.shake();
+        game.camera.shake(7);
+        game.triggerEventFlash("#ff2244", 0.14);
         game.spawnParticles(this.x, this.y, COLOR.danger, isMobile ? 3 : 8);
         GameAudio.sfxPlayerHit();
         if (this.hp <= 0) {
@@ -3982,30 +4160,41 @@ class Projectile extends Entity {
 
     draw() {
         if (this.isEnemy) {
+            if (!game.lowPerf) {
+                ctx.save();
+                ctx.globalCompositeOperation = "lighter";
+                FX.glow(this.x, this.y, this.radius * 7, "#ff3355", 0.8);
+                ctx.restore();
+            }
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, this.radius + 1, 0, Math.PI * 2);
             ctx.fillStyle = COLOR.enemyBullet;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
             ctx.fill();
             return;
         }
-        // Trail
-        ctx.beginPath();
-        ctx.arc(this.x - this.vx * 0.02, this.y - this.vy * 0.02, this.radius * 0.6, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(255,238,85,0.3)";
-        ctx.fill();
-        // Head
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = this.isCrit ? "#ff4444" : COLOR.bullet;
-        ctx.fill();
-        // Crit indicator
-        if (this.isCrit) {
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius + 2, 0, Math.PI * 2);
-            ctx.strokeStyle = "#ff8888";
-            ctx.lineWidth = 1;
-            ctx.stroke();
+        const color = this.isCrit ? "#ff4d4d" : (FX.bulletColor() || COLOR.bullet);
+        if (!game.lowPerf) {
+            ctx.save();
+            ctx.globalCompositeOperation = "lighter";
+            FX.glow(this.x, this.y, this.radius * (this.isCrit ? 8 : 6), color, 0.7);
+            ctx.restore();
         }
+        // Streak from the tail to the head
+        ctx.beginPath();
+        ctx.moveTo(this.x - this.vx * 0.032, this.y - this.vy * 0.032);
+        ctx.lineTo(this.x, this.y);
+        ctx.lineCap = "round";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = this.radius * 1.5;
+        ctx.stroke();
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = this.radius * 0.6;
+        ctx.stroke();
+        ctx.lineCap = "butt";
     }
 }
 
@@ -4022,6 +4211,9 @@ class Enemy extends Entity {
         this.speed = speed * typeDef.spdMult;
         this.baseSpeed = this.speed;
         this.hitFlash = 0;
+        this.age = 0;
+        this.kbx = 0;
+        this.kby = 0;
         this.contactDamage = typeDef.contactDmg;
         this.contactTimer = 0;
         this.type = type || "normal";
@@ -4065,6 +4257,16 @@ class Enemy extends Entity {
     }
 
     update(dt, target) {
+        this.age += dt;
+        if (this.kbx !== 0 || this.kby !== 0) {
+            this.x += this.kbx * dt;
+            this.y += this.kby * dt;
+            const decay = Math.exp(-11 * dt);
+            this.kbx *= decay;
+            this.kby *= decay;
+            if (Math.abs(this.kbx) + Math.abs(this.kby) < 4) { this.kbx = 0; this.kby = 0; }
+        }
+
         // Apply slow
         const currentSpeed = this.slowTimer > 0
             ? this.baseSpeed * this.slowFactor
@@ -4795,7 +4997,8 @@ class Enemy extends Entity {
                 }
                 // Visual explosion
                 game.spawnParticles(this.x, this.y, COLOR.exploder, 20);
-                game.camera.shake();
+                FX.ring(this.x, this.y, COLOR.exploder, explosionRadius, 0.3, 4);
+                game.camera.shake(3);
                 GameAudio.sfxExplosion();
             }
         }
@@ -4812,6 +5015,7 @@ class XPOrb extends Entity {
         this.amount = amount;
         this.vy = -60;        // small pop-up on spawn
         this.magnetised = false;
+        this.pull = 90;
     }
 
     update(dt, player) {
@@ -4830,10 +5034,11 @@ class XPOrb extends Entity {
         if (this.magnetised) {
             const dx = player.x - this.x;
             const dy = player.y - this.y;
-            const spd = 400;
+            this.pull = Math.min(1100, this.pull + 1500 * dt);
             if (d > 1) {
-                this.x += (dx / d) * spd * dt;
-                this.y += (dy / d) * spd * dt;
+                const step = Math.min(d, this.pull * dt);
+                this.x += (dx / d) * step;
+                this.y += (dy / d) * step;
             }
         }
 
@@ -4880,7 +5085,7 @@ class Particle {
         this.x = x;
         this.y = y;
         const angle = Math.random() * Math.PI * 2;
-        const speed = randRange(60, 200);
+        const speed = randRange(50, 300);
         this.vx = Math.cos(angle) * speed;
         this.vy = Math.sin(angle) * speed;
         this.life = PARTICLE_LIFETIME;
@@ -4894,19 +5099,24 @@ class Particle {
     update(dt) {
         this.x += this.vx * dt;
         this.y += this.vy * dt;
-        this.vx *= 0.95;
-        this.vy *= 0.95;
+        const drag = Math.exp(-5 * dt);
+        this.vx *= drag;
+        this.vy *= drag;
         this.life -= dt;
         if (this.life <= 0) this.alive = false;
     }
 
     draw() {
         const alpha = clamp(this.life / this.maxLife, 0, 1);
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius * alpha, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
         ctx.globalAlpha = alpha;
-        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x - this.vx * 0.045, this.y - this.vy * 0.045);
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = Math.max(1, this.radius * alpha);
+        ctx.lineCap = "round";
+        ctx.stroke();
+        ctx.lineCap = "butt";
         ctx.globalAlpha = 1;
     }
 }
@@ -4942,7 +5152,8 @@ class DamageNumber {
     draw() {
         const alpha = clamp(this.life / this.maxLife, 0, 1);
         const t = 1 - (this.life / this.maxLife);
-        const scale = this.scale * (1 + t * 0.3);
+        // Quick pop, then settle.
+        const scale = this.scale * (t < 0.15 ? 0.7 + t * 5.4 : 1.51 - Math.min(0.5, (t - 0.15) * 1.4));
         ctx.globalAlpha = alpha;
         ctx.font = `bold ${Math.floor(14 * scale)}px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = "center";
@@ -4969,9 +5180,9 @@ class TrailParticle {
     constructor(x, y, color) {
         this.x = x;
         this.y = y;
-        this.life = 0.3;
-        this.maxLife = 0.3;
-        this.radius = randRange(3, 6);
+        this.life = 0.42;
+        this.maxLife = 0.42;
+        this.radius = randRange(5, 9);
         this.color = color;
         this.alive = true;
     }
@@ -4982,9 +5193,9 @@ class TrailParticle {
     }
 
     draw() {
-        const alpha = clamp(this.life / this.maxLife, 0, 1) * 0.35;
+        const alpha = clamp(this.life / this.maxLife, 0, 1) * 0.55;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius * alpha, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.radius * alpha * 1.6, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
         ctx.globalAlpha = alpha;
         ctx.fill();
@@ -5060,6 +5271,14 @@ const UPGRADES = [
     { id: "xpgain2", name: "+50% XP Gain",    icon: "⭐",  rarity: "rare", cat: "stat", apply(p) { p.xpGainMult *= UPGRADE_TUNING.xpGainMult2; } },
     { id: "execute1", name: "+8% Execute Threshold", icon: "⚰️", rarity: "rare", cat: "stat", apply(p) { p.executeThreshold = Math.min(UPGRADE_TUNING.executeCap, p.executeThreshold + UPGRADE_TUNING.executeAdd1); } },
     { id: "execute2", name: "+12% Execute Threshold", icon: "🩸", rarity: "epic", cat: "stat", apply(p) { p.executeThreshold = Math.min(UPGRADE_TUNING.executeCap, p.executeThreshold + UPGRADE_TUNING.executeAdd2); } },
+    { id: "dashcd",  name: "Dash Cooldown -20%", icon: "🌀", cat: "stat", apply(p) { p.dashCooldown = Math.max(0.9, p.dashCooldown * 0.8); },
+        desc: "Dash more often" },
+    { id: "shockdash", name: "Shock Dash", icon: "🌩️", rarity: "rare", cat: "stat", apply(p) { p.shockDash += 1; },
+        desc: "Your dash damages every enemy it touches" },
+    { id: "scavenger", name: "Scavenger", icon: "🎁", cat: "stat", apply(p) { p.pickupLuck *= 1.4; },
+        desc: "Power-ups drop 40% more often" },
+    { id: "overclock", name: "Overclock", icon: "🔋", rarity: "rare", cat: "stat", apply(p) { p.overdriveBonus += 3; },
+        desc: "Overdrive lasts 3 seconds longer" },
 
     // ── Weapon upgrades ──
     { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level += UPGRADE_TUNING.weaponLevelAdd; } },
@@ -5484,6 +5703,8 @@ const game = {
     flamePatches: [],     // flame trail damage zones
     damageNumbers: [],    // floating damage numbers
     trailParticles: [],   // player movement trail
+    pickups: [],          // power-ups on the ground
+    hitStop: 0,           // brief slow-down on big kills
     particlePool: [],
     damageNumberPool: [],
     camera: new Camera(),
@@ -5656,9 +5877,15 @@ const game = {
         this.flamePatches = [];
         this.damageNumbers = [];
         this.trailParticles = [];
+        this.pickups = [];
+        this.hitStop = 0;
+        FX.resetRun();
         this.particlePool = [];
         this.damageNumberPool = [];
         this.camera = new Camera();
+        // Start on the player, otherwise every run opens with a sweep across the map.
+        this.camera.x = clamp(this.player.x - CANVAS_W / 2, 0, WORLD_W - CANVAS_W);
+        this.camera.y = clamp(this.player.y - CANVAS_H / 2, 0, WORLD_H - CANVAS_H);
         this.wave = 0;
         this.waveKills = 0;
         this.waveKillsRequired = 0;
@@ -5780,6 +6007,13 @@ const game = {
         if (this.perfSampleTimer < PERF_SAMPLE_WINDOW) return;
         this.perfSampleTimer = 0;
 
+        // Trade resolution for frame rate first, the player never has to notice.
+        if (!this.lowPerf && this.fpsEma < 50 && renderScaleCap > 1) {
+            renderScaleCap = Math.max(1, renderScaleCap - 0.25);
+            this.fpsEma = TARGET_FPS;
+            return;
+        }
+
         // Player accepted performance mode for this run: keep it forced on.
         if (this.perfPromptDecision === "accept") {
             this.lowPerf = true;
@@ -5789,7 +6023,8 @@ const game = {
         if (!this.lowPerf && this.fpsEma < PERF_LOW_THRESHOLD) {
             // Ask once per run via a non-blocking in-canvas prompt. window.confirm()
             // would freeze the whole game loop (and is unreliable on game portals).
-            if (this.perfPromptDecision !== "decline" &&
+            if (this.timePlayed > 15 && !document.hidden &&
+                this.perfPromptDecision !== "decline" &&
                 this.perfPromptDecision !== "accept" &&
                 !this.perfPromptVisible) {
                 this.perfPromptVisible = true;
@@ -6329,9 +6564,13 @@ const game = {
         ctx.save();
         ctx.shadowColor = `rgba(51,204,255,${titleGlow})`;
         ctx.shadowBlur = 28;
-        ctx.fillStyle = "#eaf9ff";
-        ctx.font = uiFont(56, "bold");
-        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, 96);
+        const logo = ctx.createLinearGradient(0, 70, 0, 122);
+        logo.addColorStop(0, "#ffffff");
+        logo.addColorStop(0.55, "#9fe9ff");
+        logo.addColorStop(1, "#ff7ad9");
+        ctx.fillStyle = logo;
+        ctx.font = uiFont(54, "bold");
+        ctx.fillText("ROGUEWAVE", CANVAS_W / 2, 96, 372);
         ctx.restore();
         ctx.fillStyle = COLOR.accent;
         ctx.font = uiFont(13, "bold");
@@ -6416,28 +6655,17 @@ const game = {
         const aimHint = Settings.gameMode === "hard"
             ? (isMobile ? "Touch right side to aim" : "Mouse to aim")
             : "Auto-aim";
-        ctx.fillText(`WASD / Arrows to move  ·  ${aimHint}  ·  ENTER to play`, CANVAS_W / 2, CANVAS_H - 18);
+        ctx.fillText(`WASD / Arrows to move  ·  SPACE to dash  ·  ${aimHint}  ·  ENTER to play`, CANVAS_W / 2, CANVAS_H - 18);
     },
 
     /** Soft ambient backdrop shared by the menu screens. */
     drawMenuBackdrop() {
-        const g = ctx.createLinearGradient(0, 0, CANVAS_W, CANVAS_H);
-        g.addColorStop(0, "#0a0f25");
-        g.addColorStop(0.5, "#0d1533");
-        g.addColorStop(1, "#090e1f");
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-        // Faint horizon lines, fading toward the edges.
-        for (let i = 0; i < 7; i++) {
-            const yy = 60 + i * 92;
-            ctx.fillStyle = `rgba(80,200,255,${0.05 - i * 0.005})`;
-            ctx.fillRect(60 + i * 10, yy, CANVAS_W - 120 - i * 20, 1.5);
-        }
+        FX.drawMenuBackdrop();
     },
 
     /** Compact shards/prestige readout pinned top-left, level with the title. */
     drawStatusStrip(profile) {
-        const w = 300, h = 54;
+        const w = 250, h = 54;
         const x = 24, y = 66;
         drawPanel(x, y, w, h, 12, {
             fill: "rgba(8,12,26,0.9)",
@@ -6471,6 +6699,14 @@ const game = {
         ctx.fillStyle = "#ffd166";
         ctx.font = uiFont(20, "bold");
         ctx.fillText(`✦ ${profile.prestige?.count || 0}`, x + half + half / 2, y + 34);
+        if (Progression.isSupporter()) {
+            FX.icon("crown", x + 16, y - 10, 18, "#ffd166");
+            ctx.fillStyle = "#ffd166";
+            ctx.font = uiFont(10, "bold");
+            ctx.textAlign = "left";
+            ctx.fillText("SUPPORTER", x + 30, y - 10);
+            ctx.textAlign = "center";
+        }
     },
 
     /**
@@ -6478,9 +6714,9 @@ const game = {
      */
     drawModeRow(x, y, w) {
         const modes = [
-            { id: "easy",   label: "EASY",   icon: "😊", desc: "Faster XP" },
-            { id: "normal", label: "NORMAL", icon: "⚔️", desc: "Auto-aim" },
-            { id: "hard",   label: "HARD",   icon: "💀", desc: "Manual aim" },
+            { id: "easy",   label: "EASY",   icon: "easy", desc: "Faster XP" },
+            { id: "normal", label: "NORMAL", icon: "normal", desc: "Auto-aim" },
+            { id: "hard",   label: "HARD",   icon: "hard", desc: "Manual aim" },
         ];
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
@@ -6515,8 +6751,7 @@ const game = {
 
             ctx.textAlign = "center";
             ctx.fillStyle = selected ? "#062033" : COLOR.text;
-            ctx.font = uiFont(19);
-            ctx.fillText(m.icon, mx + cw / 2, top + 17);
+            FX.icon(m.icon, mx + cw / 2, top + 16, 19, selected ? "#062033" : COLOR.text);
             ctx.font = uiFont(14, "bold");
             ctx.fillText(m.label, mx + cw / 2, top + 36);
             ctx.fillStyle = selected ? "#0a2a3a" : COLOR.textDim;
@@ -6581,12 +6816,12 @@ const game = {
     /** Bottom navigation bar: six even buttons with icon over label. */
     drawMenuNav() {
         const items = [
-            { icon: "🎒", label: "LOCKER",    state: STATE.LOCKER },
-            { icon: "🎁", label: "CHESTS",    state: STATE.CHESTS },
-            { icon: "🛍", label: "SKINS",     state: STATE.SHOP },
-            { icon: "📊", label: "STATS",      state: STATE.STATS },
-            { icon: "⚙",  label: "SETTINGS",  state: STATE.SETTINGS },
-            { icon: "📜", label: "CHANGELOG", state: STATE.CHANGELOGS },
+            { icon: "locker",    label: "LOCKER",    state: STATE.LOCKER },
+            { icon: "chest",     label: "CHESTS",    state: STATE.CHESTS },
+            { icon: "skins",     label: "SKINS",     state: STATE.SHOP },
+            { icon: "stats",     label: "STATS",      state: STATE.STATS },
+            { icon: "settings",  label: "SETTINGS",  state: STATE.SETTINGS },
+            { icon: "changelog", label: "CHANGELOG", state: STATE.CHANGELOGS },
         ];
         const n = items.length;
         const gap = 12;
@@ -6610,9 +6845,7 @@ const game = {
 
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.font = uiFont(22);
-            ctx.fillStyle = COLOR.text;
-            ctx.fillText(it.icon, bx + bw / 2, y + 22);
+            FX.icon(it.icon, bx + bw / 2, y + 23, 26, hov ? COLOR.accentHover : COLOR.text);
             ctx.font = uiFont(11, "bold");
             ctx.fillStyle = hov ? COLOR.accentHover : COLOR.textDim;
             ctx.fillText(it.label, bx + bw / 2, y + 46, bw - 8);
@@ -6902,6 +7135,11 @@ const game = {
     },
 
     updateChests(dt) {
+        FX.updateCache(dt);
+        if (FX.modalActive()) {
+            if (Input.just("Escape")) FX.closeCache();
+            return;
+        }
         if (Input.just("Escape")) {
             if (this.chestReveal) {
                 // Only dismissable once the reveal has played out.
@@ -7418,6 +7656,11 @@ const game = {
         ctx.fillStyle = COLOR.bg;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+        // While the cache window is open, the page behind it must not react.
+        const modalOpen = FX.modalActive();
+        const pageClick = Mouse.clicked;
+        if (modalOpen) Mouse.clicked = false;
+
         const profile = Progression.get();
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -7436,10 +7679,11 @@ const game = {
 
         // Chest cards laid out in a row. Only three tiers now, so give each
         // card more room than the old four-across layout.
-        const count = LOOT_CHESTS.length;
-        const cardW = Math.min(250, (CANVAS_W - 60 - (count - 1) * 20) / count);
+        const showCache = FX.cacheAvailable();
+        const count = LOOT_CHESTS.length + (showCache ? 1 : 0);
+        const cardW = Math.min(250, (CANVAS_W - 60 - (count - 1) * 14) / count);
         const cardH = 330;
-        const totalW = count * cardW + (count - 1) * 20;
+        const totalW = count * cardW + (count - 1) * 14;
         let cx = CANVAS_W / 2 - totalW / 2;
         const cy = 104;
 
@@ -7507,11 +7751,12 @@ const game = {
             } else if (!affordable) {
                 ctx.fillStyle = COLOR.danger;
                 ctx.font = uiFont(UI_FONT.xxs);
-                ctx.fillText("not enough shards", icx, by - 8);
+                ctx.fillText("not enough shards", icx, cy + cardH - 110);
             }
 
             cx += cardW + 14;
         }
+        if (showCache) FX.drawCard(cx, cy, cardW, cardH);
 
         if (drawButton("BACK", 24, CANVAS_H - 62, 120, 34, Mouse.inRect(24, CANVAS_H - 62, 120, 34), UI_FONT.xs)) {
             this.state = STATE.START_MENU;
@@ -7520,6 +7765,14 @@ const game = {
         // Reveal overlay
         if (this.chestReveal) this.drawChestReveal();
         this.drawLootToast();
+
+        if (modalOpen) Mouse.clicked = pageClick;
+        FX.drawModal();
+    },
+
+    showSupporterCache() {
+        this.setState(STATE.CHESTS);
+        FX.openCache();
     },
 
     drawChestReveal() {
@@ -7774,7 +8027,7 @@ const game = {
         ctx.fillStyle = COLOR.accent;
         ctx.font = compactLayout ? "bold 36px 'Segoe UI', Arial, sans-serif" : (narrowLayout ? "bold 42px 'Segoe UI', Arial, sans-serif" : "bold 46px 'Segoe UI', Arial, sans-serif");
         ctx.textAlign = "center";
-        ctx.fillText("🛍 SKIN SHOP", CANVAS_W / 2, compactLayout ? 58 : 66);
+        ctx.fillText("SKIN SHOP", CANVAS_W / 2, compactLayout ? 58 : 66);
         ctx.fillStyle = "#9fc6ff";
         ctx.font = compactLayout ? "12px 'Segoe UI', Arial, sans-serif" : "13px 'Segoe UI', Arial, sans-serif";
         if (SHOW_DEV_INFO) {
@@ -7849,7 +8102,7 @@ const game = {
 
             ctx.fillStyle = s.unlocked ? (s.selected ? COLOR.accent : COLOR.textDim) : "#ffcc66";
             ctx.font = compactLayout ? "11px 'Segoe UI', Arial, sans-serif" : "12px 'Segoe UI', Arial, sans-serif";
-            const priceLabel = s.cost <= 0 ? "Free" : `${s.cost} shards`;
+            const priceLabel = s.supporterSkin ? "Supporter Cache" : (s.cost <= 0 ? "Free" : `${s.cost} shards`);
             const stateLabel = s.prestigeLocked
                 ? `Prestige ${s.prestigeRequirement} required`
                 : (s.prestigeSkin
@@ -7875,11 +8128,11 @@ const game = {
             const btnX = x + 11;
             const btnY = cardY + cardH - 42;
             const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
-            const actionLabel = s.prestigeLocked ? "LOCKED" : (s.selected ? "EQUIPPED" : (s.unlocked ? "EQUIP" : "BUY"));
+            const actionLabel = s.prestigeLocked ? "LOCKED" : (s.selected ? "EQUIPPED" : (s.unlocked ? "EQUIP" : (s.supporterSkin ? "VIEW CACHE" : "BUY")));
             if (s.prestigeLocked) {
                 drawLockedButton(actionLabel, btnX, btnY, btnW, btnH, 14);
             } else if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 14) && !s.selected) {
-                Progression.unlockOrSelectSkin(s.id);
+                if (Progression.unlockOrSelectSkin(s.id).reason === "supporter") this.showSupporterCache();
             }
         }
 
@@ -7958,7 +8211,7 @@ const game = {
                 ? `Prestige ${s.prestigeRequirement} required`
                 : (s.prestigeSkin
                     ? (s.selected ? "Selected" : `Prestige ${s.prestigeRequirement} reward`)
-                    : (s.unlocked ? (s.selected ? "Selected" : "Owned") : `${s.cost} shards`));
+                    : (s.unlocked ? (s.selected ? "Selected" : "Owned") : (s.supporterSkin ? "Supporter Cache" : `${s.cost} shards`)));
             const secondaryLabel = s.prestigeSkin
                 ? (s.prestigeLocked ? "Achievement reward" : "Prestige reward")
                 : (assetStatus.state === "missing" ? "Placeholder" : "");
@@ -7970,11 +8223,11 @@ const game = {
             const btnX = x + itemW - btnW - 8;
             const btnY = y + itemH - btnH - 6;
             const btnHover = Mouse.inRect(btnX, btnY, btnW, btnH);
-            const actionLabel = s.prestigeLocked ? "LOCKED" : (s.selected ? "ON" : (s.unlocked ? "EQUIP" : "BUY"));
+            const actionLabel = s.prestigeLocked ? "LOCKED" : (s.selected ? "ON" : (s.unlocked ? "EQUIP" : (s.supporterSkin ? "VIEW" : "BUY")));
             if (s.prestigeLocked) {
                 drawLockedButton(actionLabel, btnX, btnY, btnW, btnH, 12);
             } else if (drawButton(actionLabel, btnX, btnY, btnW, btnH, btnHover, 12) && !s.selected) {
-                Progression.unlockOrSelectSkin(s.id);
+                if (Progression.unlockOrSelectSkin(s.id).reason === "supporter") this.showSupporterCache();
             }
         }
         ctx.restore();
@@ -8109,7 +8362,12 @@ const game = {
 
     updateGameplay(dt) {
         this.updateGameSpeedSelection();
+        if (this.hitStop > 0) {
+            this.hitStop -= dt;
+            dt *= 0.14;
+        }
         const speedDt = dt * this.gameSpeedMult;
+        FX.updateEffects(speedDt);
 
         this.timePlayed += speedDt;
         this.trackPerformance(dt);
@@ -8146,6 +8404,7 @@ const game = {
         // ── Build spatial grid for enemy collision broadphase ──
         gridClear();
         for (let i = 0; i < this.enemies.length; i++) gridInsert(this.enemies[i]);
+        this.separateEnemies(speedDt);
 
         // Bullet ↔ Enemy collisions (player bullets) & Enemy bullets ↔ Player
         for (const b of this.bullets) {
@@ -8165,6 +8424,11 @@ const game = {
                     if (!e.alive) continue;
                     if (b.collidesWith(e)) {
                         this.runShotsHit++;
+                        if (e.type !== "miniboss" && e.type !== "bigboss" && e.type !== "endboss" && e.type !== "warden") {
+                            const push = (e.type === "tank" ? 0.1 : 0.28) * (b.isCrit ? 1.5 : 1);
+                            e.kbx += b.vx * push;
+                            e.kby += b.vy * push;
+                        }
                         e.takeDamage(b.damage, b.isCrit);
                         if (b.isCrit) GameAudio.sfxCrit();
 
@@ -8193,7 +8457,7 @@ const game = {
                         if (b.hitCount > b.piercing) {
                             b.alive = false;
                         }
-                        this.camera.shake();
+                        if (b.isCrit) this.camera.shake(1.6);
 
                         // Enemy killed?
                         if (!e.alive) {
@@ -8223,12 +8487,15 @@ const game = {
 
         // Player trail spawning (only when moving)
         const mv = Input.moveVector();
-        if ((mv.x !== 0 || mv.y !== 0) && !this.lowPerf && this.trailParticles.length < 40) {
-            this.trailParticles.push(new TrailParticle(
-                this.player.x + randRange(-4, 4),
-                this.player.y + randRange(-4, 4),
-                withAlpha(this.player.skinGlow, 0.5)
-            ));
+        if ((mv.x !== 0 || mv.y !== 0) && !this.lowPerf && this.trailParticles.length < (FX.trailBoost() ? 70 : 40)) {
+            const emit = FX.trailBoost() ? 2 : 1;
+            for (let i = 0; i < emit; i++) {
+                this.trailParticles.push(new TrailParticle(
+                    this.player.x + randRange(-7, 7),
+                    this.player.y + randRange(-7, 7),
+                    FX.trailColor(withAlpha(this.player.skinGlow, 0.5))
+                ));
+            }
         }
 
         // Kill combo timer
@@ -8277,6 +8544,8 @@ const game = {
         }
         compactInPlace(this.flamePatches, fp => fp.life > 0);
 
+        FX.updatePickups(speedDt);
+
         // Camera
         this.camera.follow(this.player);
         this.camera.update(speedDt);
@@ -8303,6 +8572,28 @@ const game = {
         if (this.state === STATE.GAMEPLAY &&
             (Input.just("Escape") || Input.just("KeyP") || TouchControls.pauseTapped)) {
             this.state = STATE.PAUSED;
+        }
+    },
+
+    /** Gentle push so enemies form a crowd instead of one stacked blob. */
+    separateEnemies(dt) {
+        const strength = Math.min(1, dt * 9);
+        for (let i = 0; i < this.enemies.length; i++) {
+            const e = this.enemies[i];
+            if (e.type === "warden" || e.type === "bigboss" || e.type === "endboss") continue;
+            const near = gridQuery(e.x, e.y, e.radius + 28);
+            for (let k = 0; k < near.length; k++) {
+                const o = near[k];
+                if (o === e) continue;
+                const dx = e.x - o.x, dy = e.y - o.y;
+                const min = (e.radius + o.radius) * 0.92;
+                const dsq = dx * dx + dy * dy;
+                if (dsq >= min * min || dsq < 0.01) continue;
+                const d = Math.sqrt(dsq);
+                const push = (min - d) * 0.5 * strength;
+                e.x += dx / d * push;
+                e.y += dy / d * push;
+            }
         }
     },
 
@@ -8632,6 +8923,7 @@ const game = {
     drawGameplay() {
         // Background starfield (screen-space, drawn before camera transform)
         if (!this.lowPerf) {
+            FX.drawBackground(this.camera, this.currentBiomeIndex(), 1 / 60);
             Starfield.draw(this.camera.x, this.camera.y);
         }
 
@@ -8670,22 +8962,56 @@ const game = {
         for (const t of this.trailParticles) t.draw();
 
         // XP orbs (with improved glow)
-        for (const o of this.xpOrbs) o.draw();
+        for (const o of this.xpOrbs) {
+            if (o.x > this.camera.x - 40 && o.x < this.camera.x + CANVAS_W + 40 &&
+                o.y > this.camera.y - 40 && o.y < this.camera.y + CANVAS_H + 40) o.draw();
+        }
 
         // Enemies
-        for (const e of this.enemies) e.draw();
+        const viewL = this.camera.x - 90, viewR = this.camera.x + CANVAS_W + 90;
+        const viewT = this.camera.y - 90, viewB = this.camera.y + CANVAS_H + 90;
+        const inView = (o) => o.x > viewL && o.x < viewR && o.y > viewT && o.y < viewB;
+        const big = (e) => e.radius > 40;
+        for (const e of this.enemies) {
+            if (!inView(e) && !big(e)) continue;
+            if (!this.lowPerf) {
+                ctx.save();
+                ctx.globalCompositeOperation = "lighter";
+                FX.glow(e.x, e.y, e.radius * 4.2, e.color || COLOR.enemyA, 0.45);
+                ctx.restore();
+            }
+            if (e.age < 0.22) {
+                const t = e.age / 0.22;
+                const s = 0.35 + 0.65 * (1 - (1 - t) * (1 - t));
+                ctx.save();
+                ctx.globalAlpha = t;
+                ctx.translate(e.x, e.y);
+                ctx.scale(s, s);
+                ctx.translate(-e.x, -e.y);
+                e.draw();
+                ctx.restore();
+            } else {
+                e.draw();
+            }
+        }
+
+        FX.drawPickups();
+        FX.drawGhosts();
 
         // Bullets
-        for (const b of this.bullets) b.draw();
+        for (const b of this.bullets) if (inView(b)) b.draw();
 
         // Player
         this.player.draw();
 
         // Particles (on top)
-        for (const p of this.particles) p.draw();
+        ctx.globalCompositeOperation = "lighter";
+        for (const p of this.particles) if (inView(p)) p.draw();
+        ctx.globalCompositeOperation = "source-over";
+        FX.drawRings();
 
         // Damage numbers (world-space)
-        for (const d of this.damageNumbers) d.draw();
+        for (const d of this.damageNumbers) if (inView(d)) d.draw();
 
         // Lightning bolts
         for (const l of this.lightningBolts) {
@@ -8782,7 +9108,7 @@ const game = {
 
             if (this.eventToastTimer > 0) {
                 const t = clamp(this.eventToastTimer / 1.1, 0, 1);
-                const y = 172 - (1 - t) * 10;
+                const y = 196 - (1 - t) * 10;
                 ctx.textAlign = "center";
                 ctx.font = "bold 20px 'Segoe UI', Arial, sans-serif";
                 ctx.fillStyle = this.eventToastColor;
@@ -8803,26 +9129,28 @@ const game = {
         const gs = 80;
         const sx = Math.floor(this.camera.x / gs) * gs;
         const sy = Math.floor(this.camera.y / gs) * gs;
+        const endX = this.camera.x + CANVAS_W + gs, endY = this.camera.y + CANVAS_H + gs;
         ctx.strokeStyle = biome.grid;
+        ctx.globalAlpha = 0.55;
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let x = sx; x < this.camera.x + CANVAS_W + gs; x += gs) {
-            ctx.moveTo(x, sy); ctx.lineTo(x, sy + CANVAS_H + gs);
-        }
-        for (let y = sy; y < this.camera.y + CANVAS_H + gs; y += gs) {
-            ctx.moveTo(sx, y); ctx.lineTo(sx + CANVAS_W + gs, y);
-        }
+        for (let x = sx; x < endX; x += gs) { ctx.moveTo(x, sy); ctx.lineTo(x, sy + CANVAS_H + gs); }
+        for (let y = sy; y < endY; y += gs) { ctx.moveTo(sx, y); ctx.lineTo(sx + CANVAS_W + gs, y); }
         ctx.stroke();
+        // Every fifth line is brighter, so movement reads clearly.
+        const major = gs * 5;
+        ctx.strokeStyle = biome.border;
+        ctx.globalAlpha = 0.09;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let x = Math.floor(sx / major) * major; x < endX; x += major) { ctx.moveTo(x, sy); ctx.lineTo(x, sy + CANVAS_H + gs); }
+        for (let y = Math.floor(sy / major) * major; y < endY; y += major) { ctx.moveTo(sx, y); ctx.lineTo(sx + CANVAS_W + gs, y); }
+        ctx.stroke();
+        ctx.globalAlpha = 1;
     },
 
     drawVignette() {
-        const cx = CANVAS_W / 2, cy = CANVAS_H / 2;
-        const outerR = Math.sqrt(cx * cx + cy * cy);
-        const grad = ctx.createRadialGradient(cx, cy, outerR * 0.55, cx, cy, outerR);
-        grad.addColorStop(0, "rgba(0,0,0,0)");
-        grad.addColorStop(1, "rgba(0,0,0,0.35)");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        FX.drawVignette();
     },
 
     // ────── HUD ──────
@@ -8840,7 +9168,7 @@ const game = {
 
         // Soft panel anchors to improve HUD legibility under heavy effects.
         drawPanel(pad - 6, pad - 6, leftPanelW, compactLayout ? 64 : 68, 8, { fill: UI_THEME.panelFill, stroke: false });
-        drawPanel(CANVAS_W / 2 - centerPanelW / 2, pad - 8, centerPanelW, this.endbossActive ? 58 : 54, 8, {
+        drawPanel(CANVAS_W / 2 - centerPanelW / 2, pad - 8, centerPanelW, (this.endbossActive ? 58 : 54) + (this.activeEvent ? 18 : 0), 8, {
             fill: "rgba(8,10,24,0.68)",
             stroke: false,
         });
@@ -8868,7 +9196,11 @@ const game = {
         ctx.fillStyle = COLOR.hpBarBg;
         ctx.fill();
         const hpBarColor = hpPct < 0.25 ? COLOR.danger : (hpPct < 0.5 ? "#dd8822" : COLOR.hpBar);
-        drawRoundRect(hpX, hpY, hpW * clamp(hpPct, 0, 1), hpH, 4);
+        const shown = FX.hudValues(p);
+        drawRoundRect(hpX, hpY, hpW * shown.ghost, hpH, 4);
+        ctx.fillStyle = "rgba(255,230,230,0.55)";
+        ctx.fill();
+        drawRoundRect(hpX, hpY, hpW * shown.hp, hpH, 4);
         ctx.fillStyle = hpBarColor;
         ctx.fill();
         ctx.fillStyle = COLOR.text;
@@ -8882,7 +9214,7 @@ const game = {
         drawRoundRect(hpX, xpY, hpW, hpH, 4);
         ctx.fillStyle = COLOR.xpBarBg;
         ctx.fill();
-        drawRoundRect(hpX, xpY, hpW * clamp(p.xp / p.xpToNext, 0, 1), hpH, 4);
+        drawRoundRect(hpX, xpY, hpW * shown.xp, hpH, 4);
         ctx.fillStyle = COLOR.xpBar;
         ctx.fill();
         ctx.fillStyle = COLOR.text;
@@ -8899,7 +9231,7 @@ const game = {
             ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.textAlign = "left";
             ctx.fillStyle = "#55dd88";
-            ctx.fillText(`💚 +${p.hpRegen}/s`, hpX + hpW + 10, xpY + hpH / 2 + 2);
+            ctx.fillText(`+${p.hpRegen} HP/s`, hpX + hpW + 10, xpY + hpH / 2 + 2);
         }
 
         // ── Armor indicator ──
@@ -8908,8 +9240,8 @@ const game = {
             ctx.textAlign = "left";
             ctx.fillStyle = "#88bbff";
             const armorText = compactLayout
-                ? `🛡️ Armor ${p.armor}`
-                : `🛡️ ${p.armor} Armor (−${p.armor} dmg taken)`;
+                ? `Armor ${p.armor}`
+                : `${p.armor} Armor (−${p.armor} dmg taken)`;
             ctx.fillText(armorText, hpX, xpY + hpH + 16, leftPanelW - 14);
         }
 
@@ -8971,7 +9303,7 @@ const game = {
         if (Settings.gameMode !== "normal") {
             ctx.font = compactLayout ? "bold 11px 'Segoe UI', Arial, sans-serif" : "bold 12px 'Segoe UI', Arial, sans-serif";
             ctx.fillStyle = Settings.gameMode === "easy" ? "#55ff88" : COLOR.danger;
-            ctx.fillText(Settings.gameMode === "easy" ? "😊 EASY" : "💀 HARD", CANVAS_W - pad, pad + 56, rightPanelW - 12);
+            ctx.fillText(Settings.gameMode === "easy" ? "EASY" : "HARD", CANVAS_W - pad, pad + 56, rightPanelW - 12);
         }
 
         if (Progression.isGameSpeedUnlocked()) {
@@ -9033,8 +9365,8 @@ const game = {
             const bannerW = 340;
             const bannerH = 50;
             const bannerX = CANVAS_W / 2 - bannerW / 2;
-            const bannerY = 70 + (1 - slideIn) * (-60);
-            ctx.globalAlpha = fadeOut * 0.9;
+            const bannerY = 92 - (1 - slideIn) * 14;
+            ctx.globalAlpha = fadeOut * slideIn * 0.92;
             drawRoundRect(bannerX, bannerY, bannerW, bannerH, 10);
             const isBoss = this.waveBannerText.includes("BOSS");
             ctx.fillStyle = isBoss ? "rgba(180,20,60,0.85)" : "rgba(10,15,40,0.85)";
@@ -9058,7 +9390,7 @@ const game = {
             ctx.textAlign = "center";
             ctx.fillStyle = this.comboCount >= 10 ? "#ffd700" : (this.comboCount >= 5 ? "#ff8844" : COLOR.accent);
             ctx.font = `bold ${Math.floor(20 * comboScale)}px 'Segoe UI', Arial, sans-serif`;
-            ctx.fillText(`${this.comboCount}x COMBO!`, CANVAS_W / 2, pad + 68);
+            ctx.fillText(`${this.comboCount}x COMBO!`, CANVAS_W / 2, 164);
             ctx.globalAlpha = 1;
         }
 
@@ -9085,7 +9417,7 @@ const game = {
             ctx.fillStyle = COLOR.text;
             ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
             const aim = Settings.gameMode === "hard" ? (isMobile ? "Right touch aims" : "Mouse aims") : "Auto-aim enabled";
-            ctx.fillText(`Move: WASD/Arrows  •  ${aim}`, CANVAS_W / 2, ty + 24);
+            ctx.fillText(isMobile ? `${aim}  •  Tap DASH to dodge` : `Move: WASD/Arrows  •  ${aim}  •  SPACE to dash`, CANVAS_W / 2, ty + 24);
             ctx.fillStyle = COLOR.textDim;
             ctx.font = "12px 'Segoe UI', Arial, sans-serif";
             ctx.fillText("Collect green XP, level up, pick upgrades. Press ESC for pause/settings.", CANVAS_W / 2, ty + 44);
@@ -9125,24 +9457,35 @@ const game = {
         // ── Active weapons (bottom-left) ──
         const wp = this.player.weapons;
         const weaponIcons = [];
-        if (wp.orbitShield.level > 0)   weaponIcons.push({ icon: "🔵", lv: wp.orbitShield.level });
-        if (wp.lightningAura.level > 0) weaponIcons.push({ icon: "⚡", lv: wp.lightningAura.level });
-        if (wp.frostNova.level > 0)     weaponIcons.push({ icon: "❄️", lv: wp.frostNova.level });
-        if (wp.flameTrail.level > 0)    weaponIcons.push({ icon: "🔥", lv: wp.flameTrail.level });
-        if (weaponIcons.length > 0) {
-            ctx.textAlign = "left";
-            ctx.font = "22px 'Segoe UI', Arial, sans-serif";
-            for (let i = 0; i < weaponIcons.length; i++) {
-                const wx = pad + i * 50;
-                const wy = CANVAS_H - pad - 10;
-                ctx.fillStyle = COLOR.text;
-                ctx.fillText(weaponIcons[i].icon, wx, wy);
-                ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
-                ctx.fillStyle = COLOR.accent;
-                ctx.fillText(`Lv${weaponIcons[i].lv}`, wx + 2, wy + 14);
-                ctx.font = "22px 'Segoe UI', Arial, sans-serif";
-            }
+        if (wp.orbitShield.level > 0)   weaponIcons.push({ icon: "orbit", color: "#66ccff", lv: wp.orbitShield.level });
+        if (wp.lightningAura.level > 0) weaponIcons.push({ icon: "lightning", color: "#88ddff", lv: wp.lightningAura.level });
+        if (wp.frostNova.level > 0)     weaponIcons.push({ icon: "frost", color: "#bfeaff", lv: wp.frostNova.level });
+        if (wp.flameTrail.level > 0)    weaponIcons.push({ icon: "flame", color: "#ff8a2a", lv: wp.flameTrail.level });
+        for (let i = 0; i < weaponIcons.length; i++) {
+            const wx = pad + 12 + i * 50;
+            const wy = CANVAS_H - pad - 14;
+            FX.icon(weaponIcons[i].icon, wx, wy, 24, weaponIcons[i].color);
+            ctx.textAlign = "center";
+            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillStyle = COLOR.accent;
+            ctx.fillText(`Lv${weaponIcons[i].lv}`, wx, wy + 18);
         }
+
+        // ── Overdrive bar ──
+        if (p.overdriveT > 0) {
+            const odW = 200, odX = CANVAS_W / 2 - odW / 2, odY = CANVAS_H - pad - 72;
+            drawRoundRect(odX, odY, odW, 8, 4);
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fill();
+            drawRoundRect(odX, odY, odW * clamp(p.overdriveT / p.overdriveMax, 0, 1), 8, 4);
+            ctx.fillStyle = "#ffcc33";
+            ctx.fill();
+            ctx.textAlign = "center";
+            ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("OVERDRIVE", CANVAS_W / 2, odY - 9);
+        }
+
+        FX.drawOffscreenMarkers();
 
         // ── Stat upgrade icons (bottom-right) ──
         const statIcons = STAT_GROUPS
@@ -9537,6 +9880,9 @@ const game = {
             this.triggerEventToast(`${this.comboCount}x COMBO!`, "#66ddff", 0.9);
         }
 
+        FX.onKill(enemy);
+        FX.maybeDrop(enemy);
+
         // Type-specific death effects
         const particleCount = isMobile ? 4 : 12;
         const deathColor = enemy.color || COLOR.enemyA;
@@ -9551,7 +9897,8 @@ const game = {
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
             GameAudio.sfxBossDefeat(enemy.type);
-            this.camera.shake(6, 0.16);
+            this.camera.shake(9);
+            this.hitStop = 0.14;
             this.triggerEventFlash("#ffd166", 0.24);
             this.triggerEventToast(`${getBossDisplayName(enemy)} defeated!`, "#ffd166", 1.2);
         } else if (enemy.type === "endboss") {
@@ -9560,7 +9907,8 @@ const game = {
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 8 : 25);
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
             GameAudio.sfxBossDefeat(enemy.type);
-            this.camera.shake();
+            this.camera.shake(11);
+            this.hitStop = 0.24;
             GameAudio.sfxExplosion();
             this.triggerEventFlash("#ff55cc", 0.32);
             this.triggerEventToast("FINAL BOSS SLAIN!", "#ff66dd", 1.5);
@@ -10539,6 +10887,9 @@ function mainLoop(timestamp) {
     const rawDt = (timestamp - lastTime) / 1000;
     lastTime = timestamp;
     const dt = Math.min(rawDt, MAX_DT);
+
+    applyRenderScale(game.lowPerf);
+    ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
 
     game.update(dt);
     game.draw();
