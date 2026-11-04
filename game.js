@@ -2213,6 +2213,7 @@ const HighScores = (() => {
 const Progression = (() => {
     const STORAGE_KEY = "roguewave_profile_v3";
     const META_MAX = 8;
+    let isNewProfile = false;  // true only when no saved profile existed on boot
     let SKIN_CATALOG = [...SKIN_SHOP_CONFIG.skins];
     let FEATURED_SKIN_IDS = [...SKIN_SHOP_CONFIG.featuredIds];
     let SKINS = Object.fromEntries(SKIN_CATALOG.map(s => [s.id, s]));
@@ -2416,6 +2417,7 @@ const Progression = (() => {
         // normalize() also re-syncs the skin catalog from SKIN_SHOP_CONFIG (which is
         // only fetched during boot), so it has to run for fresh profiles too –
         // otherwise the prestige skins stay invisible and can never be earned.
+        isNewProfile = !loaded;
         data = normalize(loaded);
         ensureDaily();
         save();
@@ -3019,7 +3021,8 @@ const Progression = (() => {
         /** Give the player a small starting stash so the first chest is reachable. */
         function ensureStarterShards() {
             const want = (LOOT_CFG.startingShards || 0);
-            if (want > 0 && data.shards === 0 && (data.loot.openedChests || 0) === 0 && data.loot.items.length === 0) {
+            if (want > 0 && isNewProfile) {
+                isNewProfile = false;
                 data.shards = want;
                 save();
             }
@@ -5815,6 +5818,7 @@ const game = {
     revivedThisRun: false,
     reviveInProgress: false,
     runFinalized: false,
+    runShardsBanked: 0,       // part of this run's payout already in the profile
 
     // Launch experiment variants
     expEarlyPacing: "control",
@@ -5862,6 +5866,12 @@ const game = {
         // Initialise CrazyGames SDK
         void CrazyGamesSDK.init().catch(() => {});
         this.resetGame();
+        // Closing or reloading the page mid-run must not cost the run's shards.
+        const bank = () => this.bankRunShards();
+        window.addEventListener("pagehide", bank);
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "hidden") bank();
+        });
     },
 
     resetGame() {
@@ -5963,6 +5973,7 @@ const game = {
         this.revivedThisRun = false;
         this.reviveInProgress = false;
         this.runFinalized = false;
+        this.runShardsBanked = 0;
         this.expEarlyPacing = Experiments.get("earlyPacing");
         this.expGameOverFlow = Experiments.get("gameOverFlow");
         this.expRewardedCopy = Experiments.get("rewardedCopy");
@@ -10021,12 +10032,27 @@ const game = {
         return Math.max(5, Math.floor(base * this.shardRewardMult) + eventBonus);
     },
 
+    /**
+     * Saves what the running run has earned so far. Safe to call repeatedly:
+     * only the difference to the last call is paid, and finalizeRun() pays
+     * just the rest.
+     */
+    bankRunShards() {
+        if (this.runFinalized) return;
+        const running = [STATE.GAMEPLAY, STATE.PAUSED, STATE.UPGRADE_SCREEN, STATE.CHEAT_MENU, STATE.GAME_OVER];
+        if (!running.includes(this.state)) return;
+        const gained = this.computeShardGain(false);
+        Progression.addShards(gained - this.runShardsBanked);
+        this.runShardsBanked = Math.max(this.runShardsBanked, gained);
+    },
+
     finalizeRun(won) {
         this.lastRunGameMode = Settings.gameMode;
         this.lastRunChallengeMode = currentChallengeMode().id;
         this.lastRunChallengeLabel = currentChallengeMode().label;
         const gained = this.computeShardGain(won);
-        Progression.addShards(gained);
+        Progression.addShards(gained - this.runShardsBanked);
+        this.runShardsBanked = gained;
         const dailyResult = Progression.registerRun(this.killCount, this.wave, this.timePlayed);
         this.lastRunShardGain = gained;
         this.lastDailyReward = dailyResult.dailyReward;
