@@ -6,7 +6,7 @@ const FX = (() => {
     const TAU = Math.PI * 2;
     const CACHE_PUBLIC_KEY = "2R9jCQ_bhDBqmtc5CyvxacyhUgYDVrHaHnABQpxxl8I";
     const CACHE_URL = "https://kelvik.at/roguewave";
-    const CACHE_PRICE = "€3.99";
+    const CACHE_PRICE = "€5.00";
     const CACHE_SKINS = ["solar_crown", "void_reaper", "prism_phantom"];
 
     // ── Small helpers ──
