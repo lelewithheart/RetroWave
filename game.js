@@ -4316,38 +4316,6 @@ class Player extends Entity {
             ctx.restore();
         }
 
-        // Hull: a swept wing behind the core, pointing where the player aims,
-        // with an engine flame that grows with speed.
-        {
-            const r = this.radius;
-            const speedShare = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(1, this.speed));
-            ctx.save();
-            ctx.translate(this.x, this.y);
-            ctx.rotate(this.aimShown);
-            const flick = 0.75 + 0.25 * Math.sin(frameNow * 0.03);
-            ctx.beginPath();
-            ctx.moveTo(-r * 0.55, r * 0.42);
-            ctx.lineTo(-r * (1.25 + 0.9 * speedShare * flick), 0);
-            ctx.lineTo(-r * 0.55, -r * 0.42);
-            ctx.closePath();
-            ctx.fillStyle = `rgba(255,204,51,${0.55 + 0.35 * speedShare})`;
-            ctx.fill();
-            ctx.beginPath();
-            ctx.moveTo(r * 1.55, 0);
-            ctx.lineTo(-r * 0.95, r * 1.3);
-            ctx.lineTo(-r * 0.4, 0);
-            ctx.lineTo(-r * 0.95, -r * 1.3);
-            ctx.closePath();
-            ctx.fillStyle = this.skinColor;
-            ctx.globalAlpha = 0.9;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = "rgba(255,255,255,0.75)";
-            ctx.stroke();
-            ctx.restore();
-        }
-
         // Body
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -4381,6 +4349,37 @@ class Player extends Entity {
         ctx.arc(this.x - 3, this.y - 3, this.radius * 0.35, 0, Math.PI * 2);
         ctx.fillStyle = "rgba(255,255,255,0.2)";
         ctx.fill();
+
+        // Hull: a swept wing over the core, pointing where the player aims, with
+        // a cockpit hole the skin shows through and an engine flame that grows with speed.
+        {
+            const r = this.radius;
+            const speedShare = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(1, this.speed));
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.aimShown);
+            const flick = 0.75 + 0.25 * Math.sin(frameNow * 0.03);
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.55, r * 0.42);
+            ctx.lineTo(-r * (1.25 + 0.9 * speedShare * flick), 0);
+            ctx.lineTo(-r * 0.55, -r * 0.42);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(255,204,51,${0.55 + 0.35 * speedShare})`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(r * 1.7, 0);
+            ctx.lineTo(-r * 1.05, r * 1.4);
+            ctx.lineTo(-r * 0.45, 0);
+            ctx.lineTo(-r * 1.05, -r * 1.4);
+            ctx.closePath();
+            ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2, true);   // cockpit hole
+            ctx.fillStyle = flash ? "#ffffff" : this.skinColor;
+            ctx.fill("evenodd");
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = "rgba(255,255,255,0.85)";
+            ctx.stroke();
+            ctx.restore();
+        }
 
         // Direction indicator (gun barrel with a small recoil kick)
         const reach = this.radius + 10 - this.recoil * 4;
