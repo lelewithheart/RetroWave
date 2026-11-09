@@ -2,6 +2,10 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 9.11:2
+- NEW: Build overview in the pause menu and on the level-up screen: all your current stats and weapon levels in one place
+- NEW: Point at an upgrade to see exactly which numbers it would change
+
 beta 9.11:1
 - NEW: Soundtrack! Five original tracks: one for each area, a boss theme and menu music
 - The music now pauses while the game is in a background tab

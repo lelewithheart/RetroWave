@@ -5488,6 +5488,178 @@ const STAT_GROUPS = [
 ];
 
 // ─────────────────────────────────────────────
+// §13b  BUILD OVERVIEW  (pause menu and upgrade screen)
+// ─────────────────────────────────────────────
+
+/** The numbers behind a build, read from the player or from a copy of it. */
+function readBuildStats(p, magnetBonus) {
+    return {
+        damage: p.damage,
+        fireRate: 1 / p.fireRate,
+        bullets: 1 + p.multiShot,
+        piercing: p.piercing,
+        critChance: p.critChance,
+        critMult: p.critMult,
+        range: p.range,
+        bulletSize: p.bulletSize,
+        execute: p.executeThreshold,
+        hp: p.hp,
+        maxHp: p.maxHp,
+        armor: p.armor,
+        regen: p.hpRegen,
+        speed: p.speed,
+        dashCooldown: p.dashCooldown,
+        shockDash: p.shockDash,
+        xpGain: p.xpGainMult,
+        pickupRange: (XP_MAGNET_RANGE + magnetBonus) * (p.magnetRangeMult || 1),
+        luck: p.pickupLuck,
+        overdriveBonus: p.overdriveBonus,
+        orbit: p.weapons.orbitShield.level,
+        lightning: p.weapons.lightningAura.level,
+        frost: p.weapons.frostNova.level,
+        flame: p.weapons.flameTrail.level,
+    };
+}
+
+/**
+ * The build as it would be with one more upgrade, without touching the run.
+ * Upgrades only write to the player and to game.xpMagnetBonus, so the upgrade
+ * is applied to a copy of the player and the magnet bonus is put back.
+ */
+function previewBuildStats(up, p) {
+    const ghost = { ...p, weapons: {} };
+    for (const id in p.weapons) ghost.weapons[id] = { ...p.weapons[id] };
+    const magnetBefore = game.xpMagnetBonus;
+    try {
+        up.apply(ghost);
+        return readBuildStats(ghost, game.xpMagnetBonus);
+    } finally {
+        game.xpMagnetBonus = magnetBefore;
+    }
+}
+
+const BUILD_FMT = {
+    int: (v) => String(Math.round(v)),
+    pct: (v) => `${Math.round(v * 100)}%`,
+    level: (v) => (v > 0 ? `Lv ${v}` : "–"),
+};
+
+// `when` hides a row until the build has that stat at all.
+const BUILD_ROWS = [
+    { head: "OFFENSE" },
+    { label: "Damage",        fmt: (s) => BUILD_FMT.int(s.damage) },
+    { label: "Fire rate",     fmt: (s) => `${s.fireRate.toFixed(2)}/s` },
+    { label: "Bullets",       fmt: (s) => BUILD_FMT.int(s.bullets) },
+    { label: "Pierce",        fmt: (s) => BUILD_FMT.int(s.piercing) },
+    { label: "Crit chance",   fmt: (s) => BUILD_FMT.pct(s.critChance) },
+    { label: "Crit damage",   fmt: (s) => `×${s.critMult.toFixed(1)}` },
+    { label: "Range",         fmt: (s) => BUILD_FMT.int(s.range) },
+    { label: "Bullet size",   fmt: (s) => BUILD_FMT.pct(s.bulletSize) },
+    { label: "Execute below", fmt: (s) => `${BUILD_FMT.pct(s.execute)} HP`, when: (s) => s.execute > 0 },
+    { head: "DEFENSE" },
+    { label: "HP",            fmt: (s) => `${Math.max(0, Math.ceil(s.hp))} / ${Math.round(s.maxHp)}` },
+    { label: "Armor",         fmt: (s) => BUILD_FMT.int(s.armor) },
+    { label: "Regen",         fmt: (s) => `${+s.regen.toFixed(1)}/s` },
+    { label: "Move speed",    fmt: (s) => BUILD_FMT.int(s.speed) },
+    { label: "Dash cooldown", fmt: (s) => `${s.dashCooldown.toFixed(1)}s` },
+    { label: "Shock Dash",    fmt: (s) => BUILD_FMT.level(s.shockDash), when: (s) => s.shockDash > 0 },
+    { head: "UTILITY" },
+    { label: "XP gain",       fmt: (s) => BUILD_FMT.pct(s.xpGain) },
+    { label: "Pickup range",  fmt: (s) => BUILD_FMT.int(s.pickupRange) },
+    { label: "Power-up luck", fmt: (s) => BUILD_FMT.pct(s.luck), when: (s) => s.luck !== 1 },
+    { label: "Overdrive",     fmt: (s) => `+${s.overdriveBonus}s`, when: (s) => s.overdriveBonus > 0 },
+    { head: "WEAPONS" },
+    { label: "Orbit Shield",   fmt: (s) => BUILD_FMT.level(s.orbit),     dim: (s) => s.orbit <= 0 },
+    { label: "Lightning Aura", fmt: (s) => BUILD_FMT.level(s.lightning), dim: (s) => s.lightning <= 0 },
+    { label: "Frost Nova",     fmt: (s) => BUILD_FMT.level(s.frost),     dim: (s) => s.frost <= 0 },
+    { label: "Flame Trail",    fmt: (s) => BUILD_FMT.level(s.flame),     dim: (s) => s.flame <= 0 },
+];
+
+/**
+ * Draw the build panel, vertically centred on the canvas. With `preview` (the
+ * build after a hovered upgrade) every number that would change is shown as
+ * "old → new".
+ */
+function drawBuildPanel(x, w, p, preview) {
+    const now = readBuildStats(p, game.xpMagnetBonus);
+    const rows = BUILD_ROWS.filter((r) => r.head || !r.when || r.when(now) || (preview && r.when(preview)));
+    const rowH = 17, headH = 24, titleH = 34, padBottom = 10;
+    let h = titleH + padBottom;
+    let restH = h; // height without rows that only a preview brings in
+    for (const r of rows) {
+        h += r.head ? headH : rowH;
+        if (r.head || !r.when || r.when(now)) restH += r.head ? headH : rowH;
+    }
+    // Centred on the resting height, so hovering a card never moves the panel.
+    const y = Math.max(8, Math.floor((CANVAS_H - restH) / 2));
+    const font = "'Segoe UI', Arial, sans-serif";
+    const left = x + 14, right = x + w - 14;
+
+    ctx.save();
+    drawRoundRect(x, y, w, h, 8);
+    ctx.fillStyle = "rgba(8, 8, 24, 0.92)";
+    ctx.fill();
+    ctx.strokeStyle = COLOR.accent;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = COLOR.accent;
+    ctx.font = `bold 14px ${font}`;
+    ctx.textAlign = "center";
+    ctx.fillText("BUILD", x + w / 2, y + 19);
+
+    let ry = y + titleH;
+    for (const r of rows) {
+        if (r.head) {
+            ctx.font = `bold 10px ${font}`;
+            ctx.textAlign = "left";
+            ctx.fillStyle = COLOR.accent;
+            ctx.fillText(r.head, left, ry + 14);
+            const headW = ctx.measureText(r.head).width;
+            ctx.strokeStyle = "rgba(102,204,255,0.25)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(left + headW + 8, ry + 14.5);
+            ctx.lineTo(right, ry + 14.5);
+            ctx.stroke();
+            ry += headH;
+            continue;
+        }
+        const cy = ry + rowH / 2;
+        const value = r.fmt(now);
+        const after = preview ? r.fmt(preview) : value;
+        const changed = after !== value;
+        const dim = !changed && r.dim && r.dim(now);
+
+        if (changed) {
+            ctx.fillStyle = "rgba(102,255,153,0.10)";
+            ctx.fillRect(x + 6, ry, w - 12, rowH);
+        }
+        ctx.font = `12px ${font}`;
+        ctx.textAlign = "left";
+        ctx.fillStyle = changed ? COLOR.text : COLOR.textDim;
+        ctx.fillText(r.label, left, cy);
+
+        ctx.textAlign = "right";
+        ctx.font = `bold 12px ${font}`;
+        if (changed) {
+            ctx.fillStyle = "#66ff99";
+            ctx.fillText(after, right, cy);
+            const afterW = ctx.measureText(after).width;
+            ctx.font = `12px ${font}`;
+            ctx.fillStyle = COLOR.textDim;
+            ctx.fillText(`${value} → `, right - afterW, cy);
+        } else {
+            ctx.fillStyle = dim ? "rgba(136,153,170,0.55)" : COLOR.text;
+            ctx.fillText(value, right, cy);
+        }
+        ry += rowH;
+    }
+    ctx.restore();
+}
+
+// ─────────────────────────────────────────────
 // §14  CRAZYGAMES SDK v3 INTEGRATION
 // ─────────────────────────────────────────────
 
@@ -10439,6 +10611,29 @@ const game = {
         ctx.fillStyle = overlayGrad;
         ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
 
+        // Build overview on the left, the choice in the space beside it.
+        const buildX = 16;
+        const buildW = 232;
+        let hoveredUpgrade = null;
+
+        const cardW = compactLayout ? 168 : (narrowLayout ? 188 : 210);
+        const cardH = compactLayout ? 178 : (narrowLayout ? 186 : 194);
+        const gap = compactLayout ? 12 : 20;
+        const rowGap = compactLayout ? 12 : 16;
+        const availableW = CANVAS_W - (buildX + buildW) - 26;
+        let cols = Math.max(1, Math.min(this.upgradeChoices.length, Math.floor((availableW + gap) / (cardW + gap))));
+        if (compactLayout && this.upgradeChoices.length > 2) cols = Math.min(cols, 2);
+        if (narrowLayout && this.upgradeChoices.length > 3) cols = Math.min(cols, 3);
+        const gridW = cols * cardW + (cols - 1) * gap;
+        // A phone held upright only shows the left part of the canvas, so the
+        // cards sit right beside the panel there instead of centred in the rest.
+        const midX = compactLayout
+            ? buildX + buildW + 12 + gridW / 2
+            : (buildX + buildW + CANVAS_W) / 2;
+        const startX = midX - gridW / 2;
+        const titleMaxW = 2 * (midX - (buildX + buildW) - 10);
+        const startY = compactLayout ? 176 : 210;
+
         // Title with glow
         const titleText = this.upgradeIsBonusWave ? "🏆 BOSS DEFEATED! FREE UPGRADE!" : "LEVEL UP!";
         const titleColor = this.upgradeIsBonusWave ? "#ffd700" : COLOR.accent;
@@ -10448,36 +10643,25 @@ const game = {
         ctx.textBaseline = "middle";
         ctx.shadowColor = titleColor;
         ctx.shadowBlur = 12;
-        ctx.fillText(titleText, CANVAS_W / 2, compactLayout ? 100 : 115);
+        ctx.fillText(titleText, midX, compactLayout ? 100 : 115, titleMaxW);
         ctx.shadowBlur = 0;
 
         ctx.fillStyle = COLOR.textDim;
         ctx.font = compactLayout ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
         const numKeys = this.upgradeChoices.length;
-        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, CANVAS_W / 2, compactLayout ? 130 : 150);
+        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, midX, compactLayout ? 130 : 150);
 
         // Player level badge
         ctx.fillStyle = "rgba(51,204,255,0.15)";
         const badgeW = compactLayout ? 88 : 100;
         const badgeH = compactLayout ? 26 : 30;
         const badgeY = compactLayout ? 138 : 160;
-        drawRoundRect(CANVAS_W / 2 - badgeW / 2, badgeY, badgeW, badgeH, 15);
+        drawRoundRect(midX - badgeW / 2, badgeY, badgeW, badgeH, 15);
         ctx.fill();
         ctx.fillStyle = COLOR.accent;
         ctx.font = compactLayout ? "bold 12px 'Segoe UI', Arial, sans-serif" : "bold 14px 'Segoe UI', Arial, sans-serif";
-        ctx.fillText(`LV ${this.player.level}`, CANVAS_W / 2, badgeY + badgeH / 2 + 1);
+        ctx.fillText(`LV ${this.player.level}`, midX, badgeY + badgeH / 2 + 1);
 
-        const cardW = compactLayout ? 168 : (narrowLayout ? 188 : 210);
-        const cardH = compactLayout ? 178 : (narrowLayout ? 186 : 194);
-        const gap = compactLayout ? 12 : 20;
-        const rowGap = compactLayout ? 12 : 16;
-        const availableW = CANVAS_W - (compactLayout ? 40 : 64);
-        let cols = Math.max(1, Math.min(this.upgradeChoices.length, Math.floor((availableW + gap) / (cardW + gap))));
-        if (compactLayout && this.upgradeChoices.length > 2) cols = Math.min(cols, 2);
-        if (narrowLayout && this.upgradeChoices.length > 3) cols = Math.min(cols, 3);
-        const gridW = cols * cardW + (cols - 1) * gap;
-        const startX = CANVAS_W / 2 - gridW / 2;
-        const startY = compactLayout ? 176 : 210;
 
         for (let i = 0; i < this.upgradeChoices.length; i++) {
             const up = this.upgradeChoices[i];
@@ -10486,6 +10670,7 @@ const game = {
             const cx = startX + col * (cardW + gap);
             const cy = startY + row * (cardH + rowGap);
             const hovered = Mouse.inRect(cx, cy, cardW, cardH);
+            if (hovered) hoveredUpgrade = up;
             const isWeapon = up.cat === "weapon";
             const rarity = upgradeRarity(up);
             const rarityLabel = rarity.toUpperCase();
@@ -10580,6 +10765,10 @@ const game = {
                 return;
             }
         }
+
+        // Drawn last: it shows what the card under the mouse would change.
+        drawBuildPanel(buildX, buildW, this.player,
+            hoveredUpgrade ? previewBuildStats(hoveredUpgrade, this.player) : null);
     },
 
     // ────── SETTINGS ──────
@@ -10633,8 +10822,10 @@ const game = {
         ctx.fillText(isPausedMidRun ? "⏸  PAUSED" : "⚙  SETTINGS", CANVAS_W / 2, y + 30);
         y += 52;
 
-        // ── Run stats panel (right side, independent of button column) ──
+        // ── Build on the left, run stats on the right, independent of the button column ──
         if (isPausedMidRun) {
+            drawBuildPanel(30, 232, this.player, null);
+
             const statsW = 220;
             const statsH = 160;
             const statsX = CANVAS_W - statsW - 30;
