@@ -43,12 +43,13 @@ STEMS = [  # id, label; the order is the track order in the project
 # Parts with notes: id, label, factory preset, GM program (None = drum channel), GM drum note,
 # track volume. Pitched presets get base note A4 so every note sounds at its real pitch. The
 # volumes were measured in LMMS: with them a part is about as loud as its original stem.
+# Clap and hi-hats sit 6 dB lower still, the presets have very sharp peaks that clip.
 PARTS = [
     ("kick",     "Kick",        "Kicker/KickPower.xpf",               None, 36, 95),
     ("snare",    "Snare",       "Kicker/SnareLong.xpf",               None, 38, 87),
-    ("clap",     "Clap",        "Kicker/Clap.xpf",                    None, 39, 43),
-    ("hat",      "Hi-Hat zu",   "Kicker/HihatClosed.xpf",             None, 42, 50),
-    ("hat_open", "Hi-Hat offen", "Kicker/HihatOpen.xpf",              None, 46, 62),
+    ("clap",     "Clap",        "Kicker/Clap.xpf",                    None, 39, 22),
+    ("hat",      "Hi-Hat zu",   "Kicker/HihatClosed.xpf",             None, 42, 25),
+    ("hat_open", "Hi-Hat offen", "Kicker/HihatOpen.xpf",              None, 46, 31),
     ("bass",     "Bass",        "TripleOscillator/PluckBass.xpf",     38, None, 62),
     ("pad",      "Akkorde",     "TripleOscillator/WarmStack.xpf",     89, None, 19),
     ("arp",      "Arpeggio",    "TripleOscillator/PluckArpeggio.xpf", 81, None, 11),
