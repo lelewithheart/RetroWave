@@ -1,6 +1,6 @@
 """Put the album together: numbered, tagged MP3 and WAV files plus a track list.
 
-    python album_tag.py <dest> [<main song wav>]
+    python album_tag.py <dest> [<main song wav> [<main song title>]]
 
 Reads the album versions from out/album/<id>.wav (written by album.js). The
 main song, if given, becomes track 1 as it is (already mastered).
@@ -41,12 +41,13 @@ def duration(path):
 def main():
     dest = pathlib.Path(sys.argv[1]).resolve()
     main_song = pathlib.Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
+    main_title = sys.argv[3] if len(sys.argv) > 3 else (main_song.stem.split(" - ")[0] if main_song else None)
     (dest / "mp3").mkdir(parents=True, exist_ok=True)
     (dest / "wav").mkdir(parents=True, exist_ok=True)
 
     items = []
     if main_song:
-        items.append((main_song, main_song.stem.split(" - ")[0], "Main theme", False, None))
+        items.append((main_song, main_title, "Main theme", False, None))
     for tid, title, note, gain in ORDER:
         src = HERE / "out" / "album" / f"{tid}.wav"
         if src.exists():
