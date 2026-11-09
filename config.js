@@ -16,7 +16,9 @@ window.RogueConfig = {
         // alive (bosses do not count), topping up at most one every refillCd
         // seconds, and every wave opens with a burst. Easy and hard scale it
         // through their spawn-rate modifier.
-        minAlive: { base: 8, perWave: 1.6, max: 40, refillCd: 0.12, burst: 10 },
+        // Wave 17 with 34 enemies alive was too much to take in; the crowd now
+        // grows slower and stops at 26.
+        minAlive: { base: 8, perWave: 0.9, max: 26, refillCd: 0.12, burst: 10 },
         baseSpawnCd: 1.5,
         // Lowered from 0.30: the old cap kicked in at wave 19, which flattened
         // the whole late-game spawn curve (every decay change past wave 19 did
@@ -303,7 +305,10 @@ window.RogueConfig = {
         // level curve fell behind and DPS could not keep up with the spawn rate.
         // xpPerWaveGrowth scales the XP payout per wave so upgrade income tracks
         // enemy scaling; xpNeedGrowth (see modeModifiers) was also lowered.
-        xpPerWaveGrowth: 1.11,
+        // Retuned with the denser waves (14 + 6 kills each): 1.07 here, a first
+        // level at 160 XP and xpNeedGrowth 1.10 give about two level-ups per wave
+        // from start to finish (was 11 levels in the first three waves, then one a wave).
+        xpPerWaveGrowth: 1.07,
     },
     // ─────────────────────────────────────────────────────────────────────────
     // LOOT / INVENTORY SYSTEM

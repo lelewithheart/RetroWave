@@ -2,6 +2,13 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 10.11:1
+- FIXED: Constant micro-freezes in dense fights. The freeze on triple kills is gone, elite kills freeze at most every 2 seconds
+- Calmer late game: the crowd tops out at 26 instead of 40, no bullet sparks, smaller death bursts, damage numbers add up instead of stacking, fewer combo flashes
+- Level curve retuned: about two level-ups per wave from start to finish (was eleven in the first three waves, then one a wave)
+- No crowd top-up while a boss is alive, so boss fights are no longer an XP farm
+- Menu swarm uses cheap glow sprites instead of blur
+
 beta 9.11:5
 - NEW: Every run starts with a choice: pick one of the four weapons for free
 - NEW: Your ship has a hull and an engine now, and enemies have faces that watch you

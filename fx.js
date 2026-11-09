@@ -694,8 +694,7 @@ const FX = (() => {
             const look = Math.atan2(hy * 0.45 - y, CANVAS_W / 2 - x);
             ctx.save();
             ctx.globalAlpha = 0.42 + 0.1 * Math.sin(t * 0.002 + i);
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 14;
+            glow(x, y, r * 3.2, color, 0.5);
             ctx.fillStyle = color;
             ctx.beginPath();
             if (kind === "hex") {
@@ -710,7 +709,6 @@ const FX = (() => {
             }
             ctx.closePath();
             ctx.fill();
-            ctx.shadowBlur = 0;
             const cl = Math.cos(look), sl = Math.sin(look), er = r * 0.22;
             for (const k of [-1, 1]) {
                 const ex = x + cl * r * 0.22 - sl * r * 0.36 * k, ey = y + sl * r * 0.22 + cl * r * 0.36 * k;
@@ -725,7 +723,7 @@ const FX = (() => {
             const y = 70 + ((i * 211) % (hy - 120));
             ctx.save();
             ctx.globalAlpha = 0.5;
-            ctx.shadowColor = "#ffee55"; ctx.shadowBlur = 12;
+            glow(x + 13, y + 1, 22, "#ffee55", 0.6);
             ctx.fillStyle = "#ffee55";
             ctx.fillRect(x, y, 26, 3);
             ctx.restore();
