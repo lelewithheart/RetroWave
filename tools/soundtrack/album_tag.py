@@ -14,7 +14,6 @@ HERE = pathlib.Path(__file__).resolve().parent
 ALBUM = "RogueWave (Original Soundtrack)"
 ARTIST = "Glitchwerk"
 YEAR = "2026"
-AI_NOTE = "Composed and produced with AI tools"
 
 # id (file in out/album), title, note for the track list, gain in dB
 # (the menu track is mastered quieter for the game; on the album it comes up to the rest)
@@ -65,8 +64,6 @@ def main():
         tags = ["-metadata", f"title={title}", "-metadata", f"artist={ARTIST}", "-metadata", f"album={ALBUM}",
                 "-metadata", f"album_artist={ARTIST}", "-metadata", f"track={n}/{len(items)}",
                 "-metadata", f"date={YEAR}", "-metadata", "genre=Electronic"]
-        if ai:
-            tags += ["-metadata", f"comment={AI_NOTE}"]
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), *filters, *tags, "-id3v2_version", "3",
                         "-c:a", "libmp3lame", "-b:a", "320k", str(dest / "mp3" / f"{base}.mp3")], check=True)
         # WAV keeps the source's bit depth; album versions are 16 bit, the master 24 bit.
@@ -75,10 +72,9 @@ def main():
                         "-c:a", "copy" if gain is None else "pcm_s16le", str(wav_out)], check=True)
         secs = duration(wav_out)
         total += secs
-        lines.append(f"{n:02d}  {title:16s} {int(secs // 60)}:{int(secs % 60):02d}   {note}{'' if ai else '   (Lenny)'}")
+        lines.append(f"{n:02d}  {title:16s} {int(secs // 60)}:{int(secs % 60):02d}   {note}")
         print(lines[-1])
-    lines += ["", f"Total {int(total // 60)}:{int(total % 60):02d}", "",
-              "Tracks 2 and up: " + AI_NOTE.lower() + "."]
+    lines += ["", f"Total {int(total // 60)}:{int(total % 60):02d}"]
     (dest / "TRACKLIST.txt").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"total {int(total // 60)}:{int(total % 60):02d}")
 
