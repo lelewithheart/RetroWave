@@ -9,6 +9,11 @@
             height: 100vh;
             width: 100vw;
             font-family: 'Segoe UI', Arial, sans-serif;
+            /* No text selection or magnifier on double tap / long press. */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
         }
         html.canvas-scroll-mode,
         body.canvas-scroll-mode {

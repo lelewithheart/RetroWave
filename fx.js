@@ -688,6 +688,8 @@ const FX = (() => {
     const cache = { open: false, reveal: 0, message: "", messageColor: "#ff8899", busy: false };
 
     function cacheAvailable() {
+        // Platform builds must not sell anything outside the platform.
+        if (window.RW_PLATFORM === "crazygames") return false;
         const where = `${location.hostname} ${document.referrer || ""}`;
         return !/crazygames/i.test(where);
     }

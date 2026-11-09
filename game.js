@@ -148,6 +148,10 @@ const SKIN_ASSET_TELEMETRY = {
     placeholderRenders: 0,
 };
 
+// Set by the platform build (tools/build_crazygames.py writes it into
+// index.html). Plain web builds such as itch leave it unset.
+const PLATFORM = (typeof window.RW_PLATFORM === "string") ? window.RW_PLATFORM : "web";
+
 const APP_CONFIG = {
     monetization: false,
 };
@@ -708,7 +712,11 @@ function toCanvasCoords(clientX, clientY) {
 
 function resizeCanvas() {
     const fitScale = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
-    const scale = Math.max(getDynamicMinReadableScale(), fitScale);
+    // Inside a platform iframe the game must always fit: a scrolling canvas
+    // would be cut off there. Standalone pages may scroll to stay readable.
+    const scale = PLATFORM === "crazygames"
+        ? fitScale
+        : Math.max(getDynamicMinReadableScale(), fitScale);
 
     const scrollMode = scale > fitScale;
     document.documentElement.classList.toggle("canvas-scroll-mode", scrollMode);
@@ -1301,7 +1309,7 @@ function applyEnvConfigText(text) {
 
 async function loadEnvConfig() {
     // .env may be blocked on some static hosts; fallback to env.txt.
-    const candidates = [".env", "env.txt"];
+    const candidates = PLATFORM === "crazygames" ? ["env.txt"] : [".env", "env.txt"];
     let lastErr = null;
     for (let i = 0; i < candidates.length; i++) {
         const path = candidates[i];
@@ -2135,7 +2143,7 @@ const HighScores = (() => {
 
     function load(mode, challengeMode) {
         try {
-            const raw = localStorage.getItem(storageKey(mode, challengeMode));
+            const raw = CrazyGamesSDK.getItemSync(storageKey(mode, challengeMode));
             if (raw) return JSON.parse(raw);
         } catch (e) { /* ignore */ }
         return [];
@@ -2143,7 +2151,7 @@ const HighScores = (() => {
 
     function save(scores, mode, challengeMode) {
         try {
-            localStorage.setItem(storageKey(mode, challengeMode), JSON.stringify(scores));
+            CrazyGamesSDK.setItemSync(storageKey(mode, challengeMode), JSON.stringify(scores));
         } catch (e) { /* ignore */ }
     }
 
@@ -5316,6 +5324,9 @@ const CrazyGamesSDK = (() => {
     let sdkAvailable = false;
     let currentUser = null;          // { username, profilePictureUrl } or null
     let sdkInitialised = false;
+    let gameplayActive = false;      // last gameplay state reported to the platform
+    let adPlaying = false;           // an ad is on screen, do not report gameplay
+    let platformMuted = false;       // the site asked for silence, wins over our toggles
 
     // ── Leaderboard encryption key ──
     // IMPORTANT: Replace with your own 32-byte base64-encoded key, generated at
@@ -5323,6 +5334,11 @@ const CrazyGamesSDK = (() => {
     // cryptographically secure random bytes encoded as base64 (32 raw bytes → 44 chars).
     // The same key must be submitted to CrazyGames when configuring the leaderboard.
     const LEADERBOARD_ENCRYPTION_KEY = "h5dMujlEwwSJAN8zV43G9yscOIdGhK89FwtB4vwreXU=";
+
+    // CrazyGames leaderboards are invite-only and there is one per game. Turn
+    // this on once the leaderboard is set up in the Developer Portal with the
+    // key above; until then no scores are sent.
+    const LEADERBOARD_ENABLED = false;
 
     /** Safely get the SDK object */
     function sdk() {
@@ -5371,43 +5387,47 @@ const CrazyGamesSDK = (() => {
     function applyPlatformSettings() {
         const s = sdk();
         if (!s || !s.game.settings) return;
-        const cgSettings = s.game.settings;
-        if (cgSettings.muteAudio) {
+        setPlatformMuted(!!s.game.settings.muteAudio);
+    }
+
+    function setPlatformMuted(muted) {
+        if (muted === platformMuted) return;
+        platformMuted = muted;
+        if (muted) {
             // Platform says mute – save user prefs first, then mute
             preMuteSoundEnabled = Settings.soundEnabled;
             preMuteMusicEnabled = Settings.musicEnabled;
             Settings.soundEnabled = false;
             Settings.musicEnabled = false;
-            GameAudio.setSfxEnabled(false);
-            GameAudio.setMusicEnabled(false);
+        } else {
+            // Platform allows sound again – restore the user's previous preferences
+            Settings.soundEnabled = preMuteSoundEnabled;
+            Settings.musicEnabled = preMuteMusicEnabled;
         }
-        // If muteAudio is false, keep the user's current settings as-is
+        GameAudio.setSfxEnabled(Settings.soundEnabled);
+        GameAudio.setMusicEnabled(Settings.musicEnabled);
     }
 
-    /** CrazyGames settings change callback */
-    function onSettingsChange(key, value) {
-        if (key === "muteAudio") {
-            if (value) {
-                // Platform requests mute – save user prefs, then mute
-                preMuteSoundEnabled = Settings.soundEnabled;
-                preMuteMusicEnabled = Settings.musicEnabled;
-                Settings.soundEnabled = false;
-                Settings.musicEnabled = false;
-                GameAudio.setSfxEnabled(false);
-                GameAudio.setMusicEnabled(false);
-            } else {
-                // Platform requests unmute – restore user's previous preferences
-                Settings.soundEnabled = preMuteSoundEnabled;
-                Settings.musicEnabled = preMuteMusicEnabled;
-                GameAudio.setSfxEnabled(Settings.soundEnabled);
-                GameAudio.setMusicEnabled(Settings.musicEnabled);
-            }
+    /** True while the site mutes the game. In-game toggles must not undo that. */
+    function isPlatformMuted() { return platformMuted; }
+
+    /**
+     * CrazyGames settings change callback. Older SDK builds pass (key, value),
+     * current ones pass the whole settings object.
+     */
+    function onSettingsChange(keyOrSettings, value) {
+        if (keyOrSettings && typeof keyOrSettings === "object") {
+            if ("muteAudio" in keyOrSettings) setPlatformMuted(!!keyOrSettings.muteAudio);
+        } else if (keyOrSettings === "muteAudio") {
+            setPlatformMuted(!!value);
         }
     }
 
     // ── Game lifecycle ──
 
     function gameplayStart() {
+        if (gameplayActive) return;
+        gameplayActive = true;
         const s = sdk();
         if (sdkAvailable && s) {
             try { s.game.gameplayStart(); } catch (e) { /* ignore */ }
@@ -5415,16 +5435,30 @@ const CrazyGamesSDK = (() => {
     }
 
     function gameplayStop() {
+        if (!gameplayActive) return;
+        gameplayActive = false;
         const s = sdk();
         if (sdkAvailable && s) {
             try { s.game.gameplayStop(); } catch (e) { /* ignore */ }
         }
     }
 
+    /**
+     * Called once per frame with "is the player in control right now". Covers
+     * every break (pause, upgrade pick, menus) without a call at each site.
+     */
+    function syncGameplay(playing) {
+        if (adPlaying) return;
+        if (playing) gameplayStart(); else gameplayStop();
+    }
+
     function happyTime() {
         const s = sdk();
-        if (sdkAvailable && s && typeof s.game.happyTime === "function") {
-            try { s.game.happyTime(); } catch (e) { /* ignore */ }
+        if (!sdkAvailable || !s) return;
+        // The SDK spells it "happytime"; keep the old name as a fallback.
+        const fn = s.game.happytime || s.game.happyTime;
+        if (typeof fn === "function") {
+            try { fn.call(s.game); } catch (e) { /* ignore */ }
         }
     }
 
@@ -5444,6 +5478,13 @@ const CrazyGamesSDK = (() => {
 
     // ── Ads ──
 
+    /** Ad over (shown or not): restore audio. The frame sync resumes gameplay. */
+    function adDone() {
+        adPlaying = false;
+        if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
+        if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
+    }
+
     /** Request a midgame ad (between waves). Mutes audio during ad. */
     function requestMidroll() {
         if (!APP_CONFIG.monetization) return;
@@ -5453,19 +5494,12 @@ const CrazyGamesSDK = (() => {
             s.ad.requestAd("midgame", {
                 adStarted()  {
                     gameplayStop();
+                    adPlaying = true;
                     GameAudio.setSfxEnabled(false);
                     GameAudio.setMusicEnabled(false);
                 },
-                adFinished() {
-                    if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
-                    if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
-                    gameplayStart();
-                },
-                adError() {
-                    if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
-                    if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
-                    gameplayStart();
-                },
+                adFinished() { adDone(); },
+                adError()    { adDone(); },
             });
         } catch (e) {
             console.warn("[CrazyGames] requestAd('midgame') failed:", e);
@@ -5482,21 +5516,12 @@ const CrazyGamesSDK = (() => {
                 s.ad.requestAd("rewarded", {
                     adStarted()  {
                         gameplayStop();
+                        adPlaying = true;
                         GameAudio.setSfxEnabled(false);
                         GameAudio.setMusicEnabled(false);
                     },
-                    adFinished() {
-                        if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
-                        if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
-                        gameplayStart();
-                        resolve(true);
-                    },
-                    adError() {
-                        if (Settings.soundEnabled) GameAudio.setSfxEnabled(true);
-                        if (Settings.musicEnabled) GameAudio.setMusicEnabled(true);
-                        gameplayStart();
-                        resolve(false);
-                    },
+                    adFinished() { adDone(); resolve(true); },
+                    adError()    { adDone(); resolve(false); },
                 });
             } catch (e) {
                 resolve(false);
@@ -5571,6 +5596,7 @@ const CrazyGamesSDK = (() => {
      * reverse-engineering of anti-cheat validation.
      */
     async function submitScore(wave, kills, timePlayed, won, context = {}) {
+        if (!LEADERBOARD_ENABLED) return;
         if (!sdkAvailable || !currentUser) return;
         const s = sdk();
         if (!s) return;
@@ -5602,9 +5628,33 @@ const CrazyGamesSDK = (() => {
         try { return localStorage.getItem(key); } catch (e) { return null; }
     }
 
+    /**
+     * Synchronous variants for small saves read on demand (high scores). The
+     * SDK data module is synchronous once init() has resolved.
+     */
+    function setItemSync(key, value) {
+        const s = sdk();
+        if (sdkAvailable && s) {
+            try { s.data.setItem(key, value); return; } catch (e) { /* fallthrough */ }
+        }
+        try { localStorage.setItem(key, value); } catch (e) { /* ignore */ }
+    }
+
+    function getItemSync(key) {
+        const s = sdk();
+        if (sdkAvailable && s) {
+            try { return s.data.getItem(key); } catch (e) { /* fallthrough */ }
+        }
+        try { return localStorage.getItem(key); } catch (e) { return null; }
+    }
+
     return {
         init,
         isAvailable,
+        isPlatformMuted,
+        syncGameplay,
+        setItemSync,
+        getItemSync,
         gameplayStart,
         gameplayStop,
         happyTime,
@@ -6432,6 +6482,7 @@ const game = {
 
     update(dt) {
         this.updateTransition(dt);
+        CrazyGamesSDK.syncGameplay(this.state === STATE.GAMEPLAY);
 
         // The one-time performance prompt is drawn on top of every state, so it
         // must also be handled in every state. Keeping this here (instead of only
@@ -10442,11 +10493,13 @@ const game = {
         }
 
         // ── Toggle buttons (centered column) ──
+        // While the site mutes the game, our toggles must not turn sound back on.
+        const siteMuted = CrazyGamesSDK.isPlatformMuted();
         const soundHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
-            `Sound: ${Settings.soundEnabled ? "ON" : "OFF"}`,
+            siteMuted ? "Sound: MUTED BY SITE" : `Sound: ${Settings.soundEnabled ? "ON" : "OFF"}`,
             bx, y, bw, bh, soundHover
-        )) {
+        ) && !siteMuted) {
             Settings.soundEnabled = !Settings.soundEnabled;
             GameAudio.setSfxEnabled(Settings.soundEnabled);
         }
@@ -10454,9 +10507,9 @@ const game = {
 
         const musicHover = Mouse.inRect(bx, y, bw, bh);
         if (drawButton(
-            `Music: ${Settings.musicEnabled ? "ON" : "OFF"}`,
+            siteMuted ? "Music: MUTED BY SITE" : `Music: ${Settings.musicEnabled ? "ON" : "OFF"}`,
             bx, y, bw, bh, musicHover
-        )) {
+        ) && !siteMuted) {
             Settings.musicEnabled = !Settings.musicEnabled;
             GameAudio.setMusicEnabled(Settings.musicEnabled);
         }

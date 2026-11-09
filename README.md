@@ -94,17 +94,23 @@ The `CrazyGamesSDK` module provides full CrazyGames SDK v3 integration:
 |---|---|
 | **Ads** | `requestMidroll()` (midgame ads between waves), `requestRewarded()` (rewarded ads, returns promise) — audio is automatically muted during ads |
 | **Lifecycle** | `loadingStart()` / `loadingStop()` + `gameplayStart()` / `gameplayStop()` / `happyTime()` |
-| **Leaderboards** | Per-difficulty leaderboards (`roguewave-easy`, `roguewave-normal`, `roguewave-hard`) — scores submitted automatically on game over for logged-in users |
+| **Leaderboards** | Off by default (`LEADERBOARD_ENABLED` in `game.js`). CrazyGames leaderboards are invite-only and there is one per game |
 | **User** | `getUser()` / `promptLogin()` — user authentication and sign-in prompt |
 | **Settings** | Listens for platform `muteAudio` changes and syncs with in-game sound/music toggles |
 | **Data** | `saveData()` / `loadData()` — cloud persistence via `SDK.data` with localStorage fallback |
 
+### Building the CrazyGames bundle
+
+```
+python tools/build_crazygames.py          # Basic Launch: no ads
+python tools/build_crazygames.py --ads    # Full Launch: ads through the SDK
+```
+
+This writes `dist/roguewave-crazygames.zip`, the file to upload in the [CrazyGames Developer Portal](https://developer.crazygames.com/). The bundle sets `window.RW_PLATFORM = "crazygames"`, which switches off the Supporter Cache, keeps the canvas inside the iframe at every size and drops changelog lines about other platforms. In the submission form, set Progress Save to the Data Module, otherwise saves stay local.
+
 ### Leaderboard Setup
 
-Create three leaderboards in the [CrazyGames Developer Portal](https://developer.crazygames.com/) with these IDs:
-- `roguewave-easy`
-- `roguewave-normal`
-- `roguewave-hard`
+Once CrazyGames invites the game, set up one leaderboard in the Developer Portal with the encryption key from `game.js` and set `LEADERBOARD_ENABLED` to `true`.
 
 Score formula: `wave × 100000 + kills × 100 + seconds_survived`
 
