@@ -2,6 +2,12 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 9.11:5
+- NEW: Every run starts with a choice: pick one of the four weapons for free
+- NEW: Your ship has a hull and an engine now, and enemies have faces that watch you
+- Short hints one at a time instead of a text box at the start of a run
+- The menu sky has a drifting swarm
+
 beta 9.11:4
 - Much denser fights: the arena keeps a crowd alive at all times and every wave opens with a burst of enemies
 - Enemies appear at the edge of the screen instead of somewhere outside it

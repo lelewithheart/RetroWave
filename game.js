@@ -4316,6 +4316,38 @@ class Player extends Entity {
             ctx.restore();
         }
 
+        // Hull: a swept wing behind the core, pointing where the player aims,
+        // with an engine flame that grows with speed.
+        {
+            const r = this.radius;
+            const speedShare = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(1, this.speed));
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.aimShown);
+            const flick = 0.75 + 0.25 * Math.sin(frameNow * 0.03);
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.55, r * 0.42);
+            ctx.lineTo(-r * (1.25 + 0.9 * speedShare * flick), 0);
+            ctx.lineTo(-r * 0.55, -r * 0.42);
+            ctx.closePath();
+            ctx.fillStyle = `rgba(255,204,51,${0.55 + 0.35 * speedShare})`;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(r * 1.55, 0);
+            ctx.lineTo(-r * 0.95, r * 1.3);
+            ctx.lineTo(-r * 0.4, 0);
+            ctx.lineTo(-r * 0.95, -r * 1.3);
+            ctx.closePath();
+            ctx.fillStyle = this.skinColor;
+            ctx.globalAlpha = 0.9;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = "rgba(255,255,255,0.75)";
+            ctx.stroke();
+            ctx.restore();
+        }
+
         // Body
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -4872,8 +4904,11 @@ class Enemy extends Entity {
 
     draw() {
         const isSlow = this.slowTimer > 0;
-        // A hit makes the enemy pop by a few percent while the flash lasts.
-        const pop = 1 + Math.max(0, this.hitFlash) * 1.4;
+        // A hit makes the enemy pop by a few percent while the flash lasts; the
+        // rest of the time regular enemies breathe a little.
+        const breathe = this.type === "miniboss" || this.type === "bigboss" || this.type === "endboss" || this.type === "warden"
+            ? 0 : 0.035 * Math.sin(frameNow * 0.009 + this.x * 0.05);
+        const pop = 1 + Math.max(0, this.hitFlash) * 1.4 + breathe;
         ctx.save();
         if (pop > 1.001) {
             ctx.translate(this.x, this.y);
@@ -5159,6 +5194,41 @@ class Enemy extends Entity {
             ctx.lineWidth = 1.5;
             ctx.strokeStyle = "#000000";
             ctx.stroke();
+        }
+
+        // Faces: two eyes that look at the player. Tanks scowl, exploders stare.
+        if (!game.lowPerf && game.player && this.type !== "miniboss" && this.type !== "bigboss"
+            && this.type !== "endboss" && this.type !== "warden") {
+            const look = Math.atan2(game.player.y - this.y, game.player.x - this.x);
+            const r = this.radius;
+            const eyeR = Math.max(1.8, r * 0.21), pupilR = eyeR * 0.5;
+            const fwd = r * 0.22, side = r * 0.36;
+            const cl = Math.cos(look), sl = Math.sin(look);
+            for (const k of [-1, 1]) {
+                const ex = this.x + cl * fwd - sl * side * k;
+                const ey = this.y + sl * fwd + cl * side * k;
+                ctx.beginPath();
+                ctx.arc(ex, ey, eyeR * (this.type === "exploder" ? 1.25 : 1), 0, Math.PI * 2);
+                ctx.fillStyle = "#ffffff";
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(ex + cl * eyeR * 0.4, ey + sl * eyeR * 0.4, pupilR, 0, Math.PI * 2);
+                ctx.fillStyle = "#0b0b18";
+                ctx.fill();
+            }
+            if (this.type === "tank" || this.isElite) {
+                // Angry brows.
+                ctx.strokeStyle = "#0b0b18";
+                ctx.lineWidth = Math.max(1.2, r * 0.12);
+                for (const k of [-1, 1]) {
+                    const bx = this.x + cl * (fwd + eyeR * 0.9) - sl * side * k;
+                    const by = this.y + sl * (fwd + eyeR * 0.9) + cl * side * k;
+                    ctx.beginPath();
+                    ctx.moveTo(bx - sl * eyeR * 1.1 * k + cl * eyeR * 0.3, by + cl * eyeR * 1.1 * k + sl * eyeR * 0.3);
+                    ctx.lineTo(bx + sl * eyeR * 0.2 * k, by - cl * eyeR * 0.2 * k);
+                    ctx.stroke();
+                }
+            }
         }
 
         // ── Elite marker: golden aura ring so promoted enemies read instantly ──
@@ -5581,10 +5651,14 @@ const UPGRADES = [
         desc: "Overdrive lasts 3 seconds longer" },
 
     // ── Weapon upgrades ──
-    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level += UPGRADE_TUNING.weaponLevelAdd; } },
-    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", apply(p) { p.weapons.lightningAura.level += UPGRADE_TUNING.weaponLevelAdd; } },
-    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", apply(p) { p.weapons.frostNova.level += UPGRADE_TUNING.weaponLevelAdd; } },
-    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", apply(p) { p.weapons.flameTrail.level += UPGRADE_TUNING.weaponLevelAdd; } },
+    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level += UPGRADE_TUNING.weaponLevelAdd; },
+        desc(p) { return p.weapons.orbitShield.level ? "One more orb, wider circle" : "Orbs circle you and smash whatever they touch"; } },
+    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", apply(p) { p.weapons.lightningAura.level += UPGRADE_TUNING.weaponLevelAdd; },
+        desc(p) { return p.weapons.lightningAura.level ? "Zaps harder and more often" : "Zaps nearby enemies every few seconds"; } },
+    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", apply(p) { p.weapons.frostNova.level += UPGRADE_TUNING.weaponLevelAdd; },
+        desc(p) { return p.weapons.frostNova.level ? "Bigger, colder nova" : "Freezes and damages everything around you"; } },
+    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", apply(p) { p.weapons.flameTrail.level += UPGRADE_TUNING.weaponLevelAdd; },
+        desc(p) { return p.weapons.flameTrail.level ? "Hotter, longer trail" : "Burns the ground you move over"; } },
 ];
 
 // Groups of stat upgrades shown in the bottom-right HUD, one icon per family
@@ -6254,6 +6328,7 @@ const game = {
     upgradeChoices: [],
     upgradeQueue: [],        // level-ups that arrived while the screen was already open
     upgradeIsBonusWave: false,
+    starterPick: false,   // the upgrade screen is showing the starting-weapon choice
     xpMagnetBonus: 0,
 
     // Wave event flags
@@ -6329,6 +6404,8 @@ const game = {
 
     // UX flow state
     tutorialDismissed: false,
+    tutorialStage: 0,     // 0 move, 1 shoot and collect, 2 dash, 3 done
+    tutorialTimer: 0,     // seconds the current hint has been up
     revivedThisRun: false,
     reviveInProgress: false,
     runFinalized: false,
@@ -6435,6 +6512,7 @@ const game = {
         this.upgradeChoices = [];
         this.upgradeQueue = [];
         this.upgradeIsBonusWave = false;
+        this.starterPick = false;
         this.xpMagnetBonus = 0;
         this.pendingBonusUpgrade = false;
         this.pendingBossType = null;
@@ -6487,6 +6565,8 @@ const game = {
         this.perfPromptDecision = null;
         this.perfPromptVisible = false;
         this.tutorialDismissed = false;
+        this.tutorialStage = 0;
+        this.tutorialTimer = 0;
         this.revivedThisRun = false;
         this.reviveInProgress = false;
         this.runFinalized = false;
@@ -8909,6 +8989,15 @@ const game = {
         GameAudio.ensureContext();
         GameAudio.startMusic(0);
         CrazyGamesSDK.gameplayStart();
+        this.openStarterPick();
+    },
+
+    /** The run opens with a choice: one of the four weapons, free. */
+    openStarterPick() {
+        this.upgradeChoices = UPGRADES.filter((up) => up.cat === "weapon");
+        this.upgradeIsBonusWave = false;
+        this.starterPick = true;
+        this.state = STATE.UPGRADE_SCREEN;
     },
 
     // ────── GAMEPLAY ──────
@@ -8931,9 +9020,16 @@ const game = {
         if (this.waveActive) this.updateEvent(speedDt);
 
         if (!this.tutorialDismissed) {
+            // Three short hints in turn. Moving ends the first one early.
+            this.tutorialTimer += dt;
             const mv = Input.moveVector();
-            if (this.timePlayed > TUTORIAL_HINT_DURATION || mv.x !== 0 || mv.y !== 0 || Mouse.clicked || Input.just("Escape")) {
-                this.tutorialDismissed = true;
+            const moved = mv.x !== 0 || mv.y !== 0 || (isMobile && TouchControls.moveActive);
+            const stageOver = this.tutorialStage === 0 ? (moved && this.tutorialTimer > 0.6) || this.tutorialTimer > TUTORIAL_HINT_DURATION
+                : this.tutorialTimer > (this.tutorialStage === 1 ? 5 : 4);
+            if (stageOver) {
+                this.tutorialStage++;
+                this.tutorialTimer = 0;
+                if (this.tutorialStage >= 3) this.tutorialDismissed = true;
             }
         }
 
@@ -9975,26 +10071,35 @@ const game = {
             ctx.fillText("Ad Booster Active", pad, CANVAS_H - (this.lowPerf ? 26 : 12));
         }
 
-        // ── Quick onboarding tutorial (first seconds of run) ──
+        // ── Onboarding: one short hint at a time, above the HUD ──
         if (!this.tutorialDismissed) {
-            const tw = portrait ? 320 : 460;
-            const th = portrait ? 72 : 64;
-            const tx = CANVAS_W / 2 - tw / 2;
-            const ty = portrait ? CANVAS_H - 190 : CANVAS_H - 120;
-            drawRoundRect(tx, ty, tw, th, 8);
-            ctx.fillStyle = "rgba(8, 10, 24, 0.9)";
-            ctx.fill();
-            ctx.strokeStyle = "rgba(102,204,255,0.5)";
-            ctx.lineWidth = 1.2;
-            ctx.stroke();
-            ctx.textAlign = "center";
-            ctx.fillStyle = COLOR.text;
-            ctx.font = "bold 13px 'Segoe UI', Arial, sans-serif";
-            const aim = Settings.gameMode === "hard" ? (isMobile ? "Right touch aims" : "Mouse aims") : "Auto-aim enabled";
-            ctx.fillText(isMobile ? `${aim}  •  Tap DASH to dodge` : `Move: WASD/Arrows  •  ${aim}  •  SPACE to dash`, CANVAS_W / 2, ty + 24);
-            ctx.fillStyle = COLOR.textDim;
-            ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText("Collect green XP, level up, pick upgrades. Press ESC for pause/settings.", CANVAS_W / 2, ty + 44);
+            const aim = Settings.gameMode === "hard" ? (isMobile ? "The right side aims." : "The mouse aims.") : "You aim and shoot automatically.";
+            const hints = isMobile
+                ? ["Drag on the left to move", `${aim} Grab the green XP.`, "Tap DASH to slip through enemies"]
+                : ["WASD or arrows to move", `${aim} Grab the green XP.`, "SPACE: dash through enemies"];
+            const text = hints[this.tutorialStage] || "";
+            if (text) {
+                const t = this.tutorialTimer;
+                const alpha = Math.min(1, t * 4) * (this.tutorialStage === 0 ? 1 : Math.min(1, Math.max(0, ((this.tutorialStage === 1 ? 5 : 4) - t) * 2)));
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.font = "bold 15px 'Segoe UI', Arial, sans-serif";
+                const tw = ctx.measureText(text).width + 36;
+                const th = 34;
+                const tx = CANVAS_W / 2 - tw / 2;
+                const ty = (portrait ? CANVAS_H - 200 : CANVAS_H - 118) + (1 - Math.min(1, t * 4)) * 8;
+                drawRoundRect(tx, ty, tw, th, 17);
+                ctx.fillStyle = "rgba(8, 10, 24, 0.88)";
+                ctx.fill();
+                ctx.strokeStyle = "rgba(102,204,255,0.6)";
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = COLOR.text;
+                ctx.fillText(text, CANVAS_W / 2, ty + th / 2 + 1);
+                ctx.restore();
+            }
         }
 
         // ── Perf status badge (debug-friendly, player-safe) ──
@@ -10763,6 +10868,13 @@ const game = {
         const up = this.upgradeChoices[index];
         if (!up) return;
         up.apply(this.player);
+        if (this.starterPick) {
+            // The free starting weapon is not an upgrade the run earned.
+            this.starterPick = false;
+            GameAudio.sfxUpgradeSelect();
+            this.state = STATE.GAMEPLAY;
+            return;
+        }
         this.runUpgradesTaken++;
         if (up.cat === "stat") {
             const c = this.player.upgradeCounts;
@@ -10831,7 +10943,8 @@ const game = {
         const startY = compactLayout ? 176 : 210;
 
         // Title with glow
-        const titleText = this.upgradeIsBonusWave ? "🏆 BOSS DEFEATED! FREE UPGRADE!" : "LEVEL UP!";
+        const titleText = this.starterPick ? "CHOOSE YOUR WEAPON"
+            : this.upgradeIsBonusWave ? "🏆 BOSS DEFEATED! FREE UPGRADE!" : "LEVEL UP!";
         const titleColor = this.upgradeIsBonusWave ? "#ffd700" : COLOR.accent;
         ctx.fillStyle = titleColor;
         ctx.font = compactLayout ? "bold 28px 'Segoe UI', Arial, sans-serif" : (narrowLayout ? "bold 31px 'Segoe UI', Arial, sans-serif" : "bold 34px 'Segoe UI', Arial, sans-serif");
@@ -10845,7 +10958,10 @@ const game = {
         ctx.fillStyle = COLOR.textDim;
         ctx.font = compactLayout ? "13px 'Segoe UI', Arial, sans-serif" : "15px 'Segoe UI', Arial, sans-serif";
         const numKeys = this.upgradeChoices.length;
-        ctx.fillText(isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`, midX, compactLayout ? 130 : 150);
+        const subtitle = this.starterPick
+            ? "It fights on its own. More weapons and upgrades come with every level."
+            : (isMobile ? "Choose an upgrade (tap to select)" : `Choose an upgrade (click or press 1-${numKeys})`);
+        ctx.fillText(subtitle, midX, compactLayout ? 130 : 150);
 
         // Player level badge
         ctx.fillStyle = "rgba(51,204,255,0.15)";

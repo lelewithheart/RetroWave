@@ -682,6 +682,54 @@ const FX = (() => {
             ctx.fillStyle = `rgba(170,215,255,${0.14 + 0.2 * Math.abs(Math.sin(t * 0.001 + i))})`;
             ctx.fillRect(x, y, 2, 2);
         }
+
+        // A loose swarm drifting through the sky, each one eyeing the title.
+        const shapes = [["hex", "#44bb44"], ["diamond", "#ffdd33"], ["circle", "#ff4466"], ["circle", "#ff7744"]];
+        for (let i = 0; i < 14; i++) {
+            const [kind, color] = shapes[i % shapes.length];
+            const speed = 0.012 + (i % 5) * 0.004;
+            const x = ((i * 173 + t * speed) % (CANVAS_W + 120)) - 60;
+            const y = 36 + ((i * 131) % (hy - 90)) + Math.sin(t * 0.0008 + i) * 14;
+            const r = 9 + (i % 4) * 3;
+            const look = Math.atan2(hy * 0.45 - y, CANVAS_W / 2 - x);
+            ctx.save();
+            ctx.globalAlpha = 0.42 + 0.1 * Math.sin(t * 0.002 + i);
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 14;
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            if (kind === "hex") {
+                for (let k = 0; k < 6; k++) {
+                    const a = (Math.PI * 2 / 6) * k - Math.PI / 6 + t * 0.0004;
+                    k ? ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r) : ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+                }
+            } else if (kind === "diamond") {
+                ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+            } else {
+                ctx.arc(x, y, r, 0, TAU);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            const cl = Math.cos(look), sl = Math.sin(look), er = r * 0.22;
+            for (const k of [-1, 1]) {
+                const ex = x + cl * r * 0.22 - sl * r * 0.36 * k, ey = y + sl * r * 0.22 + cl * r * 0.36 * k;
+                ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fill();
+                ctx.fillStyle = "#0b0b18"; ctx.beginPath(); ctx.arc(ex + cl * er * 0.4, ey + sl * er * 0.4, er * 0.5, 0, TAU); ctx.fill();
+            }
+            ctx.restore();
+        }
+        // The odd bullet streak crossing the sky.
+        for (let i = 0; i < 3; i++) {
+            const x = CANVAS_W + 40 - ((t * (0.35 + i * 0.1) + i * 700) % (CANVAS_W + 200));
+            const y = 70 + ((i * 211) % (hy - 120));
+            ctx.save();
+            ctx.globalAlpha = 0.5;
+            ctx.shadowColor = "#ffee55"; ctx.shadowBlur = 12;
+            ctx.fillStyle = "#ffee55";
+            ctx.fillRect(x, y, 26, 3);
+            ctx.restore();
+        }
     }
 
     // ── Supporter Cache ──
