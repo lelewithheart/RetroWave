@@ -610,5 +610,5 @@
         status.phase = status.error ? "failed" : "all-done";
     }
 
-    window.RWMusic = { run, runAll, status, tracks: TRACKS, hz, CH, NEON, ARP_STEPS };
+    window.RWMusic = { run, runAll, status, tracks: TRACKS, hz, CH, NEON, ARP_STEPS, rig, wav, SR };
 })();

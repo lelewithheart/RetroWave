@@ -77,6 +77,13 @@ The tracks are synthesised in the browser, not recorded. To change one:
 
 `music.js` is the synth and the first track, `music2.js` the other four. A track's loop length in `MUSIC_TRACKS` (`game.js`) must match its bars and tempo.
 
+To rework a track in a DAW instead of in code, export it as stems, MIDI and an LMMS project:
+
+1. On `music.html`, in the console: `RWExport.runAll(["neon", "acid", "crimson", "boss", "menu"])` — writes one WAV per instrument group and the notes to `tools/soundtrack/out/export/` (takes a few minutes)
+2. `python tools/soundtrack/build_daw.py "C:/path/to/projects"` (needs ffmpeg and LMMS 1.2) — writes a folder per track with `<name>.mmp`, `<name>.mid` and `stems/*.flac`
+
+The projects link the stems by absolute path, so build straight into the folder they will be opened from. Each stem runs through the master chain on its own, so the stems add up to nearly, not exactly, the mix in the game.
+
 | Section | Description |
 |---|---|
 | §1 | Constants & configuration |
