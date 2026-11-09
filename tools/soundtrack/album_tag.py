@@ -1,6 +1,8 @@
 """Put the album together: numbered, tagged MP3 and WAV files plus a track list.
 
-    python album_tag.py <dest> [<main song wav> [<main song title>]]
+    python album_tag.py <dest> [<main song wav> [<main song title> [<bonus wav> <bonus title>]]]
+
+A bonus track, if given, goes last.
 
 Reads the album versions from out/album/<id>.wav (written by album.js). The
 main song, if given, becomes track 1 as it is (already mastered).
@@ -41,6 +43,7 @@ def main():
     dest = pathlib.Path(sys.argv[1]).resolve()
     main_song = pathlib.Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
     main_title = sys.argv[3] if len(sys.argv) > 3 else (main_song.stem.split(" - ")[0] if main_song else None)
+    bonus = (pathlib.Path(sys.argv[4]).resolve(), sys.argv[5]) if len(sys.argv) > 5 else None
     (dest / "mp3").mkdir(parents=True, exist_ok=True)
     (dest / "wav").mkdir(parents=True, exist_ok=True)
 
@@ -53,6 +56,8 @@ def main():
             items.append((src, title, note, True, gain))
         else:
             print(f"{tid}: no album version found, skipped")
+    if bonus:
+        items.append((bonus[0], bonus[1], "Bonus", False, None))
 
     lines = [f"{ALBUM} - {ARTIST}", ""]
     total = 0.0
