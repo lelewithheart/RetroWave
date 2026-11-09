@@ -65,6 +65,18 @@ Main logic lives in **`game.js`** (loaded from `index.html`) and is logically se
 
 The itch.io workflow (`.github/workflows/deploy.yml`) zips exactly these files plus `assets/`.
 
+### Soundtrack
+
+`assets/music/` holds five looping tracks: one per area (`neon-district`, `acid-grid`, `crimson-core`), the boss theme (`warden`) and the menu track (`standby`). The game loads them on demand; if a file cannot be loaded, the old chiptune plays instead. The volume against the sound effects is `MUSIC_LEVEL` in `game.js`.
+
+The tracks are synthesised in the browser, not recorded. To change one:
+
+1. `python tools/soundtrack/server.py`, then open `http://127.0.0.1:8769/music.html`
+2. In the console: `RWMusic.runAll(["neon", "acid", "crimson", "boss", "menu"])` — writes WAV loops to `tools/soundtrack/out/music/`
+3. `bash tools/soundtrack/encode.sh` (needs ffmpeg) — writes the MP3 files to `assets/music/`
+
+`music.js` is the synth and the first track, `music2.js` the other four. A track's loop length in `MUSIC_TRACKS` (`game.js`) must match its bars and tempo.
+
 | Section | Description |
 |---|---|
 | §1 | Constants & configuration |

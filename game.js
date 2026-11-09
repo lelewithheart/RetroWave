@@ -201,6 +201,12 @@ const STATE = {
     VICTORY:        "VICTORY",
 };
 
+// Screens that play the menu track. A run and its end screens choose their own music.
+const MENU_MUSIC_STATES = new Set([
+    STATE.START_MENU, STATE.CHANGELOGS, STATE.SHOP, STATE.INVENTORY,
+    STATE.CHESTS, STATE.LOCKER, STATE.STATS, STATE.SETTINGS,
+]);
+
 // World dimensions (larger than the canvas – camera follows player)
 const WORLD_W = 3000;
 const WORLD_H = 3000;
@@ -1653,7 +1659,8 @@ function gridQuery(x, y, radius) {
 
 const GameAudio = (() => {
     let actx = null;        // AudioContext (lazy-init on first user gesture)
-    let musicGain = null;   // master gain node for music
+    let musicGain = null;   // gain node for the chiptune fallback
+    let trackGain = null;   // gain node for the soundtrack files
     let sfxGain = null;     // master gain node for SFX
     let musicPlaying = false;
     let musicTimeout = null;
@@ -1662,13 +1669,16 @@ const GameAudio = (() => {
         if (!actx) {
             actx = new (window.AudioContext || window.webkitAudioContext)();
             musicGain = actx.createGain();
-            musicGain.gain.value = 0.3;
+            musicGain.gain.value = 0;
             musicGain.connect(actx.destination);
+            trackGain = actx.createGain();
+            trackGain.gain.value = MUSIC_LEVEL;
+            trackGain.connect(actx.destination);
             sfxGain = actx.createGain();
             sfxGain.gain.value = 0.4;
             sfxGain.connect(actx.destination);
         }
-        if (actx.state === "suspended") actx.resume();
+        if (actx.state === "suspended" && !document.hidden) actx.resume();
         return actx;
     }
 
@@ -1988,11 +1998,13 @@ const GameAudio = (() => {
     ];
     const BOSS_MUSIC = { melody: bossMelody, bass: bossBass, melType: "sawtooth", bassType: "square", bpm: 160, melVol: 0.10, bassVol: 0.15, kickVol: 0.20, hatVol: 0.07 };
 
-    let currentMusicBiome = -1; // track which biome music is playing
+    // ── Chiptune fallback ──
+    // Only used when a soundtrack file cannot be loaded (see below).
+    let currentMusicBiome = -1; // which chiptune is playing
     let bossMusic = false;
 
     function scheduleMusic() {
-        if (!Settings.musicEnabled || !musicPlaying) return;
+        if (!musicPlaying) return;
         const ctx = ensureContext();
         const now = ctx.currentTime;
 
@@ -2041,37 +2053,8 @@ const GameAudio = (() => {
         musicTimeout = setTimeout(() => scheduleMusic(), totalLen * 1000 - 100);
     }
 
-    function startMusic(biomeIndex) {
-        const targetBiome = biomeIndex !== undefined ? biomeIndex : 0;
-        if (musicPlaying && currentMusicBiome === targetBiome && !bossMusic) return;
-        // Stop previous music if switching
-        if (musicPlaying) stopMusic();
-        ensureContext();
-        currentMusicBiome = targetBiome;
-        bossMusic = false;
-        musicPlaying = true;
-        // Restore music gain (may have been zeroed by stopMusic)
-        if (musicGain && Settings.musicEnabled) {
-            musicGain.gain.cancelScheduledValues(0);
-            musicGain.gain.setValueAtTime(0.3, actx.currentTime);
-        }
-        scheduleMusic();
-    }
-
-    function startBossMusic() {
-        if (musicPlaying && bossMusic) return;
-        if (musicPlaying) stopMusic();
-        ensureContext();
-        bossMusic = true;
-        musicPlaying = true;
-        if (musicGain && Settings.musicEnabled) {
-            musicGain.gain.cancelScheduledValues(0);
-            musicGain.gain.setValueAtTime(0.35, actx.currentTime);
-        }
-        scheduleMusic();
-    }
-
-    function stopMusic() {
+    function stopChiptune() {
+        if (!musicPlaying) return;
         musicPlaying = false;
         if (musicTimeout) {
             clearTimeout(musicTimeout);
@@ -2084,13 +2067,200 @@ const GameAudio = (() => {
         }
     }
 
-    function setMusicEnabled(enabled) {
-        if (enabled && musicPlaying) {
-            musicGain && (musicGain.gain.value = 0.3);
-        } else if (!enabled) {
-            musicGain && (musicGain.gain.value = 0);
+    function startChiptune(id) {
+        if (id === "menu") { stopChiptune(); return; } // the menu has no chiptune
+        const boss = id === "boss";
+        const biome = boss ? currentMusicBiome : Number(id.slice(5));
+        if (musicPlaying && bossMusic === boss && (boss || currentMusicBiome === biome)) return;
+        stopChiptune();
+        ensureContext();
+        currentMusicBiome = biome;
+        bossMusic = boss;
+        musicPlaying = true;
+        musicGain.gain.cancelScheduledValues(0);
+        musicGain.gain.setValueAtTime(boss ? 0.35 : 0.3, actx.currentTime);
+        scheduleMusic();
+    }
+
+    // ── Soundtrack (audio files) ──
+    // Every file holds the loop followed by one more second of its own start.
+    // Looping from LOOP_LEAD to LOOP_LEAD + length is then seamless no matter
+    // how much silence a browser's MP3 decoder puts in front of the audio.
+    const MUSIC_DIR = "assets/music/";
+    const MUSIC_TRACKS = {
+        menu:   { file: "standby.mp3",       length: 64 },       // 24 bars at 90 BPM
+        biome0: { file: "neon-district.mp3", length: 96 },       // 44 bars at 110 BPM
+        biome1: { file: "acid-grid.mp3",     length: 640 / 7 },  // 48 bars at 126 BPM
+        biome2: { file: "crimson-core.mp3",  length: 96 },       // 40 bars at 100 BPM
+        boss:   { file: "warden.mp3",        length: 51.2 },     // 32 bars at 150 BPM
+    };
+    // The track that most likely comes next, decoded ahead so the switch is instant.
+    const MUSIC_NEXT = { menu: "biome0", biome0: "biome1", biome1: "biome2", biome2: "boss" };
+    // Soundtrack volume. At 0.25 the music measures about as loud as the loudest
+    // sound effects; the tracks themselves are mastered to about -14 LUFS.
+    const MUSIC_LEVEL = 0.25;
+    const LOOP_LEAD = 0.5;
+    const MAX_DECODED = 2;          // a decoded track takes roughly 35 MB of memory
+
+    let wantedTrack = null;         // what the game asked for, null = silence
+    let liveTrack = null;           // { id, src, gain } that is sounding now
+    let musicOn = true;             // false while the site or an ad mutes the music
+    const decodedOrder = [];        // least recently used first
+
+    function musicTarget() {
+        return (musicOn && Settings.musicEnabled) ? wantedTrack : null;
+    }
+
+    function fetchTrack(id) {
+        const tr = MUSIC_TRACKS[id];
+        if (!tr.bytes) {
+            tr.bytes = fetch(MUSIC_DIR + tr.file).then((r) => {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.arrayBuffer();
+            });
+            tr.bytes.catch(() => { tr.failed = true; });
+        }
+        return tr.bytes;
+    }
+
+    function rememberDecoded(id) {
+        const at = decodedOrder.indexOf(id);
+        if (at >= 0) decodedOrder.splice(at, 1);
+        decodedOrder.push(id);
+        for (let k = 0; decodedOrder.length > MAX_DECODED && k < decodedOrder.length;) {
+            const old = decodedOrder[k];
+            if (old === id || old === wantedTrack) { k++; continue; }
+            MUSIC_TRACKS[old].buffer = null;
+            decodedOrder.splice(k, 1);
         }
     }
+
+    function decodeTrack(id) {
+        const tr = MUSIC_TRACKS[id];
+        if (tr.buffer) return Promise.resolve(tr.buffer);
+        if (!tr.decoding) {
+            tr.decoding = fetchTrack(id)
+                // decodeAudioData empties the buffer it is given, so hand it a copy.
+                .then((bytes) => new Promise((resolve, reject) => {
+                    const p = actx.decodeAudioData(bytes.slice(0), resolve, reject);
+                    if (p && p.catch) p.catch(reject);
+                }))
+                .then((buffer) => {
+                    tr.decoding = null;
+                    tr.buffer = buffer;
+                    rememberDecoded(id);
+                    return buffer;
+                }, (err) => {
+                    tr.decoding = null;
+                    tr.failed = true;
+                    console.warn("[music] " + tr.file + " could not be loaded:", err);
+                    throw err;
+                });
+        }
+        return tr.decoding;
+    }
+
+    function fadeOutLive(seconds) {
+        if (!liveTrack) return;
+        const { src, gain } = liveTrack;
+        liveTrack = null;
+        const t = actx.currentTime;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setValueAtTime(gain.gain.value, t);
+        gain.gain.linearRampToValueAtTime(0, t + seconds);
+        src.onended = () => gain.disconnect();
+        src.stop(t + seconds + 0.05);
+    }
+
+    function playTrack(id) {
+        const tr = MUSIC_TRACKS[id];
+        const t = actx.currentTime;
+        fadeOutLive(0.8);
+        const src = actx.createBufferSource();
+        src.buffer = tr.buffer;
+        src.loop = true;
+        src.loopStart = LOOP_LEAD;
+        src.loopEnd = LOOP_LEAD + tr.length;
+        const gain = actx.createGain();
+        // Every track opens with an intro, so it comes in at once and only the
+        // old one fades.
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(1, t + 0.03);
+        src.connect(gain);
+        gain.connect(trackGain);
+        src.start(t);
+        liveTrack = { id, src, gain };
+        rememberDecoded(id);
+        const next = MUSIC_NEXT[id];
+        if (next && !MUSIC_TRACKS[next].failed) decodeTrack(next).catch(() => {});
+    }
+
+    /** Make what is sounding match what the game and the settings ask for. */
+    function applyMusic() {
+        const want = musicTarget();
+        if (!actx) {
+            // No click or key press yet, so no audio. Fetch the file meanwhile.
+            if (want) fetchTrack(want).catch(() => {});
+            return;
+        }
+        if (!want) {
+            fadeOutLive(0.25);
+            stopChiptune();
+            return;
+        }
+        if (MUSIC_TRACKS[want].failed) {
+            fadeOutLive(0.25);
+            startChiptune(want);
+            return;
+        }
+        stopChiptune();
+        if (liveTrack && liveTrack.id === want) return;
+        decodeTrack(want).then(() => {
+            // The game may have moved on while this was decoding.
+            if (musicTarget() !== want) return;
+            if (liveTrack && liveTrack.id === want) return;
+            playTrack(want);
+        }, () => applyMusic());
+    }
+
+    function setWantedTrack(id) {
+        if (wantedTrack === id) return;
+        wantedTrack = id;
+        applyMusic();
+    }
+
+    function startMusic(biomeIndex) {
+        const biome = Math.max(0, Math.min(2, biomeIndex | 0));
+        setWantedTrack("biome" + biome);
+    }
+
+    function startBossMusic() { setWantedTrack("boss"); }
+    function startMenuMusic() { setWantedTrack("menu"); }
+    function stopMusic() { setWantedTrack(null); }
+
+    function setMusicEnabled(enabled) {
+        musicOn = !!enabled;
+        applyMusic();
+    }
+
+    // Browsers only allow audio after the first click or key press.
+    function unlockAudio() {
+        for (const type of ["pointerdown", "keydown", "touchend"]) {
+            window.removeEventListener(type, unlockAudio, true);
+        }
+        ensureContext();
+        applyMusic();
+    }
+    for (const type of ["pointerdown", "keydown", "touchend"]) {
+        window.addEventListener(type, unlockAudio, true);
+    }
+
+    // A looping track would keep playing in a background tab.
+    document.addEventListener("visibilitychange", () => {
+        if (!actx) return;
+        if (document.hidden) actx.suspend();
+        else actx.resume();
+    });
 
     function setSfxEnabled(enabled) {
         if (sfxGain) sfxGain.gain.value = enabled ? 0.4 : 0;
@@ -2118,6 +2288,7 @@ const GameAudio = (() => {
         sfxNewHighScore,
         startMusic,
         startBossMusic,
+        startMenuMusic,
         stopMusic,
         setMusicEnabled,
         setSfxEnabled,
@@ -6483,6 +6654,7 @@ const game = {
     update(dt) {
         this.updateTransition(dt);
         CrazyGamesSDK.syncGameplay(this.state === STATE.GAMEPLAY);
+        if (MENU_MUSIC_STATES.has(this.state)) GameAudio.startMenuMusic();
 
         // The one-time performance prompt is drawn on top of every state, so it
         // must also be handled in every state. Keeping this here (instead of only
@@ -10820,7 +10992,7 @@ const game = {
         this.waveActive = false;
         this.waveRestTimer = 2.0;
         this.endlessBestWave = Math.max(this.endlessBestWave, this.wave);
-        GameAudio.startMusic();
+        GameAudio.startMusic(this.currentBiomeIndex());
         CrazyGamesSDK.gameplayStart();
         this.triggerEventFlash("#c38bff", 0.35);
         this.waveBannerTimer = 3.0;
