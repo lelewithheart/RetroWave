@@ -130,7 +130,7 @@
         wave(points, 260, W - 260, 1500, 540);
         text("ROGUEWAVE", W / 2, 470, 330, WHITE, 28, "700", CYAN);
         text("ORIGINAL SOUNDTRACK", W / 2, 680, 92, CYAN, 34, "600");
-        text("KELVIK", W / 2, 2560, 120, WHITE, 60, "600", MAGENTA);
+        text("GLITCHWERK", W / 2, 2560, 120, WHITE, 60, "600", MAGENTA);
         text("SURGE  ·  NEON DISTRICT  ·  ACID GRID  ·  CRIMSON CORE  ·  WARDEN", W / 2, 2720, 46, "rgba(159,233,255,0.75)", 8, "400", "none");
         scanlines();
     }
@@ -159,7 +159,7 @@
         ctx.restore();
         text("ROGUEWAVE", W / 2, 560, 250, WHITE, 90, "300", "none");
         text("ORIGINAL SOUNDTRACK", W / 2, 760, 70, "rgba(159,233,255,0.8)", 40, "400", "none");
-        text("KELVIK", W / 2, 2560, 90, "rgba(255,255,255,0.85)", 50, "400", "none");
+        text("GLITCHWERK", W / 2, 2560, 90, "rgba(255,255,255,0.85)", 50, "400", "none");
         text("MMXXVI", W / 2, 2680, 44, "rgba(255,255,255,0.4)", 20, "400", "none");
     }
 
@@ -211,7 +211,7 @@
         }
         ctx.restore();
         text("ORIGINAL SOUNDTRACK", W / 2, 2080, 80, CYAN, 44, "600", "none");
-        text("KELVIK", W / 2, 2700, 100, WHITE, 60, "600", "none");
+        text("GLITCHWERK", W / 2, 2700, 100, WHITE, 60, "600", "none");
         text("// SURGE DETECTED", W / 2, 2820, 46, RED, 14, "400", "none");
         scanlines(0.18, 0.5);
     }
@@ -248,7 +248,7 @@
         text("ROGUE", cx, cy - 110, 300, WHITE, 40, "700", CYAN);
         text("WAVE", cx, cy + 150, 300, WHITE, 40, "700", MAGENTA);
         text("ORIGINAL SOUNDTRACK", W / 2, 2460, 86, CYAN, 36, "600");
-        text("KELVIK", W / 2, 2660, 110, WHITE, 60, "600", MAGENTA);
+        text("GLITCHWERK", W / 2, 2660, 110, WHITE, 60, "600", MAGENTA);
         scanlines(0.08, 0.5);
     }
 

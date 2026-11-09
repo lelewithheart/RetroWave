@@ -12,7 +12,7 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 ALBUM = "RogueWave (Original Soundtrack)"
-ARTIST = "KELVIK"
+ARTIST = "Glitchwerk"
 YEAR = "2026"
 AI_NOTE = "Composed and produced with AI tools"
 
