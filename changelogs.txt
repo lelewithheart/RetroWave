@@ -2,6 +2,9 @@ window.ROGUEWAVE_CHANGELOG_TEXT = `
 
 # Newest entry first. The first version line is used as current in-game version.
 # Version schema: {day}.{month}:{Number of update this day}-{optional: Hotfix Number}
+beta 10.11:2
+- FIXED: Late-game lag from runaway builds. Fire rate now tops out at 10 shots a second, multi-shot at 7 bullets, XP gain at 400%; capped upgrades stop being offered
+
 beta 10.11:1
 - FIXED: Constant micro-freezes in dense fights. The freeze on triple kills is gone, elite kills freeze at most every 2 seconds
 - Calmer late game: the crowd tops out at 26 instead of 40, no bullet sparks, smaller death bursts, damage numbers add up instead of stacking, fewer combo flashes

@@ -272,6 +272,11 @@ function getBossDisplayName(enemy) {
 // XP
 const XP_ORB_RADIUS = 6;
 const XP_BASE_AMOUNT = 10;
+// Caps for stacking upgrades. A wave-18 build with 51 shots a second and 14
+// bullets per shot (700 bullets a second) brought the game to its knees.
+const FIRE_RATE_FLOOR = 0.1;          // seconds between shots, at best (10 a second)
+const MULTI_SHOT_CAP = 6;             // extra bullets per shot, at most (7 in total)
+const XP_GAIN_CAP = 4;                // XP multiplier from upgrades and loot, at most
 const XP_FIRST_LEVEL = 160;          // XP for the first level-up; later levels grow by xpNeedGrowth
 const XP_MAGNET_RANGE = 100;
 
@@ -4097,10 +4102,10 @@ class Player extends Entity {
         this.fireTimer -= dt * (od ? 1.8 : 1);
         const canFire = Settings.gameMode === "hard" ? true : !!nearest;
         if (this.fireTimer <= 0 && canFire) {
-            this.fireTimer = this.fireRate;
+            this.fireTimer = Math.max(FIRE_RATE_FLOOR, this.fireRate);
             this.recoil = 1;
             // Multi-shot: spread bullets
-            const totalBullets = 1 + this.multiShot;
+            const totalBullets = 1 + Math.min(MULTI_SHOT_CAP, this.multiShot);
             const spreadAngle = 0.12; // radians between each extra bullet
             const startAngle = this.angle - (totalBullets - 1) * spreadAngle / 2;
             for (let i = 0; i < totalBullets; i++) {
@@ -5695,8 +5700,8 @@ const STAT_GROUPS = [
 function readBuildStats(p, magnetBonus) {
     return {
         damage: p.damage,
-        fireRate: 1 / p.fireRate,
-        bullets: 1 + p.multiShot,
+        fireRate: 1 / Math.max(FIRE_RATE_FLOOR, p.fireRate),
+        bullets: 1 + Math.min(MULTI_SHOT_CAP, p.multiShot),
         piercing: p.piercing,
         critChance: p.critChance,
         critMult: p.critMult,
@@ -5710,7 +5715,7 @@ function readBuildStats(p, magnetBonus) {
         speed: p.speed,
         dashCooldown: p.dashCooldown,
         shockDash: p.shockDash,
-        xpGain: p.xpGainMult,
+        xpGain: Math.min(XP_GAIN_CAP, p.xpGainMult),
         pickupRange: (XP_MAGNET_RANGE + magnetBonus) * (p.magnetRangeMult || 1),
         luck: p.pickupLuck,
         overdriveBonus: p.overdriveBonus,
@@ -10654,7 +10659,7 @@ const game = {
             // exponentially growing enemy HP. Without the exponential term the
             // level curve fell behind and the build never came together.
             const xpWaveGrowth = Math.pow((CFG.balance && CFG.balance.xpPerWaveGrowth) || 1, this.wave - 1);
-            const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * xpWaveGrowth * (enemy.xpMult || 1) * mods.xpGainMult * this.player.xpGainMult);
+            const xpAmt = Math.floor((XP_BASE_AMOUNT + this.wave * 2) * xpWaveGrowth * (enemy.xpMult || 1) * mods.xpGainMult * Math.min(XP_GAIN_CAP, this.player.xpGainMult));
             this.xpOrbs.push(new XPOrb(enemy.x, enemy.y, xpAmt));
         }
         GameAudio.sfxEnemyDeath();
@@ -10836,6 +10841,10 @@ const game = {
             if ((up.id === "execute1" || up.id === "execute2") && this.player.executeThreshold >= UPGRADE_TUNING.executeCap) {
                 return false;
             }
+            // Nothing to gain past the caps.
+            if ((up.id === "rate1" || up.id === "rate2") && this.player.fireRate <= FIRE_RATE_FLOOR) return false;
+            if (up.id === "multi" && this.player.multiShot >= MULTI_SHOT_CAP) return false;
+            if ((up.id === "xpgain1" || up.id === "xpgain2") && this.player.xpGainMult >= XP_GAIN_CAP) return false;
             return true;
         });
         this.upgradeChoices = pickUpgradeChoicesByRarity(pool, numChoices, {
