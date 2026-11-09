@@ -491,6 +491,9 @@
         }
     }
 
+    // Shared with music3.js.
+    M.tools = tools; M.semis = semis; M.tanhCurve = tanhCurve;
+
     M.tracks.acid = { def: ACID, compose: composeAcid };
     M.tracks.crimson = { def: CRIMSON, compose: composeCrimson };
     M.tracks.boss = { def: BOSS, compose: composeBoss };

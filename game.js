@@ -207,6 +207,9 @@ const MENU_MUSIC_STATES = new Set([
     STATE.CHESTS, STATE.LOCKER, STATE.STATS, STATE.SETTINGS,
 ]);
 
+// Screens during a run. The low-health music only reacts while one of them is up.
+const RUN_MUSIC_STATES = new Set([STATE.GAMEPLAY, STATE.PAUSED, STATE.UPGRADE_SCREEN, STATE.CHEAT_MENU]);
+
 // World dimensions (larger than the canvas – camera follows player)
 const WORLD_W = 3000;
 const WORLD_H = 3000;
@@ -2087,28 +2090,53 @@ const GameAudio = (() => {
     // Looping from LOOP_LEAD to LOOP_LEAD + length is then seamless no matter
     // how much silence a browser's MP3 decoder puts in front of the audio.
     const MUSIC_DIR = "assets/music/";
-    const MUSIC_TRACKS = {
-        menu:   { file: "standby.mp3",       length: 64 },       // 24 bars at 90 BPM
-        biome0: { file: "neon-district.mp3", length: 96 },       // 44 bars at 110 BPM
-        biome1: { file: "acid-grid.mp3",     length: 640 / 7 },  // 48 bars at 126 BPM
-        biome2: { file: "crimson-core.mp3",  length: 96 },       // 40 bars at 100 BPM
-        boss:   { file: "warden.mp3",        length: 51.2 },     // 32 bars at 150 BPM
+    const MUSIC_TRACKS = {   // length in seconds = bars * 240 / BPM
+        standby:  { file: "standby.mp3",       length: 64 },          // 24 bars at 90
+        neon:     { file: "neon-district.mp3", length: 96 },          // 44 bars at 110
+        signal:   { file: "signal-rain.mp3",   length: 9600 / 114 },  // 40 bars at 114
+        acid:     { file: "acid-grid.mp3",     length: 640 / 7 },     // 48 bars at 126
+        voltage:  { file: "voltage.mp3",       length: 90 },          // 48 bars at 128
+        crimson:  { file: "crimson-core.mp3",  length: 96 },          // 40 bars at 100
+        blackice: { file: "black-ice.mp3",     length: 8640 / 104 },  // 36 bars at 104
+        warden:   { file: "warden.mp3",        length: 51.2 },        // 32 bars at 150
+        redline:  { file: "redline.mp3",       length: 36 },          // 24 bars at 160
+        flatline: { file: "flatline.mp3",      length: 5760 / 140 },  // 24 bars at 140
     };
-    // The track that most likely comes next, decoded ahead so the switch is instant.
-    const MUSIC_NEXT = { menu: "biome0", biome0: "biome1", biome1: "biome2", biome2: "boss" };
+    // What plays where. A scene with several tracks rotates: each track plays
+    // through once, then the next one takes over. "danger" replaces the area
+    // music while the player is low on health.
+    const MUSIC_SCENES = {
+        menu:   ["standby"],
+        biome0: ["neon", "signal"],
+        biome1: ["acid", "voltage"],
+        biome2: ["crimson", "blackice"],
+        boss:   ["warden"],
+        danger: ["redline", "flatline"],
+    };
     // Soundtrack volume. At 0.25 the music measures about as loud as the loudest
     // sound effects; the tracks themselves are mastered to about -14 LUFS.
     const MUSIC_LEVEL = 0.25;
     const LOOP_LEAD = 0.5;
-    const MAX_DECODED = 2;          // a decoded track takes roughly 35 MB of memory
+    const MAX_DECODED = 3;          // a decoded track takes up to 35 MB of memory
+    const DANGER_ON = 0.3;          // health share that starts the danger music
+    const DANGER_OFF = 0.45;        // ... and the share it has to recover to
+    const DANGER_MIN_MS = 8000;     // danger music plays at least this long
 
-    let wantedTrack = null;         // what the game asked for, null = silence
-    let liveTrack = null;           // { id, src, gain } that is sounding now
+    const sceneTurn = {};           // scene -> which of its tracks is up
+    let wantedScene = null;         // what the game asked for, null = silence
+    let dangerOn = false;
+    let dangerSince = 0;
     let musicOn = true;             // false while the site or an ad mutes the music
+    // Two layers: the scene's music, and the danger track on top of it. While
+    // danger plays, the scene's track keeps running silently and comes back
+    // where it would have been.
+    const layers = { base: null, danger: null };   // { scene, id, src, gain, level, t0 }
+    const desired = { base: { scene: null, level: 1 }, danger: { scene: null, level: 1 } };
     const decodedOrder = [];        // least recently used first
 
-    function musicTarget() {
-        return (musicOn && Settings.musicEnabled) ? wantedTrack : null;
+    function sceneTrack(scene, ahead = 0) {
+        const list = MUSIC_SCENES[scene];
+        return list[((sceneTurn[scene] || 0) + ahead) % list.length];
     }
 
     function fetchTrack(id) {
@@ -2127,9 +2155,11 @@ const GameAudio = (() => {
         const at = decodedOrder.indexOf(id);
         if (at >= 0) decodedOrder.splice(at, 1);
         decodedOrder.push(id);
+        const inUse = (other) => other === id
+            || (layers.base && layers.base.id === other) || (layers.danger && layers.danger.id === other);
         for (let k = 0; decodedOrder.length > MAX_DECODED && k < decodedOrder.length;) {
             const old = decodedOrder[k];
-            if (old === id || old === wantedTrack) { k++; continue; }
+            if (inUse(old)) { k++; continue; }
             MUSIC_TRACKS[old].buffer = null;
             decodedOrder.splice(k, 1);
         }
@@ -2160,22 +2190,26 @@ const GameAudio = (() => {
         return tr.decoding;
     }
 
-    function fadeOutLive(seconds) {
-        if (!liveTrack) return;
-        const { src, gain } = liveTrack;
-        liveTrack = null;
-        const t = actx.currentTime;
-        gain.gain.cancelScheduledValues(t);
-        gain.gain.setValueAtTime(gain.gain.value, t);
-        gain.gain.linearRampToValueAtTime(0, t + seconds);
+    /** Fade a layer's track out, starting at `when`. The scene moves on to its next track. */
+    function stopLayer(name, seconds, when = actx.currentTime, advance = true) {
+        const live = layers[name];
+        if (!live) return;
+        layers[name] = null;
+        if (advance) sceneTurn[live.scene] = (sceneTurn[live.scene] || 0) + 1;
+        const { src, gain } = live;
+        gain.gain.cancelScheduledValues(when);
+        gain.gain.setValueAtTime(when > actx.currentTime ? live.level : gain.gain.value, when);
+        gain.gain.linearRampToValueAtTime(0, when + seconds);
         src.onended = () => gain.disconnect();
-        src.stop(t + seconds + 0.05);
+        src.stop(when + seconds + 0.05);
     }
 
-    function playTrack(id) {
+    /** Start a track on a layer at `when`, replacing whatever the layer plays. */
+    function playLayer(name, scene, id, level, when = actx.currentTime, fadeOld = 0.8) {
+        const old = layers[name];
+        // Within a scene the caller has already moved the turn on (rotation).
+        stopLayer(name, fadeOld, when, !!old && old.scene !== scene);
         const tr = MUSIC_TRACKS[id];
-        const t = actx.currentTime;
-        fadeOutLive(0.8);
         const src = actx.createBufferSource();
         src.buffer = tr.buffer;
         src.loop = true;
@@ -2184,59 +2218,131 @@ const GameAudio = (() => {
         const gain = actx.createGain();
         // Every track opens with an intro, so it comes in at once and only the
         // old one fades.
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(1, t + 0.03);
+        gain.gain.setValueAtTime(0, when);
+        gain.gain.linearRampToValueAtTime(level, when + 0.03);
         src.connect(gain);
         gain.connect(trackGain);
-        src.start(t);
-        liveTrack = { id, src, gain };
+        src.start(when);
+        layers[name] = { scene, id, src, gain, level, t0: when };
         rememberDecoded(id);
-        const next = MUSIC_NEXT[id];
-        if (next && !MUSIC_TRACKS[next].failed) decodeTrack(next).catch(() => {});
+        // The menu leads into a run, so have the first area's track ready.
+        if (scene === "menu") decodeTrack(sceneTrack("biome0")).catch(() => {});
+    }
+
+    function setLayerLevel(live, level) {
+        if (live.level === level) return;
+        live.level = level;
+        const t = actx.currentTime;
+        live.gain.gain.cancelScheduledValues(t);
+        live.gain.gain.setValueAtTime(live.gain.gain.value, t);
+        live.gain.gain.linearRampToValueAtTime(level, t + 0.5);
+    }
+
+    function syncLayer(name) {
+        const { scene, level } = desired[name];
+        const live = layers[name];
+        if (!scene) {
+            stopLayer(name, name === "danger" ? 0.8 : 0.25);
+            if (name === "base") stopChiptune();
+            return;
+        }
+        if (live && live.scene === scene) {
+            setLayerLevel(live, level);
+            return;
+        }
+        const id = sceneTrack(scene);
+        if (MUSIC_TRACKS[id].failed) {
+            // No file: the scene music falls back to the chiptune, danger to nothing.
+            stopLayer(name, 0.25);
+            if (name === "base") {
+                if (level > 0) startChiptune(scene); else stopChiptune();
+            }
+            return;
+        }
+        if (name === "base") stopChiptune();
+        decodeTrack(id).then(() => {
+            // The game may have moved on while this was decoding.
+            if (desired[name].scene !== scene) return;
+            if (layers[name] && layers[name].scene === scene) return;
+            playLayer(name, scene, id, desired[name].level);
+        }, () => applyMusic());
     }
 
     /** Make what is sounding match what the game and the settings ask for. */
     function applyMusic() {
-        const want = musicTarget();
+        const base = (musicOn && Settings.musicEnabled) ? wantedScene : null;
+        // Without a danger track to play, the scene's music simply carries on.
+        const danger = dangerOn && base && base.startsWith("biome")
+            && !MUSIC_TRACKS[sceneTrack("danger")].failed;
+        desired.base = { scene: base, level: danger ? 0 : 1 };
+        desired.danger = { scene: danger ? "danger" : null, level: 1 };
         if (!actx) {
             // No click or key press yet, so no audio. Fetch the file meanwhile.
-            if (want) fetchTrack(want).catch(() => {});
+            if (base) fetchTrack(sceneTrack(base)).catch(() => {});
             return;
         }
-        if (!want) {
-            fadeOutLive(0.25);
-            stopChiptune();
-            return;
-        }
-        if (MUSIC_TRACKS[want].failed) {
-            fadeOutLive(0.25);
-            startChiptune(want);
-            return;
-        }
-        stopChiptune();
-        if (liveTrack && liveTrack.id === want) return;
-        decodeTrack(want).then(() => {
-            // The game may have moved on while this was decoding.
-            if (musicTarget() !== want) return;
-            if (liveTrack && liveTrack.id === want) return;
-            playTrack(want);
-        }, () => applyMusic());
+        syncLayer("base");
+        syncLayer("danger");
     }
 
-    function setWantedTrack(id) {
-        if (wantedTrack === id) return;
-        wantedTrack = id;
+    /** Rotation: when a track has played through, hand over to the scene's next one. */
+    function musicTick() {
+        if (!actx || actx.state !== "running") return;
+        for (const name of ["base", "danger"]) {
+            const live = layers[name];
+            if (!live || MUSIC_SCENES[live.scene].length < 2) continue;
+            const next = MUSIC_TRACKS[sceneTrack(live.scene, 1)];
+            const end = live.t0 + MUSIC_TRACKS[live.id].length;
+            const left = end - actx.currentTime;
+            if (left > 12 || next.failed) {
+                if (left < 0) live.t0 = end;                 // no successor: count the next pass
+                continue;
+            }
+            if (!next.buffer) {
+                decodeTrack(sceneTrack(live.scene, 1)).catch(() => {});
+                if (left < 0.3) live.t0 = end;               // not ready in time: one more pass
+                continue;
+            }
+            if (left < 0.6) {
+                sceneTurn[live.scene] = (sceneTurn[live.scene] || 0) + 1;
+                playLayer(name, live.scene, sceneTrack(live.scene), live.level, Math.max(end, actx.currentTime), 0.5);
+            }
+        }
+    }
+
+    function setWantedScene(scene) {
+        if (wantedScene === scene) return;
+        wantedScene = scene;
         applyMusic();
+        // A run may need the danger music at any moment, so have the files ready.
+        if (scene && scene.startsWith("biome") && musicOn && Settings.musicEnabled) {
+            for (const id of MUSIC_SCENES.danger) fetchTrack(id).catch(() => {});
+        }
     }
 
     function startMusic(biomeIndex) {
         const biome = Math.max(0, Math.min(2, biomeIndex | 0));
-        setWantedTrack("biome" + biome);
+        setWantedScene("biome" + biome);
     }
 
-    function startBossMusic() { setWantedTrack("boss"); }
-    function startMenuMusic() { setWantedTrack("menu"); }
-    function stopMusic() { setWantedTrack(null); }
+    function startBossMusic() { setWantedScene("boss"); }
+    function startMenuMusic() { setWantedScene("menu"); }
+    function stopMusic() { setWantedScene(null); }
+
+    /**
+     * Tell the music how the player is doing: health as a share of the maximum,
+     * or null when no run is on screen. Cheap, meant to be called every frame.
+     */
+    function setHealth(ratio) {
+        let want = dangerOn;
+        if (ratio === null) want = false;
+        else if (!dangerOn) want = ratio <= DANGER_ON;
+        else if (ratio >= DANGER_OFF && performance.now() - dangerSince >= DANGER_MIN_MS) want = false;
+        if (want === dangerOn) return;
+        dangerOn = want;
+        dangerSince = performance.now();
+        applyMusic();
+    }
 
     function setMusicEnabled(enabled) {
         musicOn = !!enabled;
@@ -2250,6 +2356,7 @@ const GameAudio = (() => {
         }
         ensureContext();
         applyMusic();
+        setInterval(musicTick, 250);
     }
     for (const type of ["pointerdown", "keydown", "touchend"]) {
         window.addEventListener(type, unlockAudio, true);
@@ -2290,6 +2397,7 @@ const GameAudio = (() => {
         startBossMusic,
         startMenuMusic,
         stopMusic,
+        setHealth,
         setMusicEnabled,
         setSfxEnabled,
     };
@@ -6398,6 +6506,13 @@ const game = {
         return BIOMES[0];
     },
 
+    /** The player's health for the music, 0 to 1; null when no run is on screen. */
+    musicHealth() {
+        const p = this.player;
+        if (!p || !p.alive || this.pendingVictory || !RUN_MUSIC_STATES.has(this.state)) return null;
+        return p.hp / p.maxHp;
+    },
+
     currentBiomeIndex() {
         if (this.wave >= 15) return 2;
         if (this.wave >= 8) return 1;
@@ -6827,6 +6942,7 @@ const game = {
         this.updateTransition(dt);
         CrazyGamesSDK.syncGameplay(this.state === STATE.GAMEPLAY);
         if (MENU_MUSIC_STATES.has(this.state)) GameAudio.startMenuMusic();
+        GameAudio.setHealth(this.musicHealth());
 
         // The one-time performance prompt is drawn on top of every state, so it
         // must also be handled in every state. Keeping this here (instead of only

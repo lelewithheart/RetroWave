@@ -32,6 +32,11 @@ TRACKS = {  # id: (folder and file name, title)
     "crimson": ("crimson-core", "Crimson Core"),
     "boss": ("warden", "Warden"),
     "menu": ("standby", "Standby"),
+    "signal": ("signal-rain", "Signal Rain"),
+    "voltage": ("voltage", "Voltage"),
+    "blackice": ("black-ice", "Black Ice"),
+    "redline": ("redline", "Redline"),
+    "flatline": ("flatline", "Flatline"),
 }
 
 STEMS = [  # id, label; the order is the track order in the project

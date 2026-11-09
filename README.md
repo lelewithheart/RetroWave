@@ -67,7 +67,18 @@ The itch.io workflow (`.github/workflows/deploy.yml`) zips exactly these files p
 
 ### Soundtrack
 
-`assets/music/` holds five looping tracks: one per area (`neon-district`, `acid-grid`, `crimson-core`), the boss theme (`warden`) and the menu track (`standby`). The game loads them on demand; if a file cannot be loaded, the old chiptune plays instead. The volume against the sound effects is `MUSIC_LEVEL` in `game.js`.
+`assets/music/` holds ten looping tracks. Which track plays where is the `MUSIC_SCENES` table in `game.js`:
+
+| Scene | Tracks |
+|---|---|
+| Menu | `standby` |
+| Area 1 | `neon-district`, `signal-rain` |
+| Area 2 | `acid-grid`, `voltage` |
+| Area 3 | `crimson-core`, `black-ice` |
+| Boss | `warden` |
+| Low health | `redline`, `flatline` |
+
+A scene with two tracks rotates: each track plays through once, then the other takes over. The low-health tracks replace the area music while the player is at or below 30 % health and until they are back at 45 % (`DANGER_ON`, `DANGER_OFF`); the area track keeps running silently underneath. The game loads tracks on demand; if a file cannot be loaded, the old chiptune plays instead. The volume against the sound effects is `MUSIC_LEVEL`.
 
 The tracks are synthesised in the browser, not recorded. To change one:
 
@@ -75,7 +86,7 @@ The tracks are synthesised in the browser, not recorded. To change one:
 2. In the console: `RWMusic.runAll(["neon", "acid", "crimson", "boss", "menu"])` — writes WAV loops to `tools/soundtrack/out/music/`
 3. `bash tools/soundtrack/encode.sh` (needs ffmpeg) — writes the MP3 files to `assets/music/`
 
-`music.js` is the synth and the first track, `music2.js` the other four. A track's loop length in `MUSIC_TRACKS` (`game.js`) must match its bars and tempo.
+`music.js` is the synth and the first track, `music2.js` holds tracks 2 to 5, `music3.js` tracks 6 to 10 (ids `signal`, `voltage`, `blackice`, `redline`, `flatline`). A track's loop length in `MUSIC_TRACKS` (`game.js`) must match its bars and tempo. A new track also needs a line in `encode.sh`.
 
 To rework a track in a DAW instead of in code, export it as stems, MIDI and an LMMS project:
 
