@@ -8,8 +8,15 @@ window.RogueConfig = {
         sampleWindow: 1.2,
     },
     wave: {
-        baseKills: 10,
-        killsGrowth: 5,
+        // Raised from 10 / 5 together with the crowd pressure below: more enemies
+        // are on screen, so a wave needs a few more kills to last as long.
+        baseKills: 14,
+        killsGrowth: 6,
+        // Crowd pressure. The arena keeps at least this many regular enemies
+        // alive (bosses do not count), topping up at most one every refillCd
+        // seconds, and every wave opens with a burst. Easy and hard scale it
+        // through their spawn-rate modifier.
+        minAlive: { base: 8, perWave: 1.6, max: 40, refillCd: 0.12, burst: 10 },
         baseSpawnCd: 1.5,
         // Lowered from 0.30: the old cap kicked in at wave 19, which flattened
         // the whole late-game spawn curve (every decay change past wave 19 did

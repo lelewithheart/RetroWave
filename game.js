@@ -285,11 +285,11 @@ const DAMAGE_NUMBER_RISE_SPEED = 60;
 const COMBO_TIMEOUT = 1.5;            // seconds until combo resets
 
 // ── Performance caps ──
-const MAX_PARTICLES = 150;
+const MAX_PARTICLES = 240;
 const MAX_ENEMIES = 80;
 const MAX_XP_ORBS = 150;
 const MAX_DAMAGE_NUMBERS = 60;
-const MAX_PARTICLE_POOL = 240;
+const MAX_PARTICLE_POOL = 360;
 const MAX_DAMAGE_NUMBER_POOL = 120;
 const MAX_FLAME_PATCHES = 50;
 const MAX_LIGHTNING_BOLTS = 20;
@@ -311,6 +311,7 @@ const WAVE_KILLS_GROWTH = CFG.wave.killsGrowth;          // additional kills req
 const WAVE_BASE_SPAWN_CD = CFG.wave.baseSpawnCd;         // spawn cooldown in seconds (wave 1)
 const WAVE_SPAWN_CD_MIN = CFG.wave.minSpawnCd;           // minimum spawn cooldown
 const WAVE_SPAWN_CD_DECAY = CFG.wave.spawnCdDecay;       // multiply cooldown by this each wave
+const WAVE_MIN_ALIVE = CFG.wave.minAlive || { base: 0, perWave: 0, max: 0, refillCd: 0.12, burst: 0 };
 const WAVE_HP_SCALE = CFG.wave.hpScale;
 const WAVE_SPEED_SCALE = CFG.wave.speedScale;
 const WAVE_DAMAGE_SCALE = CFG.wave.damageScale;          // contact damage grows per wave
@@ -4871,6 +4872,14 @@ class Enemy extends Entity {
 
     draw() {
         const isSlow = this.slowTimer > 0;
+        // A hit makes the enemy pop by a few percent while the flash lasts.
+        const pop = 1 + Math.max(0, this.hitFlash) * 1.4;
+        ctx.save();
+        if (pop > 1.001) {
+            ctx.translate(this.x, this.y);
+            ctx.scale(pop, pop);
+            ctx.translate(-this.x, -this.y);
+        }
         const col = this.hitFlash > 0 ? "#ffffff" : (isSlow ? "#88ccff" : this.color);
 
         if (this.type === "tank") {
@@ -5233,6 +5242,7 @@ class Enemy extends Entity {
                 ctx.fillText(text, this.x, labelY);
             }
         }
+        ctx.restore();
     }
 
     takeDamage(amount, isCrit) {
@@ -5265,7 +5275,7 @@ class Enemy extends Entity {
         this.hp -= finalAmount;
         this.hitFlash = 0.1;
         // Spawn damage number
-        const color = (this.type === "endboss" && this.shieldActive) ? "#88ccff" : (isCrit ? "#ff4444" : "#ffffff");
+        const color = (this.type === "endboss" && this.shieldActive) ? "#88ccff" : (isCrit ? "#ffcc44" : "#ffffff");
         game.spawnDamageNumber(this.x, this.y - this.radius, finalAmount, color, isCrit);
         if (this.hp <= 0) {
             this.alive = false;
@@ -5429,7 +5439,7 @@ class DamageNumber {
         this.life = DAMAGE_NUMBER_LIFETIME;
         this.maxLife = DAMAGE_NUMBER_LIFETIME;
         this.alive = true;
-        this.scale = isCrit ? 1.4 : 1.0;
+        this.scale = isCrit ? 1.9 : 1.0;
         return this;
     }
 
@@ -5445,7 +5455,7 @@ class DamageNumber {
         // Quick pop, then settle.
         const scale = this.scale * (t < 0.15 ? 0.7 + t * 5.4 : 1.51 - Math.min(0.5, (t - 0.15) * 1.4));
         ctx.globalAlpha = alpha;
-        ctx.font = `bold ${Math.floor(14 * scale)}px 'Segoe UI', Arial, sans-serif`;
+        ctx.font = `bold ${Math.floor(15 * scale)}px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         // Shadow for readability
@@ -6218,6 +6228,9 @@ const game = {
     waveKills: 0,
     waveKillsRequired: 0,
     spawnTimer: 0,
+    refillTimer: 0,       // crowd pressure top-up cooldown
+    killsThisFrame: 0,    // for the multi-kill hit-stop
+    comboPulse: 0,        // 1 right after a kill, fades; drives the combo counter's pop
     spawnCooldown: 0,
     waveRestTimer: 0,
     waveActive: false,
@@ -6401,6 +6414,9 @@ const game = {
         this.waveKills = 0;
         this.waveKillsRequired = 0;
         this.spawnTimer = 0;
+        this.refillTimer = 0;
+        this.killsThisFrame = 0;
+        this.comboPulse = 0;
         this.spawnCooldown = 0;
         this.waveRestTimer = 1;
         this.waveActive = false;
@@ -6511,6 +6527,21 @@ const game = {
         const p = this.player;
         if (!p || !p.alive || this.pendingVictory || !RUN_MUSIC_STATES.has(this.state)) return null;
         return p.hp / p.maxHp;
+    },
+
+    /** How many regular enemies the arena keeps alive in this wave (bosses do not count). */
+    minAliveFor(wave) {
+        const m = WAVE_MIN_ALIVE;
+        const want = Math.min(m.max, m.base + m.perWave * (wave - 1));
+        return Math.round(want / modeModifiers().spawnCdMult);
+    },
+
+    regularEnemiesAlive() {
+        let n = 0;
+        for (const e of this.enemies) {
+            if (e.alive && e.type !== "miniboss" && e.type !== "bigboss" && e.type !== "endboss") n++;
+        }
+        return n;
     },
 
     currentBiomeIndex() {
@@ -8884,6 +8915,8 @@ const game = {
 
     updateGameplay(dt) {
         this.updateGameSpeedSelection();
+        this.killsThisFrame = 0;
+        this.comboPulse = Math.max(0, this.comboPulse - dt * 5);
         if (this.hitStop > 0) {
             this.hitStop -= dt;
             dt *= 0.14;
@@ -8952,6 +8985,9 @@ const game = {
                             e.kby += b.vy * push;
                         }
                         e.takeDamage(b.damage, b.isCrit);
+                        if (!isMobile && this.particles.length < dynamicCap(MAX_PARTICLES) * 0.6) {
+                            this.spawnParticles(e.x, e.y, b.isCrit ? "#ffd166" : "#ffee55", b.isCrit ? 3 : 1);
+                        }
                         if (b.isCrit) GameAudio.sfxCrit();
 
                         let didExecute = false;
@@ -9906,14 +9942,30 @@ const game = {
 
         // ── Kill combo counter ──
         if (this.comboCount >= 3 && this.comboTimer > 0) {
-            const comboAlpha = clamp(this.comboTimer / 0.5, 0.4, 1);
-            const comboScale = 1 + Math.min(0.3, this.comboCount * 0.02);
-            ctx.globalAlpha = comboAlpha;
+            const tier = this.comboCount >= 25 ? 3 : this.comboCount >= 10 ? 2 : this.comboCount >= 5 ? 1 : 0;
+            const color = ["#66ddff", "#ff8844", "#ffd700", "#ff55ff"][tier];
+            const size = Math.floor((26 + tier * 4) * (1 + this.comboPulse * 0.35));
+            const cx = CANVAS_W / 2, cy = 158;
+            ctx.save();
+            ctx.globalAlpha = clamp(this.comboTimer / 0.5, 0.4, 1);
             ctx.textAlign = "center";
-            ctx.fillStyle = this.comboCount >= 10 ? "#ffd700" : (this.comboCount >= 5 ? "#ff8844" : COLOR.accent);
-            ctx.font = `bold ${Math.floor(20 * comboScale)}px 'Segoe UI', Arial, sans-serif`;
-            ctx.fillText(`${this.comboCount}x COMBO!`, CANVAS_W / 2, 164);
-            ctx.globalAlpha = 1;
+            ctx.textBaseline = "middle";
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 10 + this.comboPulse * 18;
+            ctx.fillStyle = color;
+            ctx.font = `bold ${size}px 'Segoe UI', Arial, sans-serif`;
+            ctx.fillText(`${this.comboCount}x`, cx, cy);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "rgba(255,255,255,0.75)";
+            ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+            ctx.fillText("COMBO", cx, cy + size * 0.55 + 6);
+            // The bar drains with the combo timer.
+            const barW = 80, barY = cy + size * 0.55 + 15;
+            ctx.fillStyle = "rgba(255,255,255,0.15)";
+            ctx.fillRect(cx - barW / 2, barY, barW, 3);
+            ctx.fillStyle = color;
+            ctx.fillRect(cx - barW / 2, barY, barW * clamp(this.comboTimer / COMBO_TIMEOUT, 0, 1), 3);
+            ctx.restore();
         }
 
         if (this.adBoosterActive) {
@@ -10073,6 +10125,12 @@ const game = {
                 this.spawnTimer += this.spawnCooldown;
                 this.spawnWaveEnemy();
             }
+            // Crowd pressure: top the arena up so it never feels empty.
+            this.refillTimer -= dt;
+            if (this.refillTimer <= 0 && this.regularEnemiesAlive() < this.minAliveFor(this.wave)) {
+                this.refillTimer = WAVE_MIN_ALIVE.refillCd;
+                this.spawnWaveEnemy();
+            }
         } else {
             this.waveRestTimer -= dt;
             if (this.waveRestTimer <= 0) {
@@ -10168,6 +10226,10 @@ const game = {
             }
         }
 
+        // Every wave opens with a crowd instead of a trickle.
+        const burst = Math.min(WAVE_MIN_ALIVE.burst, this.minAliveFor(this.wave)) - this.regularEnemiesAlive();
+        for (let i = 0; i < burst; i++) this.spawnWaveEnemy();
+
         // Switch music when biome changes
         GameAudio.startMusic(this.currentBiomeIndex());
 
@@ -10241,14 +10303,16 @@ const game = {
 
         const specialChance = Math.min(0.9, (0.1 + this.wave * 0.04) * mods.specialChanceMult);
 
-        // Spawn position: caller-supplied (ambush) or outside the camera view.
+        // Spawn position: caller-supplied (ambush) or along the edge of the
+        // view. Enemies fade in, so they may appear just inside the picture;
+        // that keeps the crowd on screen instead of somewhere outside it.
         let ex, ey;
         if (spawnPos) {
             ex = spawnPos.x;
             ey = spawnPos.y;
         } else {
             const edge = randInt(0, 3);
-            const margin = 80;
+            const margin = -40;
             switch (edge) {
                 case 0: // top
                     ex = randRange(this.camera.x - margin, this.camera.x + CANVAS_W + margin);
@@ -10270,6 +10334,16 @@ const game = {
         }
         ex = clamp(ex, 0, WORLD_W);
         ey = clamp(ey, 0, WORLD_H);
+        // Never right next to the player (the view edge can be close to them at the world border).
+        if (!spawnPos && this.player) {
+            const dx = ex - this.player.x, dy = ey - this.player.y;
+            const d = Math.hypot(dx, dy);
+            if (d < 260) {
+                const a = d > 0.001 ? Math.atan2(dy, dx) : Math.random() * Math.PI * 2;
+                ex = clamp(this.player.x + Math.cos(a) * 260, 0, WORLD_W);
+                ey = clamp(this.player.y + Math.sin(a) * 260, 0, WORLD_H);
+            }
+        }
 
         // Event modifiers fold into the base scaling.
         const evHpMult = this.eventMult("enemyHpMult");
@@ -10393,6 +10467,9 @@ const game = {
         // Kill combo tracking
         this.comboCount++;
         this.comboTimer = COMBO_TIMEOUT;
+        this.comboPulse = 1;
+        // Three kills in one frame earn a tiny freeze so the burst reads.
+        if (++this.killsThisFrame === 3) this.hitStop = Math.max(this.hitStop, 0.05);
         if (this.comboCount > this.bestCombo) this.bestCombo = this.comboCount;
         const comboMilestone = this.comboCount === 5 || this.comboCount === 10 || this.comboCount === 25 || (this.comboCount > 25 && this.comboCount % 25 === 0);
         if (comboMilestone && this.comboSfxCooldown <= 0) {
@@ -10406,12 +10483,15 @@ const game = {
         FX.maybeDrop(enemy);
 
         // Type-specific death effects
-        const particleCount = isMobile ? 4 : 12;
+        const particleCount = isMobile ? 6 : 18;
         const deathColor = enemy.color || COLOR.enemyA;
         this.spawnParticles(enemy.x, enemy.y, deathColor, particleCount);
+        if (!this.lowPerf) FX.ghost(enemy.x, enemy.y, (enemy.radius || 14) * 1.5, deathColor);
         if (enemy.isElite) {
-            // Elites pop with an extra ring so the promotion is visible on death.
+            // Elites pop with an extra ring, a kick and a short freeze.
             this.spawnParticles(enemy.x, enemy.y, "#ffd166", isMobile ? 3 : 10);
+            this.camera.shake(3, 0.1);
+            this.hitStop = Math.max(this.hitStop, 0.06);
         }
         if (enemy.type === "tank") {
             this.spawnParticles(enemy.x, enemy.y, "#226622", isMobile ? 2 : 6);
