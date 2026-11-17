@@ -11121,7 +11121,7 @@ const game = {
             if ((up.id === "xpgain1" || up.id === "xpgain2") && this.player.xpGainMult >= XP_GAIN_CAP) return false;
             // Evolutions are placed separately below; +1 cards stop at the cap.
             if (up.evolve) return false;
-            if (up.weapon && this.player.weapons[up.weapon].level >= WEAPON_LEVEL_CAP) return false;
+            if (up.weapon && (this.player.weapons[up.weapon].evolved || this.player.weapons[up.weapon].level >= WEAPON_LEVEL_CAP)) return false;
             return true;
         });
         this.upgradeChoices = pickUpgradeChoicesByRarity(pool, numChoices, {
