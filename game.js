@@ -277,6 +277,65 @@ const XP_BASE_AMOUNT = 10;
 const FIRE_RATE_FLOOR = 0.1;          // seconds between shots, at best (10 a second)
 const MULTI_SHOT_CAP = 6;             // extra bullets per shot, at most (7 in total)
 const XP_GAIN_CAP = 4;                // XP multiplier from upgrades and loot, at most
+const WEAPON_LEVEL_CAP = 8;           // weapon +1 cards leave the pool at this level
+const WEAPON_EVOLVE_LEVEL = 5;        // a weapon can evolve from this level on
+const SYNERGY_LEVEL = 3;              // both weapons need this level for their synergy
+const OVERDRIVE_WEAPON_RATE = 1.5;    // weapon timers run this much faster during Overdrive
+
+// Weapon evolutions: offered once the weapon has WEAPON_EVOLVE_LEVEL and one
+// upgrade of its key family was taken this run. The numbers live here so the
+// balance sim can read them.
+const WEAPON_EVO = {
+    orbitShield: {
+        id: "evoOrbit", name: "Singularity", icon: "🌀", keyIds: ["bigBullet"], keyName: "Bullet Size",
+        desc: "One heavy orb drags enemies away and reflects bullets",
+        orbSize: 32, orbitRadius: 200, spin: 1.2, pullRange: 230, pullForce: 380, dmgMult: 1.8, hitCd: 0.12,
+    },
+    lightningAura: {
+        id: "evoLightning", name: "Storm Chain", icon: "🌩️", keyIds: ["crit1", "crit2"], keyName: "Crit Chance",
+        desc: "Bolts jump up to 3 times and can crit",
+        jumps: 3, jumpRange: 110, jumpFalloff: 0.7,
+    },
+    frostNova: {
+        id: "evoFrost", name: "Absolute Zero", icon: "🧊", keyIds: ["range1", "range2"], keyName: "Range",
+        desc: "Frozen enemies shatter on death, reach follows your range",
+        rangeMult: 0.85, freezeTime: 1.5, freezeCd: 3, shatterPct: 0.6, shatterRadius: 70,
+    },
+    flameTrail: {
+        id: "evoFlame", name: "Inferno", icon: "☄️", keyIds: ["spd1", "spd2"], keyName: "Move Speed",
+        desc: "Longer patches set enemies ablaze, fire spreads on touch",
+        patchLifeMult: 2, burnTime: 3, burnPct: 0.4,
+    },
+};
+
+// Passive pairings: active once both weapons have SYNERGY_LEVEL.
+const WEAPON_SYNERGIES = [
+    { id: "superconductor", name: "Superconductor", a: "frostNova", b: "lightningAura",
+      desc: "Bolts deal +50% to slowed enemies", bonus: 0.5 },
+    { id: "thermalShock", name: "Thermal Shock", a: "flameTrail", b: "frostNova",
+      desc: "Slowed or frozen enemies take 2.5x fire damage", mult: 2.5 },
+    { id: "burningOrbit", name: "Burning Orbit", a: "orbitShield", b: "flameTrail",
+      desc: "Orbs leave flame patches behind", interval: 0.4 },
+];
+
+function synergyActive(p, s) {
+    return p.weapons[s.a].level >= SYNERGY_LEVEL && p.weapons[s.b].level >= SYNERGY_LEVEL;
+}
+function synergyById(p, id) {
+    const s = WEAPON_SYNERGIES.find(x => x.id === id);
+    return s && synergyActive(p, s) ? s : null;
+}
+function hasEvolveKey(p, weaponId) {
+    const counts = p.upgradeCounts || {};
+    return WEAPON_EVO[weaponId].keyIds.some(id => (counts[id] || 0) > 0);
+}
+function canEvolve(p, weaponId) {
+    const w = p.weapons[weaponId];
+    return w.level >= WEAPON_EVOLVE_LEVEL && !w.evolved && hasEvolveKey(p, weaponId);
+}
+function isBigEnemy(e) {
+    return e.type === "miniboss" || e.type === "bigboss" || e.type === "endboss";
+}
 const XP_FIRST_LEVEL = 160;          // XP for the first level-up; later levels grow by xpNeedGrowth
 const XP_MAGNET_RANGE = 100;
 
@@ -297,7 +356,7 @@ const MAX_XP_ORBS = 150;
 const MAX_DAMAGE_NUMBERS = 60;
 const MAX_PARTICLE_POOL = 360;
 const MAX_DAMAGE_NUMBER_POOL = 120;
-const MAX_FLAME_PATCHES = 50;
+const MAX_FLAME_PATCHES = 110;
 const MAX_LIGHTNING_BOLTS = 20;
 const PERF_LOW_THRESHOLD = CFG.perf.lowThreshold;
 const PERF_RECOVER_THRESHOLD = CFG.perf.recoverThreshold;
@@ -3998,10 +4057,10 @@ class Player extends Entity {
 
         // Weapons (vampire-survivor style)
         this.weapons = {
-            orbitShield:  { level: 0, timer: 0, angle: 0 },
-            lightningAura:{ level: 0, timer: 0 },
-            frostNova:    { level: 0, timer: 0 },
-            flameTrail:   { level: 0, timer: 0, lastX: 0, lastY: 0 },
+            orbitShield:  { level: 0, timer: 0, angle: 0, evolved: false, burnTimer: 0 },
+            lightningAura:{ level: 0, timer: 0, evolved: false },
+            frostNova:    { level: 0, timer: 0, evolved: false },
+            flameTrail:   { level: 0, timer: 0, lastX: 0, lastY: 0, evolved: false },
         };
 
         const skin = Progression.getSelectedSkin();
@@ -4160,60 +4219,131 @@ class Player extends Entity {
         }
     }
 
+    /** One lightning hit. With Storm Chain the bolt jumps on to further enemies. */
+    zap(fromX, fromY, e, dmg, evo, superconductor) {
+        const hit = [e];
+        let x = fromX, y = fromY, amount = dmg;
+        let target = e;
+        for (let jump = 0; target; jump++) {
+            let final = amount;
+            const isCrit = evo ? Math.random() < this.critChance : false;
+            if (isCrit) final *= this.critMult;
+            if (superconductor && (target.slowTimer > 0 || target.frozenT > 0)) final *= 1 + superconductor.bonus;
+            target.takeDamage(Math.max(1, Math.floor(final)), isCrit);
+            if (game.lightningBolts.length < dynamicCap(MAX_LIGHTNING_BOLTS)) {
+                game.lightningBolts.push({ x1: x, y1: y, x2: target.x, y2: target.y, life: 0.15 });
+            }
+            game.spawnParticles(target.x, target.y, isCrit ? "#ffcc44" : "#88ddff", isMobile ? 2 : 4);
+            if (!evo || jump >= evo.jumps) break;
+            // Next link: the nearest enemy to the last one that this bolt has not hit yet
+            x = target.x; y = target.y;
+            amount *= evo.jumpFalloff;
+            let next = null, best = evo.jumpRange;
+            for (let i = 0; i < game.enemies.length; i++) {
+                const c = game.enemies[i];
+                if (!c.alive || hit.includes(c)) continue;
+                const d = dist(x, y, c.x, c.y);
+                if (d < best) { best = d; next = c; }
+            }
+            if (next) hit.push(next);
+            target = next;
+        }
+    }
+
     updateWeapons(dt) {
         const w = this.weapons;
+        // Overdrive drives the weapons too.
+        const wdt = this.overdriveT > 0 ? dt * OVERDRIVE_WEAPON_RATE : dt;
+        const burningOrbit = synergyById(this, "burningOrbit");
 
         // ── Orbit Shield ──
         if (w.orbitShield.level > 0) {
-            w.orbitShield.angle += (3.5 + w.orbitShield.level * 0.5) * dt;
-            const orbCount = 1 + w.orbitShield.level;
-            const orbRadius = 80 + w.orbitShield.level * 12;
-            const orbDmg = 8 + w.orbitShield.level * 6;
-            const orbSize = 12;
+            const lvl = w.orbitShield.level;
+            const evo = w.orbitShield.evolved ? WEAPON_EVO.orbitShield : null;
+            w.orbitShield.angle += (evo ? evo.spin : 3.5 + lvl * 0.5) * wdt;
+            const orbCount = evo ? 1 : 1 + lvl;
+            const orbRadius = evo ? evo.orbitRadius : 80 + lvl * 12;
+            const orbDmg = evo ? Math.floor((8 + lvl * 6) * evo.dmgMult) : 8 + lvl * 6;
+            const orbSize = evo ? evo.orbSize : 12;
+            const hitCd = evo ? evo.hitCd : 0.3;
+            w.orbitShield.burnTimer -= wdt;
+            const dropFlame = !!burningOrbit && w.orbitShield.burnTimer <= 0;
+            if (dropFlame) w.orbitShield.burnTimer = burningOrbit.interval;
             for (let i = 0; i < orbCount; i++) {
                 const a = w.orbitShield.angle + (Math.PI * 2 / orbCount) * i;
                 const ox = this.x + Math.cos(a) * orbRadius;
                 const oy = this.y + Math.sin(a) * orbRadius;
-                // Block enemy projectiles
+                // Block enemy projectiles; the Singularity throws them back
                 for (let bi = game.bullets.length - 1; bi >= 0; bi--) {
                     const b = game.bullets[bi];
                     if (!b.alive || !b.isEnemy) continue;
                     if (dist(ox, oy, b.x, b.y) < orbSize + b.radius) {
-                        b.alive = false;
-                        game.spawnParticles(ox, oy, "#88ccff", isMobile ? 1 : 3);
+                        if (evo) {
+                            const sp = Math.hypot(b.vx, b.vy) || 1;
+                            b.vx = -b.vx / sp * BULLET_SPEED;
+                            b.vy = -b.vy / sp * BULLET_SPEED;
+                            b.isEnemy = false;
+                            b.damage = this.damage;
+                            b.piercing = 0;
+                            b.hitCount = 0;
+                            b.life = 1.2;
+                            game.spawnParticles(ox, oy, "#ffd700", isMobile ? 1 : 3);
+                        } else {
+                            b.alive = false;
+                            game.spawnParticles(ox, oy, "#88ccff", isMobile ? 1 : 3);
+                        }
                     }
                 }
                 for (const e of game.enemies) {
+                    if (!e.alive) continue;
+                    if (evo && !isBigEnemy(e) && e.type !== "warden") {
+                        // Gravity well: drag nearby enemies into the orb
+                        const d = dist(ox, oy, e.x, e.y);
+                        if (d < evo.pullRange && d > 1) {
+                            const f = evo.pullForce * (1 - d / evo.pullRange) * dt;
+                            e.x += (ox - e.x) / d * f;
+                            e.y += (oy - e.y) / d * f;
+                        }
+                    }
                     if (dist(ox, oy, e.x, e.y) < orbSize + e.radius) {
                         if (e.orbitCooldown === undefined) e.orbitCooldown = 0;
                         if (e.orbitCooldown <= 0) {
                             e.takeDamage(orbDmg);
-                            e.orbitCooldown = 0.3;
+                            e.orbitCooldown = hitCd;
                             game.spawnParticles(ox, oy, COLOR.accent, isMobile ? 1 : 3);
                         }
                     }
                 }
+                if (dropFlame && game.flamePatches.length < dynamicCap(MAX_FLAME_PATCHES)) {
+                    const fl = w.flameTrail.level;
+                    const life = (1 + fl * 0.3) * (w.flameTrail.evolved ? WEAPON_EVO.flameTrail.patchLifeMult : 1);
+                    game.flamePatches.push({ x: ox, y: oy, radius: 12 + fl * 2.5, dmg: 4 + fl * 4, life, maxLife: life, dmgTimer: 0, ignite: w.flameTrail.evolved });
+                }
             }
             // Tick cooldowns
             for (const e of game.enemies) {
-                if (e.orbitCooldown > 0) e.orbitCooldown -= dt;
+                if (e.orbitCooldown > 0) e.orbitCooldown -= wdt;
             }
         }
 
         // ── Lightning Aura ──
         if (w.lightningAura.level > 0) {
-            w.lightningAura.timer -= dt;
-            const interval = Math.max(0.15, 0.8 - w.lightningAura.level * 0.12);
+            const lvl = w.lightningAura.level;
+            const evo = w.lightningAura.evolved ? WEAPON_EVO.lightningAura : null;
+            const superconductor = synergyById(this, "superconductor");
+            w.lightningAura.timer -= wdt;
+            const interval = Math.max(0.15, 0.8 - lvl * 0.12);
             if (w.lightningAura.timer <= 0) {
                 w.lightningAura.timer = interval;
-                const range = 120 + w.lightningAura.level * 30;
-                const dmg = 10 + w.lightningAura.level * 8;
-                const targets = 1 + w.lightningAura.level; // always hit multiple: 2 at lv1, 3 at lv2, etc.
+                const range = 120 + lvl * 30;
+                const dmg = 10 + lvl * 8;
+                const targets = 1 + lvl; // always hit multiple: 2 at lv1, 3 at lv2, etc.
                 // Single-pass N-nearest selection (avoids spread/map/filter/sort allocations)
                 // Uses a max-heap (farthest at index 0) so we can replace the worst candidate
                 const nearest = [];
                 for (let i = 0; i < game.enemies.length; i++) {
                     const e = game.enemies[i];
+                    if (!e.alive) continue;
                     const d = dist(this.x, this.y, e.x, e.y);
                     if (d >= range) continue;
                     if (nearest.length < targets) {
@@ -4233,39 +4363,44 @@ class Player extends Entity {
                     }
                 }
                 for (let i = 0; i < nearest.length; i++) {
-                    const e = nearest[i].e;
-                    e.takeDamage(dmg);
-                    if (game.lightningBolts.length < dynamicCap(MAX_LIGHTNING_BOLTS)) {
-                        game.lightningBolts.push({ x1: this.x, y1: this.y, x2: e.x, y2: e.y, life: 0.15 });
-                    }
-                    game.spawnParticles(e.x, e.y, "#88ddff", isMobile ? 2 : 4);
+                    this.zap(this.x, this.y, nearest[i].e, dmg, evo, superconductor);
                 }
             }
         }
 
         // ── Frost Nova ──
         if (w.frostNova.level > 0) {
-            w.frostNova.timer -= dt;
-            const interval = Math.max(1.5, 4.5 - w.frostNova.level * 0.6);
+            const lvl = w.frostNova.level;
+            const evo = w.frostNova.evolved ? WEAPON_EVO.frostNova : null;
+            w.frostNova.timer -= wdt;
+            const interval = Math.max(1.5, 4.5 - lvl * 0.6);
             if (w.frostNova.timer <= 0) {
                 w.frostNova.timer = interval;
-                const range = 130 + w.frostNova.level * 25;
-                const dmg = 5 + w.frostNova.level * 4;
-                const slowDuration = 1.5 + w.frostNova.level * 0.3;
+                let range = 130 + lvl * 25;
+                if (evo) range = Math.max(range, this.range * evo.rangeMult);
+                const dmg = 5 + lvl * 4;
+                const slowDuration = 1.5 + lvl * 0.3;
                 game.frostWaves.push({ x: this.x, y: this.y, radius: 0, maxRadius: range, life: 0.4, maxLife: 0.4 });
                 for (const e of game.enemies) {
-                    if (dist(this.x, this.y, e.x, e.y) < range) {
-                        e.takeDamage(dmg);
-                        e.slowTimer = slowDuration;
-                        e.slowFactor = 0.35;
+                    if (!e.alive || dist(this.x, this.y, e.x, e.y) >= range) continue;
+                    // Absolute Zero: an enemy that is still slowed freezes solid
+                    if (evo && e.slowTimer > 0 && e.freezeCd <= 0 && !isBigEnemy(e)) {
+                        e.frozenT = evo.freezeTime;
+                        e.freezeCd = evo.freezeTime + evo.freezeCd;
+                        game.spawnParticles(e.x, e.y, "#dff6ff", isMobile ? 2 : 5);
                     }
+                    e.takeDamage(dmg);
+                    e.slowTimer = slowDuration;
+                    e.slowFactor = 0.35;
                 }
             }
         }
 
         // ── Flame Trail ──
         if (w.flameTrail.level > 0) {
-            w.flameTrail.timer -= dt;
+            const lvl = w.flameTrail.level;
+            const evo = w.flameTrail.evolved ? WEAPON_EVO.flameTrail : null;
+            w.flameTrail.timer -= wdt;
             const interval = 0.08;
             if (w.flameTrail.timer <= 0 &&
                 game.flamePatches.length < dynamicCap(MAX_FLAME_PATCHES) &&
@@ -4273,9 +4408,9 @@ class Player extends Entity {
                 w.flameTrail.timer = interval;
                 w.flameTrail.lastX = this.x;
                 w.flameTrail.lastY = this.y;
-                const dmg = 4 + w.flameTrail.level * 4;
-                const duration = 1.5 + w.flameTrail.level * 0.4;
-                game.flamePatches.push({ x: this.x, y: this.y, radius: 16 + w.flameTrail.level * 3, dmg, life: duration, maxLife: duration, dmgTimer: 0 });
+                const dmg = 4 + lvl * 4;
+                const duration = (1.5 + lvl * 0.4) * (evo ? evo.patchLifeMult : 1);
+                game.flamePatches.push({ x: this.x, y: this.y, radius: 16 + lvl * 3, dmg, life: duration, maxLife: duration, dmgTimer: 0, ignite: !!evo });
             }
         }
     }
@@ -4405,15 +4540,39 @@ class Player extends Entity {
         // Draw orbit shield orbs
         const w = this.weapons;
         if (w.orbitShield.level > 0) {
-            const orbCount = 1 + w.orbitShield.level;
-            const orbRadius = 80 + w.orbitShield.level * 12;
+            const evo = w.orbitShield.evolved ? WEAPON_EVO.orbitShield : null;
+            const orbCount = evo ? 1 : 1 + w.orbitShield.level;
+            const orbRadius = evo ? evo.orbitRadius : 80 + w.orbitShield.level * 12;
+            const orbSize = evo ? evo.orbSize : 12;
             for (let i = 0; i < orbCount; i++) {
                 const a = w.orbitShield.angle + (Math.PI * 2 / orbCount) * i;
                 const ox = this.x + Math.cos(a) * orbRadius;
                 const oy = this.y + Math.sin(a) * orbRadius;
+                if (evo && !game.lowPerf) {
+                    // Gravity well: a dark pull ring and a swirl round the orb
+                    ctx.beginPath();
+                    ctx.arc(ox, oy, evo.pullRange, 0, Math.PI * 2);
+                    ctx.strokeStyle = "rgba(195,139,255,0.18)";
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 10]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.beginPath();
+                    ctx.arc(ox, oy, orbSize * 1.9, 0, Math.PI * 2);
+                    ctx.fillStyle = "rgba(60,20,120,0.35)";
+                    ctx.fill();
+                    for (let k = 0; k < 3; k++) {
+                        const sa = -frameNow * 0.004 + k * Math.PI * 2 / 3;
+                        ctx.beginPath();
+                        ctx.arc(ox, oy, orbSize * 1.4, sa, sa + 1.3);
+                        ctx.strokeStyle = "rgba(195,139,255,0.7)";
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                    }
+                }
                 ctx.beginPath();
-                ctx.arc(ox, oy, 12, 0, Math.PI * 2);
-                ctx.fillStyle = COLOR.accent;
+                ctx.arc(ox, oy, orbSize, 0, Math.PI * 2);
+                ctx.fillStyle = evo ? "#7a3cff" : COLOR.accent;
                 ctx.globalAlpha = 0.8;
                 ctx.fill();
                 ctx.globalAlpha = 1;
@@ -4423,8 +4582,8 @@ class Player extends Entity {
                 // Orbit trail
                 if (!game.lowPerf) {
                     ctx.beginPath();
-                    ctx.arc(ox, oy, 16, 0, Math.PI * 2);
-                    ctx.fillStyle = "rgba(51,204,255,0.12)";
+                    ctx.arc(ox, oy, orbSize + 4, 0, Math.PI * 2);
+                    ctx.fillStyle = evo ? "rgba(195,139,255,0.14)" : "rgba(51,204,255,0.12)";
                     ctx.fill();
                 }
             }
@@ -4553,6 +4712,13 @@ class Enemy extends Entity {
         // Slow effect
         this.slowTimer = 0;
         this.slowFactor = 1;
+        // Absolute Zero freeze and Inferno burn
+        this.frozenT = 0;
+        this.freezeCd = 0;
+        this.burnT = 0;
+        this.burnDps = 0;
+        this.burnTick = 0;
+        this.burnSpread = false;
 
         // Type-specific
         if (this.type === "normal") {
@@ -4595,11 +4761,38 @@ class Enemy extends Entity {
             if (Math.abs(this.kbx) + Math.abs(this.kby) < 4) { this.kbx = 0; this.kby = 0; }
         }
 
-        // Apply slow
-        const currentSpeed = this.slowTimer > 0
-            ? this.baseSpeed * this.slowFactor
+        // Status: slow, freeze (Absolute Zero), burn (Inferno)
+        if (this.freezeCd > 0) this.freezeCd -= dt;
+        if (this.frozenT > 0) this.frozenT -= dt;
+        const currentSpeed = this.frozenT > 0 ? 0
+            : this.slowTimer > 0 ? this.baseSpeed * this.slowFactor
             : this.baseSpeed;
         if (this.slowTimer > 0) this.slowTimer -= dt;
+        if (this.burnT > 0) {
+            this.burnT -= dt;
+            this.burnTick -= dt;
+            if (this.burnTick <= 0) {
+                this.burnTick = 0.5;
+                if (this.burnSpread) {
+                    // Fire spreads once to whatever touches a burning enemy
+                    const near = gridQuery(this.x, this.y, this.radius + COLLISION_QUERY_BUFFER);
+                    for (let i = 0; i < near.length; i++) {
+                        const o = near[i];
+                        if (o === this || !o.alive || o.burnT > 0) continue;
+                        if (dist(this.x, this.y, o.x, o.y) < this.radius + o.radius + 4) o.ignite(this.burnDps, this.burnT + 0.5, false);
+                    }
+                }
+                game.spawnParticles(this.x, this.y - this.radius * 0.5, "#ff8a2a", isMobile ? 1 : 2);
+                this.takeDamage(Math.max(1, Math.floor(this.burnDps * 0.5)));
+                if (!this.alive) return;
+            }
+            if (this.burnT <= 0) { this.burnDps = 0; this.burnSpread = false; }
+        }
+        if (this.frozenT > 0) {
+            // Frozen solid: no movement, no attacks
+            if (this.contactTimer > 0) this.contactTimer -= dt;
+            return;
+        }
 
         const dx = target.x - this.x;
         const dy = target.y - this.y;
@@ -4920,7 +5113,10 @@ class Enemy extends Entity {
             ctx.scale(pop, pop);
             ctx.translate(-this.x, -this.y);
         }
-        const col = this.hitFlash > 0 ? "#ffffff" : (isSlow ? "#88ccff" : this.color);
+        const col = this.hitFlash > 0 ? "#ffffff"
+            : this.frozenT > 0 ? "#e8fbff"
+            : this.burnT > 0 ? (Math.floor(frameNow * 0.012) % 2 ? "#ff8a2a" : "#ffb347")
+            : (isSlow ? "#88ccff" : this.color);
 
         if (this.type === "tank") {
             // Tank: drawn as a hexagon-like shape
@@ -5320,6 +5516,13 @@ class Enemy extends Entity {
         ctx.restore();
     }
 
+    /** Set ablaze (Inferno). A stronger or longer fire replaces a weaker one. */
+    ignite(dps, time, canSpread) {
+        this.burnDps = Math.max(this.burnDps, dps);
+        this.burnT = Math.max(this.burnT, time);
+        if (canSpread) this.burnSpread = true;
+    }
+
     takeDamage(amount, isCrit) {
         // Endboss shield reduces damage by 60%
         let finalAmount = amount;
@@ -5363,6 +5566,17 @@ class Enemy extends Entity {
         if (this.hp <= 0) {
             this.alive = false;
             game.onEnemyKilled(this);
+            // Absolute Zero: a frozen enemy shatters into its neighbours
+            if (this.frozenT > 0 && !this.shattered) {
+                this.shattered = true;
+                const evo = WEAPON_EVO.frostNova;
+                const shatterDmg = Math.max(1, Math.floor(this.maxHp * evo.shatterPct));
+                for (const e of game.enemies) {
+                    if (e !== this && e.alive && dist(this.x, this.y, e.x, e.y) < evo.shatterRadius + e.radius) e.takeDamage(shatterDmg);
+                }
+                game.spawnParticles(this.x, this.y, "#dff6ff", isMobile ? 6 : 14);
+                FX.ring(this.x, this.y, "#bfeaff", evo.shatterRadius, 0.25, 3);
+            }
             // Exploder: deal AoE damage on death
             if (this.type === "exploder" && !this.exploded) {
                 this.exploded = true;
@@ -5664,15 +5878,34 @@ const UPGRADES = [
         desc: "Overdrive lasts 3 seconds longer" },
 
     // ── Weapon upgrades ──
-    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", apply(p) { p.weapons.orbitShield.level += UPGRADE_TUNING.weaponLevelAdd; },
-        desc(p) { return p.weapons.orbitShield.level ? "One more orb, wider circle" : "Orbs circle you and smash whatever they touch"; } },
-    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", apply(p) { p.weapons.lightningAura.level += UPGRADE_TUNING.weaponLevelAdd; },
+    { id: "orbit",     name: "Orbit Shield +1",    icon: "🔵", rarity: "rare", cat: "weapon", weapon: "orbitShield", apply(p) { p.weapons.orbitShield.level += UPGRADE_TUNING.weaponLevelAdd; },
+        desc(p) { const w = p.weapons.orbitShield; return w.evolved ? "Heavier Singularity, wider circle" : w.level ? "One more orb, wider circle" : "Orbs circle you and smash whatever they touch"; } },
+    { id: "lightning",  name: "Lightning Aura +1",  icon: "⚡", rarity: "rare", cat: "weapon", weapon: "lightningAura", apply(p) { p.weapons.lightningAura.level += UPGRADE_TUNING.weaponLevelAdd; },
         desc(p) { return p.weapons.lightningAura.level ? "Zaps harder and more often" : "Zaps nearby enemies every few seconds"; } },
-    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", apply(p) { p.weapons.frostNova.level += UPGRADE_TUNING.weaponLevelAdd; },
+    { id: "frost",     name: "Frost Nova +1",      icon: "❄️",  rarity: "rare", cat: "weapon", weapon: "frostNova", apply(p) { p.weapons.frostNova.level += UPGRADE_TUNING.weaponLevelAdd; },
         desc(p) { return p.weapons.frostNova.level ? "Bigger, colder nova" : "Freezes and damages everything around you"; } },
-    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", apply(p) { p.weapons.flameTrail.level += UPGRADE_TUNING.weaponLevelAdd; },
+    { id: "flame",     name: "Flame Trail +1",     icon: "🔥", rarity: "rare", cat: "weapon", weapon: "flameTrail", apply(p) { p.weapons.flameTrail.level += UPGRADE_TUNING.weaponLevelAdd; },
         desc(p) { return p.weapons.flameTrail.level ? "Hotter, longer trail" : "Burns the ground you move over"; } },
 ];
+
+// Evolution cards: one per weapon, offered by triggerUpgrade once canEvolve() holds.
+for (const weaponId in WEAPON_EVO) {
+    const evo = WEAPON_EVO[weaponId];
+    UPGRADES.push({
+        id: evo.id, name: evo.name, icon: evo.icon, rarity: "epic", cat: "weapon", evolve: weaponId, desc: evo.desc,
+        apply(p) { p.weapons[weaponId].evolved = true; },
+    });
+}
+
+/** What a weapon card should say about its evolution, or "" for other cards. */
+function weaponEvolveHint(up, p) {
+    if (!up.weapon) return "";
+    const evo = WEAPON_EVO[up.weapon];
+    const w = p.weapons[up.weapon];
+    if (w.evolved) return `Evolved: ${evo.name}`;
+    if (w.level >= WEAPON_EVOLVE_LEVEL && !hasEvolveKey(p, up.weapon)) return `Take ${evo.keyName} to unlock ${evo.name}`;
+    return `Lv ${WEAPON_EVOLVE_LEVEL} + ${evo.keyName} → ${evo.name}`;
+}
 
 // Groups of stat upgrades shown in the bottom-right HUD, one icon per family
 const STAT_GROUPS = [
@@ -5723,6 +5956,11 @@ function readBuildStats(p, magnetBonus) {
         lightning: p.weapons.lightningAura.level,
         frost: p.weapons.frostNova.level,
         flame: p.weapons.flameTrail.level,
+        orbitEvo: !!p.weapons.orbitShield.evolved,
+        lightningEvo: !!p.weapons.lightningAura.evolved,
+        frostEvo: !!p.weapons.frostNova.evolved,
+        flameEvo: !!p.weapons.flameTrail.evolved,
+        synergies: WEAPON_SYNERGIES.filter((sy) => synergyActive(p, sy)).map((sy) => sy.id),
     };
 }
 
@@ -5747,6 +5985,7 @@ const BUILD_FMT = {
     int: (v) => String(Math.round(v)),
     pct: (v) => `${Math.round(v * 100)}%`,
     level: (v) => (v > 0 ? `Lv ${v}` : "–"),
+    weapon: (v, evolved, weaponId) => (v > 0 ? (evolved ? `Lv ${v} · ${WEAPON_EVO[weaponId].name}` : `Lv ${v}`) : "–"),
 };
 
 // `when` hides a row until the build has that stat at all.
@@ -5774,10 +6013,16 @@ const BUILD_ROWS = [
     { label: "Power-up luck", fmt: (s) => BUILD_FMT.pct(s.luck), when: (s) => s.luck !== 1 },
     { label: "Overdrive",     fmt: (s) => `+${s.overdriveBonus}s`, when: (s) => s.overdriveBonus > 0 },
     { head: "WEAPONS" },
-    { label: "Orbit Shield",   fmt: (s) => BUILD_FMT.level(s.orbit),     dim: (s) => s.orbit <= 0 },
-    { label: "Lightning Aura", fmt: (s) => BUILD_FMT.level(s.lightning), dim: (s) => s.lightning <= 0 },
-    { label: "Frost Nova",     fmt: (s) => BUILD_FMT.level(s.frost),     dim: (s) => s.frost <= 0 },
-    { label: "Flame Trail",    fmt: (s) => BUILD_FMT.level(s.flame),     dim: (s) => s.flame <= 0 },
+    { label: "Orbit Shield",   fmt: (s) => BUILD_FMT.weapon(s.orbit, s.orbitEvo, "orbitShield"),         dim: (s) => s.orbit <= 0 },
+    { label: "Lightning Aura", fmt: (s) => BUILD_FMT.weapon(s.lightning, s.lightningEvo, "lightningAura"), dim: (s) => s.lightning <= 0 },
+    { label: "Frost Nova",     fmt: (s) => BUILD_FMT.weapon(s.frost, s.frostEvo, "frostNova"),             dim: (s) => s.frost <= 0 },
+    { label: "Flame Trail",    fmt: (s) => BUILD_FMT.weapon(s.flame, s.flameEvo, "flameTrail"),            dim: (s) => s.flame <= 0 },
+    { head: "SYNERGY", when: (s) => s.synergies.length > 0 },
+    ...WEAPON_SYNERGIES.map((sy) => ({
+        label: sy.name,
+        fmt: (s) => (s.synergies.includes(sy.id) ? "active" : "–"),
+        when: (s) => s.synergies.includes(sy.id),
+    })),
 ];
 
 /**
@@ -5787,13 +6032,13 @@ const BUILD_ROWS = [
  */
 function drawBuildPanel(x, w, p, preview) {
     const now = readBuildStats(p, game.xpMagnetBonus);
-    const rows = BUILD_ROWS.filter((r) => r.head || !r.when || r.when(now) || (preview && r.when(preview)));
+    const rows = BUILD_ROWS.filter((r) => !r.when || r.when(now) || (preview && r.when(preview)));
     const rowH = 17, headH = 24, titleH = 34, padBottom = 10;
     let h = titleH + padBottom;
     let restH = h; // height without rows that only a preview brings in
     for (const r of rows) {
         h += r.head ? headH : rowH;
-        if (r.head || !r.when || r.when(now)) restH += r.head ? headH : rowH;
+        if (!r.when || r.when(now)) restH += r.head ? headH : rowH;
     }
     // Centred on the resting height, so hovering a card never moves the panel.
     const y = Math.max(8, Math.floor((CANVAS_H - restH) / 2));
@@ -9007,7 +9252,7 @@ const game = {
 
     /** The run opens with a choice: one of the four weapons, free. */
     openStarterPick() {
-        this.upgradeChoices = UPGRADES.filter((up) => up.cat === "weapon");
+        this.upgradeChoices = UPGRADES.filter((up) => up.cat === "weapon" && !up.evolve);
         this.upgradeIsBonusWave = false;
         this.starterPick = true;
         this.state = STATE.UPGRADE_SCREEN;
@@ -9197,11 +9442,19 @@ const game = {
                 fp.dmgTimer = 0.3;
                 // Use spatial grid for flame-enemy collisions
                 const nearby = gridQuery(fp.x, fp.y, fp.radius + COLLISION_QUERY_BUFFER);
+                const thermal = synergyById(this.player, "thermalShock");
                 for (let i = 0; i < nearby.length; i++) {
                     const e = nearby[i];
-                    if (dist(fp.x, fp.y, e.x, e.y) < fp.radius + e.radius) {
+                    if (!e.alive || dist(fp.x, fp.y, e.x, e.y) >= fp.radius + e.radius) continue;
+                    if (thermal && (e.slowTimer > 0 || e.frozenT > 0)) {
+                        // Thermal Shock: cold enemies crack in the heat
+                        e.takeDamage(Math.floor(fp.dmg * thermal.mult));
+                        if (!isMobile && Math.random() < 0.3) this.spawnParticles(e.x, e.y, "#ffffff", 2);
+                    } else {
                         e.takeDamage(fp.dmg);
                     }
+                    // Inferno: the patch sets the enemy ablaze
+                    if (fp.ignite && e.alive) e.ignite(fp.dmg * WEAPON_EVO.flameTrail.burnPct / 0.3, WEAPON_EVO.flameTrail.burnTime, true);
                 }
             }
         }
@@ -9308,7 +9561,15 @@ const game = {
             value: this.sanitizeCheatLevel(this.player.weapons[w.id].level || 0),
         }));
 
-        this.cheatRows = [...statRows, ...weaponRows];
+        const evoRows = CHEAT_WEAPON_ROWS.map(w => ({
+            kind: "evo",
+            id: w.id,
+            icon: WEAPON_EVO[w.id].icon,
+            name: `${WEAPON_EVO[w.id].name} (0/1)`,
+            value: this.player.weapons[w.id].evolved ? 1 : 0,
+        }));
+
+        this.cheatRows = [...statRows, ...weaponRows, ...evoRows];
         this.cheatScroll = 0;
         this.cheatMaxScroll = 0;
         this.state = STATE.CHEAT_MENU;
@@ -9435,6 +9696,7 @@ const game = {
         p.weapons.lightningAura.level = 0;
         p.weapons.frostNova.level = 0;
         p.weapons.flameTrail.level = 0;
+        for (const id in p.weapons) p.weapons[id].evolved = false;
 
         Progression.applyMetaToPlayer(p);
 
@@ -9459,6 +9721,10 @@ const game = {
             if (row.kind !== "weapon") continue;
             if (!p.weapons[row.id]) continue;
             p.weapons[row.id].level = this.sanitizeCheatLevel(row.value);
+        }
+        for (const row of this.cheatRows) {
+            if (row.kind !== "evo" || !p.weapons[row.id]) continue;
+            p.weapons[row.id].evolved = this.sanitizeCheatLevel(row.value) > 0;
         }
 
         p.weapons.flameTrail.lastX = p.x;
@@ -9513,7 +9779,7 @@ const game = {
             if (y + layout.rowH < layout.listY || y > layout.listY + layout.listH) continue;
 
             drawRoundRect(layout.listX + 8, y, layout.listW - 16, layout.rowH, 6);
-            ctx.fillStyle = row.kind === "weapon" ? "rgba(255,200,80,0.10)" : "rgba(102,204,255,0.08)";
+            ctx.fillStyle = row.kind === "weapon" ? "rgba(255,200,80,0.10)" : row.kind === "evo" ? "rgba(195,139,255,0.10)" : "rgba(102,204,255,0.08)";
             ctx.fill();
             ctx.strokeStyle = "rgba(255,255,255,0.12)";
             ctx.lineWidth = 1;
@@ -9524,9 +9790,9 @@ const game = {
             ctx.font = "13px 'Segoe UI', Arial, sans-serif";
             ctx.fillText(`${row.icon}  ${row.name}`, layout.listX + 18, y + 21);
 
-            ctx.fillStyle = row.kind === "weapon" ? "#ffcc66" : "#7ed9ff";
+            ctx.fillStyle = row.kind === "weapon" ? "#ffcc66" : row.kind === "evo" ? "#c38bff" : "#7ed9ff";
             ctx.font = "10px 'Segoe UI', Arial, sans-serif";
-            ctx.fillText(row.kind === "weapon" ? "WEAPON" : "STAT", layout.listX + 18, y + 31);
+            ctx.fillText(row.kind === "weapon" ? "WEAPON" : row.kind === "evo" ? "EVOLVE" : "STAT", layout.listX + 18, y + 31);
 
             const minusRect = { x: layout.listX + layout.listW - 124, y: y + 4, w: 28, h: 26 };
             const valueRect = { x: layout.listX + layout.listW - 92, y: y + 4, w: 48, h: 26 };
@@ -10145,13 +10411,21 @@ const game = {
         // ── Active weapons (bottom-left) ──
         const wp = this.player.weapons;
         const weaponIcons = [];
-        if (wp.orbitShield.level > 0)   weaponIcons.push({ icon: "orbit", color: "#66ccff", lv: wp.orbitShield.level });
-        if (wp.lightningAura.level > 0) weaponIcons.push({ icon: "lightning", color: "#88ddff", lv: wp.lightningAura.level });
-        if (wp.frostNova.level > 0)     weaponIcons.push({ icon: "frost", color: "#bfeaff", lv: wp.frostNova.level });
-        if (wp.flameTrail.level > 0)    weaponIcons.push({ icon: "flame", color: "#ff8a2a", lv: wp.flameTrail.level });
+        if (wp.orbitShield.level > 0)   weaponIcons.push({ icon: "orbit", color: "#66ccff", lv: wp.orbitShield.level, evo: wp.orbitShield.evolved });
+        if (wp.lightningAura.level > 0) weaponIcons.push({ icon: "lightning", color: "#88ddff", lv: wp.lightningAura.level, evo: wp.lightningAura.evolved });
+        if (wp.frostNova.level > 0)     weaponIcons.push({ icon: "frost", color: "#bfeaff", lv: wp.frostNova.level, evo: wp.frostNova.evolved });
+        if (wp.flameTrail.level > 0)    weaponIcons.push({ icon: "flame", color: "#ff8a2a", lv: wp.flameTrail.level, evo: wp.flameTrail.evolved });
         for (let i = 0; i < weaponIcons.length; i++) {
             const wx = pad + 12 + i * 50;
             const wy = CANVAS_H - pad - 14;
+            if (weaponIcons[i].evo) {
+                // Evolved: a gold ring round the icon
+                ctx.beginPath();
+                ctx.arc(wx, wy, 18, 0, Math.PI * 2);
+                ctx.strokeStyle = "#ffd700";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
             FX.icon(weaponIcons[i].icon, wx, wy, 24, weaponIcons[i].color);
             ctx.textAlign = "center";
             ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
@@ -10845,6 +11119,9 @@ const game = {
             if ((up.id === "rate1" || up.id === "rate2") && this.player.fireRate <= FIRE_RATE_FLOOR) return false;
             if (up.id === "multi" && this.player.multiShot >= MULTI_SHOT_CAP) return false;
             if ((up.id === "xpgain1" || up.id === "xpgain2") && this.player.xpGainMult >= XP_GAIN_CAP) return false;
+            // Evolutions are placed separately below; +1 cards stop at the cap.
+            if (up.evolve) return false;
+            if (up.weapon && this.player.weapons[up.weapon].level >= WEAPON_LEVEL_CAP) return false;
             return true;
         });
         this.upgradeChoices = pickUpgradeChoicesByRarity(pool, numChoices, {
@@ -10856,6 +11133,13 @@ const game = {
         if (this.upgradeChoices.length < numChoices) {
             const fallbackPool = shuffle([...pool]).filter((up) => !this.upgradeChoices.includes(up));
             this.upgradeChoices.push(...fallbackPool.slice(0, numChoices - this.upgradeChoices.length));
+        }
+        // A weapon that is ready to evolve always gets its card on this screen.
+        const evos = UPGRADES.filter((up) => up.evolve && canEvolve(this.player, up.evolve));
+        if (evos.length > 0) {
+            const evo = randPick(evos);
+            if (this.upgradeChoices.length >= numChoices) this.upgradeChoices[this.upgradeChoices.length - 1] = evo;
+            else this.upgradeChoices.push(evo);
         }
         this.upgradeIsBonusWave = isBonusWave;
         this.state = STATE.UPGRADE_SCREEN;
@@ -10884,7 +11168,14 @@ const game = {
     applyUpgrade(index) {
         const up = this.upgradeChoices[index];
         if (!up) return;
+        const synergiesBefore = WEAPON_SYNERGIES.filter((sy) => synergyActive(this.player, sy));
         up.apply(this.player);
+        if (up.evolve) {
+            this.triggerEventToast(`${up.name.toUpperCase()}`, "#c38bff", 1.6);
+        } else {
+            const fresh = WEAPON_SYNERGIES.find((sy) => synergyActive(this.player, sy) && !synergiesBefore.includes(sy));
+            if (fresh) this.triggerEventToast(`Synergy: ${fresh.name}`, "#c38bff", 1.6);
+        }
         if (this.starterPick) {
             // The free starting weapon is not an upgrade the run earned.
             this.starterPick = false;
@@ -11072,6 +11363,14 @@ const game = {
             for (let li = 0; li < Math.min(maxDescLines, descLines.length); li++) {
                 const descY = compactLayout ? (cardY + 112 + li * 12) : (cardY + 126 + li * 13);
                 ctx.fillText(descLines[li], 0, descY, cardW - 18);
+            }
+
+            // Weapon cards say how the weapon evolves
+            const evoHint = weaponEvolveHint(up, this.player);
+            if (evoHint) {
+                ctx.font = compactLayout ? "9px 'Segoe UI', Arial, sans-serif" : "10px 'Segoe UI', Arial, sans-serif";
+                ctx.fillStyle = this.player.weapons[up.weapon].evolved ? "#ffd700" : "#c38bff";
+                ctx.fillText(evoHint, 0, cardY + cardH - 34, cardW - 16);
             }
 
             // Current count if already taken
