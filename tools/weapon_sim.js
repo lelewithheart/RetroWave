@@ -9,6 +9,8 @@
  * build is "about two level-ups per wave" from a fixed cycle of stat cards, so
  * two measurements only differ in what you pass. Level-ups during the run are
  * ignored so the build stays fixed. Kills are counted per second survived.
+ * Meta upgrades and loot of the saved profile are stripped unless the build
+ * says `account: true`.
  */
 window.RWSim = (() => {
     const W = { orbit: "orbitShield", lightning: "lightningAura", frost: "frostNova", flame: "flameTrail" };
@@ -21,7 +23,24 @@ window.RWSim = (() => {
         for (const e of game.enemies) {
             if (!e.alive) continue;
             const d = dist(p.x, p.y, e.x, e.y);
-            if (d < 220 && d > 1) { const w = (220 - d) / 220; ax += (p.x - e.x) / d * w; ay += (p.y - e.y) / d * w; n++; }
+            // Bosses are kept at arm's length; a slam telegraph is left at once
+            const reach = e.kit ? 260 : 220;
+            if (d < reach && d > 1) { const w = (reach - d) / reach; ax += (p.x - e.x) / d * w; ay += (p.y - e.y) / d * w; n++; }
+            if (e.kit && e.bossState === "windup" && e.tele && e.tele.kind === "charge") {
+                // Step off the charge line, to whichever side is nearer
+                const side = Math.sign((p.x - e.x) * -Math.sin(e.tele.dir) + (p.y - e.y) * Math.cos(e.tele.dir)) || 1;
+                ax += -Math.sin(e.tele.dir) * side * 2.5; ay += Math.cos(e.tele.dir) * side * 2.5; n++;
+            }
+            if (e.kit && e.bossState === "windup" && e.tele && e.tele.kind === "slam") {
+                const sd = dist(p.x, p.y, e.tele.x, e.tele.y) || 1;
+                if (sd < e.tele.radius + 40) { ax += (p.x - e.tele.x) / sd * 2; ay += (p.y - e.tele.y) / sd * 2; n++; }
+            }
+        }
+        // Mines and enemy bullets nearby
+        for (const b of game.bullets) {
+            if (!b.alive || !b.isEnemy) continue;
+            const d = dist(p.x, p.y, b.x, b.y);
+            if (d < 90 && d > 1) { ax += (p.x - b.x) / d * 1.2; ay += (p.y - b.y) / d * 1.2; n++; }
         }
         const cx = WORLD_W / 2 - p.x, cy = WORLD_H / 2 - p.y;
         const cd = Math.hypot(cx, cy) || 1;
@@ -48,6 +67,16 @@ window.RWSim = (() => {
         game.state = STATE.GAMEPLAY;
         game.tutorialDismissed = true;
         const p = game.player;
+        // A fresh account: strip meta upgrades and equipped loot from the saved
+        // profile so the numbers describe the game, not this save (build.account
+        // keeps them).
+        if (!build.account) {
+            p.damage = PLAYER_BASE_DAMAGE; p.fireRate = PLAYER_BASE_FIRE_RATE; p.speed = PLAYER_BASE_SPEED;
+            p.maxHp = PLAYER_BASE_HP; p.range = PLAYER_BASE_RANGE;
+            p.multiShot = 0; p.piercing = 0; p.critChance = 0; p.critMult = 2; p.armor = 0; p.hpRegen = 0;
+            p.bulletSize = 1; p.xpGainMult = 1; p.magnetRangeMult = 1; p.perKillHeal = 0; p.pickupLuck = 1;
+            p.dashCooldown = 2.4; p.shockDash = 0; p.overdriveBonus = 0; p.executeThreshold = 0;
+        }
         for (const k in W) { p.weapons[W[k]].level = 0; p.weapons[W[k]].evolved = false; }
         for (const k in (build.weapons || {})) {
             p.weapons[W[k]].level = build.weapons[k].lv || 0;
@@ -148,5 +177,44 @@ window.RWSim = (() => {
         return lines;
     }
 
-    return { W, KEYS, kite, baseStats, setup, run, measure, avg, matrix };
+    /**
+     * One boss fight: the bot starts on a boss wave with a wave-typical build and
+     * fights until the boss dies or `maxSeconds` pass. Returns fight length,
+     * damage taken and how much of the boss's damage landed while it was exposed.
+     */
+    function bossFight(wave, maxSeconds = 120, build = {}) {
+        setup(Object.assign({ stats: baseStats(wave, 6), weapons: { lightning: { lv: 3 }, flame: { lv: 3 } }, wave }, build));
+        // Force the boss wave to begin now
+        game.waveRestTimer = 0;
+        const p = game.player;
+        const saveMV = Input.moveVector, saveJust = Input.just;
+        Input.moveVector = kite;
+        Input.just = () => false;
+        let dmgTaken = 0, exposedDmg = 0, totalDmg = 0, died = false, t = 0, attacks = {};
+        const origTake = p.takeDamage.bind(p);
+        p.takeDamage = (a) => { const before = p.hp; origTake(a); dmgTaken += Math.max(0, before - p.hp); };
+        let boss = null, hooked = false;
+        try {
+            while (t < maxSeconds) {
+                frameNow += DT * 1000;
+                game.update(DT);
+                t += DT;
+                if (game.state === STATE.UPGRADE_SCREEN) { game.upgradeQueue.length = 0; game.state = STATE.GAMEPLAY; }
+                if (game.state === STATE.GAME_OVER) { died = true; break; }
+                if (game.state !== STATE.GAMEPLAY) game.state = STATE.GAMEPLAY;
+                if (!boss && game.activeBoss) {
+                    boss = game.activeBoss;
+                    const bt = boss.takeDamage.bind(boss);
+                    boss.takeDamage = (a, c) => { const b = boss.hp; bt(a, c); const d = Math.max(0, b - boss.hp); totalDmg += d; if (boss.staggerT > 0) exposedDmg += d; };
+                    hooked = true;
+                }
+                if (boss && boss.bossState === "windup" && boss.tele && !boss.tele.counted) { boss.tele.counted = true; attacks[boss.tele.kind] = (attacks[boss.tele.kind] || 0) + 1; }
+                if (boss && !boss.alive) break;
+            }
+        } finally { Input.moveVector = saveMV; Input.just = saveJust; p.takeDamage = origTake; }
+        return { wave, kit: boss && boss.kit, seconds: +t.toFixed(1), killed: !!(boss && !boss.alive), died, dmgTaken: Math.round(dmgTaken), maxHp: p.maxHp,
+                 exposedShare: totalDmg ? Math.round(exposedDmg / totalDmg * 100) : 0, attacks };
+    }
+
+    return { W, KEYS, kite, baseStats, setup, run, measure, avg, matrix, bossFight };
 })();

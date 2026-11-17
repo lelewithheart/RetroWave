@@ -8,6 +8,10 @@ beta 17.11:1
 - NEW: Overdrive now speeds up your weapons too
 - An evolved weapon is complete: its +1 card stops showing up. Unevolved weapons stop at Lv 8
 - Enemies can be frozen solid and set ablaze, and fire spreads between enemies that touch
+- NEW: Boss fights. Shard Warden charges and throws shard rings, Iron Tyrant slams the ground and fires volleys, Abyss Colossus sweeps a laser, pulls you in and drops mines. Every attack is telegraphed, and after each one the boss is EXPOSED for a moment and takes double damage
+- No regular spawns while a boss is alive: the arena belongs to the boss and its own adds
+- FIXED: Piercing bullets hit the same big enemy several times while passing through it. A bullet now hits each enemy once, which is what piercing was meant to do
+- Boss health grows with a build that is ahead of the curve (meta upgrades, loot), so a boss fight lasts about as long for everyone
 
 beta 10.11:2
 - FIXED: Late-game lag from runaway builds. Fire rate now tops out at 10 shots a second, multi-shot at 7 bullets, XP gain at 400%; capped upgrades stop being offered

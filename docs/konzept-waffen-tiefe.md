@@ -145,3 +145,49 @@ neu gebaut, da die Neueinreichung noch aussteht.
 2. Entwicklungen, alle drei Synergien und der Overdrive-Takt kommen zusammen ins Update.
 3. Stufenobergrenze 8 fuer jede Waffe.
 4. Namen im Spiel auf Englisch wie der Rest der Texte.
+
+## Nachtrag 2026-11-17: Lennys Spieltest und die Bosse
+
+Lennys Rueckmeldung: nach der Entwicklung soll die +1-Karte der Waffe nicht
+mehr kommen (umgesetzt, die entwickelte Waffe ist fertig), und die Bosse
+sollen viel mehr Spass machen. Befund: Shard Warden und Iron Tyrant / Abyss
+Colossus hatten keinen einzigen Angriff, nur Modifier; sie liefen wie
+Standardgegner auf den Spieler zu.
+
+### Boss-Kits (config.js `bossKits`)
+
+| Boss | Angriffe (Ankuendigung, dann Wirkung) | Fenster danach |
+|---|---|---|
+| Shard Warden (W5, W15) | Charge: Linie 0,8 s, Sprint 400 px mit 1250 px/s. Shard Ring: 0,6 s, 6 Kugeln (ab W15 10) | 2,0 s / 1,2 s |
+| Iron Tyrant (W10) | Slam: Kreis 1,0 s an der Spielerposition, Radius 140, Wurf nach aussen. Volley: 0,5 s, drei Dreierschuesse im Abstand 0,3 s | 2,0 s / 1,0 s |
+| Abyss Colossus (W20) | Sweep: 0,8 s, Strahl 520 px dreht 180 Grad in 2 s. Pull: 0,7 s, zieht 1 s mit 320 px/s (Dash bricht den Sog), dann Ring aus 8. Mines: 0,4 s, 5 Minen im Ring 110, 9 s Lebensdauer | 2,0 / 1,5 / 0,8 s |
+
+Im Fenster ("EXPOSED") nimmt der Boss doppelten Schaden, Shield Wall ist aus,
+Beruehrung tut nicht weh. Angriffe wechseln sich der Reihe nach ab;
+Ankuendigungen und Pausen werden pro Welle 1,5 % kuerzer (Boden 65 %).
+Angriffsschaden kommt aus einer eigenen Basis 40 + 6 x Welle, nicht aus dem
+Kontaktschaden. Waehrend ein Boss lebt gibt es keine normalen Spawns, und die
+Boss-Welle beginnt ohne Eroeffnungsschwarm.
+
+### Zwei Funde beim Messen
+
+1. Durchschlag-Kugeln trafen denselben grossen Gegner mehrmals pro Durchflug
+   (nur Trefferzahl, keine Trefferliste). Ein Pierce-3-Build machte damit
+   das Vierfache gegen Bosse. Gefixt: eine Kugel trifft jeden Gegner einmal.
+   Die alte HP-Tabelle war mit diesem Fehler kalibriert.
+2. Mit Lennys Account (Meta-Upgrades, Loot) starb der W5-Boss in 3 s. Jetzt
+   waechst die Boss-HP mit dem geschaetzten Spieler-DPS ueber der Erwartung
+   (`estimatePlayerDps`, `expectedDpsByWave`, Faktor 1 bis 4).
+
+### Kampflaengen (Bot, frischer Account, 3 Laeufe)
+
+| Welle | HP neu (alt) | Dauer | Schaden am Bot | Anteil Schaden im Fenster |
+|---|---|---|---|---|
+| 5 | 3400 (2500) | 15 bis 23 s | 0 | 42 bis 57 % |
+| 10 | 10000 (12000) | 15 bis 31 s | 49 bis 113 von 175 | 33 bis 44 % |
+| 15 | 15000 (34000) | 14 bis 23 s | 0 | 33 bis 35 % |
+| 20 | 85000 (81000) | etwa 30 bis 45 s | 36 bis 108 von 275 | 34 bis 42 % |
+
+Mit Lennys Account: 12 / 20 / 8 / 20 s. Der Bot weicht Slams und Charges
+grob aus, aber nicht dem Strahl; echte Spieler nehmen also eher mehr Schaden
+als der Bot. Sim: `RWSim.bossFight(welle)` in tools/weapon_sim.js.

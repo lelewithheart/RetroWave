@@ -536,6 +536,49 @@ const BOSS_MODIFIER_DEFS = {
     },
 };
 
+// Boss kits: which attacks a boss has and how long it is exposed after each.
+// Numbers live in CFG.bossKits so the sim and the config stay in one place.
+const BOSS_KITS = CFG.bossKits || {};
+const BOSS_STAGGER_DMG_MULT = (CFG.bossKits && CFG.bossKits.staggerDamageMult) || 2;
+/** Windups and cooldowns shrink a little with the wave, floor 65 %. */
+function bossKitSpeed(wave) {
+    return clamp(1 - (wave - 5) * 0.015, 0.65, 1);
+}
+/** Base for boss attack damage; each attack takes a fraction of it. */
+function bossAttackBase(wave) {
+    const k = BOSS_KITS;
+    return Math.floor((k.attackDamageBase || 40) + wave * (k.attackDamagePerWave || 6));
+}
+/**
+ * Single-target damage per second the player's build can put out, estimated
+ * from the gun and the weapons. Used to keep boss fights a similar length for
+ * a geared account and a fresh one.
+ */
+function estimatePlayerDps(p) {
+    const gun = p.damage * (1 + Math.min(MULTI_SHOT_CAP, p.multiShot)) / Math.max(FIRE_RATE_FLOOR, p.fireRate)
+        * (1 + p.critChance * (p.critMult - 1));
+    const w = p.weapons;
+    let weapons = 0;
+    if (w.lightningAura.level > 0) {
+        const l = w.lightningAura.level;
+        weapons += (10 + l * 8) / Math.max(0.15, 0.8 - l * 0.12);
+    }
+    if (w.orbitShield.level > 0) {
+        const l = w.orbitShield.level;
+        weapons += (8 + l * 6) * (w.orbitShield.evolved ? WEAPON_EVO.orbitShield.dmgMult / WEAPON_EVO.orbitShield.hitCd : 1 / 0.3) * 0.5;
+    }
+    if (w.flameTrail.level > 0) weapons += (4 + w.flameTrail.level * 4) / 0.3 * 0.5;
+    if (w.frostNova.level > 0) weapons += (5 + w.frostNova.level * 4) / Math.max(1.5, 4.5 - w.frostNova.level * 0.6);
+    return gun + weapons;
+}
+/** Distance from point (px,py) to the segment a-b. */
+function distToSegment(px, py, ax, ay, bx, by) {
+    const vx = bx - ax, vy = by - ay;
+    const l2 = vx * vx + vy * vy || 1;
+    const t = clamp(((px - ax) * vx + (py - ay) * vy) / l2, 0, 1);
+    return dist(px, py, ax + vx * t, ay + vy * t);
+}
+
 const BOSS_MODIFIERS_ENABLED = CFG.bossModifiers.enabled;
 const ELITES_ENABLED = CFG.elites.enabled;
 const ELITE_START_WAVE = CFG.elites.startWave;
@@ -4286,6 +4329,7 @@ class Player extends Entity {
                             b.damage = this.damage;
                             b.piercing = 0;
                             b.hitCount = 0;
+                            b.hitList = null;
                             b.life = 1.2;
                             game.spawnParticles(ox, oy, "#ffd700", isMobile ? 1 : 3);
                         } else {
@@ -4650,8 +4694,15 @@ class Projectile extends Entity {
             if (!game.lowPerf) {
                 ctx.save();
                 ctx.globalCompositeOperation = "lighter";
-                FX.glow(this.x, this.y, this.radius * 7, "#ff3355", 0.8);
+                FX.glow(this.x, this.y, this.radius * (this.mine ? 5 + 2 * Math.sin(frameNow * 0.012) : 7), "#ff3355", 0.8);
                 ctx.restore();
+            }
+            if (this.mine) {
+                ctx.strokeStyle = this.life < 2 && Math.floor(frameNow * 0.01) % 2 ? "#ffffff" : "#ff3355";
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 4]);
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius + 6, 0, Math.PI * 2); ctx.stroke();
+                ctx.setLineDash([]);
             }
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius + 1, 0, Math.PI * 2);
@@ -4871,6 +4922,8 @@ class Enemy extends Entity {
             if (!game.lowPerf) {
                 this.spawnBeamParticles();
             }
+        } else if (this.kit) {
+            this.updateBossKit(dt, target, dx, dy, d, currentSpeed);
         } else {
             // All other types chase the player
             if (d > 1) {
@@ -4890,6 +4943,327 @@ class Enemy extends Entity {
 
         this.hitFlash = Math.max(0, this.hitFlash - dt);
         this.contactTimer = Math.max(0, this.contactTimer - dt);
+    }
+
+    // ── Boss kits: attacks with a telegraph, then a window where the boss is exposed ──
+
+    initBossKit(kitId, wave) {
+        if (!BOSS_KITS[kitId]) return;
+        this.kit = kitId;
+        this.kitSpeed = bossKitSpeed(wave);
+        this.kitTier = wave >= 15 ? 2 : 1;
+        this.bossState = "idle";
+        this.bossTimer = 1.6;       // a moment to read the boss before the first attack
+        this.staggerT = 0;
+        this.attackIndex = -1;
+        this.attackId = null;
+        this.tele = null;
+    }
+
+    updateBossKit(dt, target, dx, dy, d, currentSpeed) {
+        const kit = BOSS_KITS[this.kit];
+        this.bossTimer -= dt;
+        if (this.bossState === "stagger") {
+            this.staggerT -= dt;
+            if (d > 1) {
+                this.x += (dx / d) * currentSpeed * 0.25 * dt;
+                this.y += (dy / d) * currentSpeed * 0.25 * dt;
+            }
+            if (this.staggerT <= 0) {
+                this.staggerT = 0;
+                this.bossState = "idle";
+                this.bossTimer = kit.cooldown * this.kitSpeed;
+            }
+            return;
+        }
+        if (this.bossState === "idle") {
+            if (d > 1) {
+                this.x += (dx / d) * currentSpeed * dt;
+                this.y += (dy / d) * currentSpeed * dt;
+            }
+            if (this.bossTimer <= 0 && d < 560) this.startBossAttack(kit, target, dx, dy, d);
+            return;
+        }
+        if (this.bossState === "windup") {
+            if (this.bossTimer <= 0) {
+                this.bossState = "active";
+                this.bossTimer = this.tele.duration;
+                this.tele.elapsed = 0;
+                this.releaseBossAttack(target, dx, dy, d);
+            }
+            return;
+        }
+        if (this.bossState === "active") {
+            this.tele.elapsed += dt;
+            this.tickBossAttack(dt, target, dx, dy, d, currentSpeed);
+            if (this.bossTimer <= 0) {
+                this.bossState = "stagger";
+                this.staggerT = (kit.stagger[this.attackId] || 1) * (this.kitTier === 2 ? 0.85 : 1);
+                this.kbx = 0; this.kby = 0;
+                FX.ring(this.x, this.y, "#ffd700", this.radius * 2.2, 0.35, 3);
+                game.spawnParticles(this.x, this.y, "#ffd700", isMobile ? 4 : 12);
+                GameAudio.sfxCrit();
+                if (!game.exposedHintShown) {
+                    game.exposedHintShown = true;
+                    game.triggerEventToast("Boss exposed: hit it now for double damage!", "#ffd700", 2.2);
+                }
+            }
+        }
+    }
+
+    startBossAttack(kit, target, dx, dy, d) {
+        this.attackIndex = (this.attackIndex + 1) % kit.attacks.length;
+        const id = kit.attacks[this.attackIndex];
+        const c = kit[id] || {};
+        const ks = this.kitSpeed;
+        const angle = Math.atan2(dy, dx);
+        const t = { kind: id, windup: (c.windup || 0.6) * ks, duration: c.duration || 0.1, elapsed: 0 };
+        switch (id) {
+            case "charge":
+                t.dir = angle; t.len = c.len || 460; t.duration = (c.len || 460) / (c.speed || 1250);
+                break;
+            case "shardRing":
+                t.count = (c.count || 6) + (this.kitTier === 2 ? (c.extraTier2 || 4) : 0);
+                break;
+            case "slam":
+                t.x = target.x; t.y = target.y; t.radius = c.radius || 140;
+                break;
+            case "volley":
+                t.bursts = c.bursts || 3; t.gap = c.gap || 0.3; t.fired = 0; t.duration = (c.bursts || 3) * (c.gap || 0.3) + 0.1;
+                break;
+            case "sweep":
+                t.angle = angle - (c.arc || Math.PI) / 2; t.rate = (c.arc || Math.PI) / (c.duration || 2); t.len = c.len || 520; t.width = c.width || 44; t.tick = 0;
+                break;
+            case "pull":
+                t.force = c.force || 320; t.done = false;
+                break;
+            case "mines":
+                t.count = c.count || 5; t.ring = c.ring || 110;
+                break;
+        }
+        this.tele = t;
+        this.attackId = id;
+        this.bossState = "windup";
+        this.bossTimer = t.windup;
+        this.kbx = 0; this.kby = 0;
+    }
+
+    releaseBossAttack(target, dx, dy, d) {
+        const t = this.tele;
+        const c = BOSS_KITS[this.kit][t.kind] || {};
+        switch (t.kind) {
+            case "charge":
+                GameAudio.sfxDash();
+                game.camera.shake(3, 0.1);
+                break;
+            case "shardRing": {
+                const off = Math.random() * Math.PI * 2;
+                for (let i = 0; i < t.count; i++) {
+                    const a = off + (Math.PI * 2 / t.count) * i;
+                    game.bullets.push(new Projectile(this.x, this.y, a, Math.floor(this.attackBase * (c.dmg || 0.3)), 0, 1.1, false, true));
+                }
+                GameAudio.sfxExplosion();
+                break;
+            }
+            case "slam": {
+                FX.ring(t.x, t.y, "#ff5533", t.radius, 0.35, 6);
+                game.spawnParticles(t.x, t.y, "#ff7744", isMobile ? 8 : 24);
+                game.camera.shake(10, 0.2);
+                GameAudio.sfxExplosion();
+                const pd = dist(t.x, t.y, target.x, target.y);
+                if (pd < t.radius + target.radius) {
+                    target.takeDamage(Math.floor(this.attackBase * (c.dmg || 0.55)));
+                    // Thrown outwards
+                    const k = pd > 1 ? 1 / pd : 0;
+                    target.vx += (target.x - t.x) * k * 700;
+                    target.vy += (target.y - t.y) * k * 700;
+                }
+                break;
+            }
+            case "mines": {
+                for (let i = 0; i < t.count; i++) {
+                    const a = (Math.PI * 2 / t.count) * i + Math.random() * 0.4;
+                    const mx = clamp(this.x + Math.cos(a) * t.ring, 20, WORLD_W - 20);
+                    const my = clamp(this.y + Math.sin(a) * t.ring, 20, WORLD_H - 20);
+                    const m = new Projectile(mx, my, 0, Math.floor(this.attackBase * (c.dmg || 0.45)), 0, 1.8, false, true);
+                    m.vx = 0; m.vy = 0; m.life = c.life || 9; m.mine = true;
+                    game.bullets.push(m);
+                }
+                game.spawnParticles(this.x, this.y, "#ff3355", isMobile ? 4 : 10);
+                break;
+            }
+            case "sweep":
+                GameAudio.sfxExplosion();
+                break;
+            case "pull":
+                FX.ring(this.x, this.y, "#c38bff", 420, 0.5, 2);
+                break;
+        }
+    }
+
+    tickBossAttack(dt, target, dx, dy, d, currentSpeed) {
+        const t = this.tele;
+        const c = BOSS_KITS[this.kit][t.kind] || {};
+        switch (t.kind) {
+            case "charge": {
+                const sp = c.speed || 1250;
+                this.x += Math.cos(t.dir) * sp * dt;
+                this.y += Math.sin(t.dir) * sp * dt;
+                if (!game.lowPerf) FX.ghost(this.x, this.y, this.radius, "#ff88bb");
+                break;
+            }
+            case "volley": {
+                const due = Math.floor(t.elapsed / t.gap) + 1;
+                while (t.fired < Math.min(t.bursts, due)) {
+                    t.fired++;
+                    const angle = Math.atan2(target.y - this.y, target.x - this.x);
+                    for (let i = -1; i <= 1; i++) {
+                        game.bullets.push(new Projectile(this.x, this.y, angle + i * 0.22, Math.floor(this.attackBase * (c.dmg || 0.22)), 0, 1.0, false, true));
+                    }
+                    GameAudio.sfxShoot();
+                }
+                break;
+            }
+            case "sweep": {
+                t.angle += t.rate * dt;
+                t.tick -= dt;
+                if (t.tick <= 0) {
+                    t.tick = c.tick || 0.5;
+                    const bx = this.x + Math.cos(t.angle) * t.len;
+                    const by = this.y + Math.sin(t.angle) * t.len;
+                    if (distToSegment(target.x, target.y, this.x, this.y, bx, by) < t.width / 2 + target.radius) {
+                        target.takeDamage(Math.floor(this.attackBase * (c.dmg || 0.3)));
+                    }
+                    if (!game.lowPerf) game.spawnParticles(bx, by, "#ff3355", 2);
+                }
+                break;
+            }
+            case "pull": {
+                // Dashing breaks the pull
+                if (target.dashT <= 0 && d > this.radius + 20) {
+                    const f = t.force * dt;
+                    target.x += (this.x - target.x) / d * f;
+                    target.y += (this.y - target.y) / d * f;
+                }
+                if (this.bossTimer <= 0 && !t.done) {
+                    t.done = true;
+                    const n = c.ringCount || 8;
+                    for (let i = 0; i < n; i++) {
+                        const a = (Math.PI * 2 / n) * i;
+                        game.bullets.push(new Projectile(this.x, this.y, a, Math.floor(this.attackBase * (c.dmg || 0.25)), 0, 1.0, false, true));
+                    }
+                    GameAudio.sfxExplosion();
+                }
+                break;
+            }
+        }
+    }
+
+    /** Telegraphs and the exposed state, drawn in world space under the boss. */
+    drawBossTelegraph() {
+        const t = this.tele;
+        ctx.save();
+        if (this.bossState === "windup" && t) {
+            const p = clamp(1 - this.bossTimer / Math.max(0.01, t.windup), 0, 1);
+            const pulse = 0.5 + 0.5 * Math.sin(frameNow * 0.03);
+            ctx.lineWidth = 2;
+            switch (t.kind) {
+                case "charge": {
+                    const ex = this.x + Math.cos(t.dir) * t.len, ey = this.y + Math.sin(t.dir) * t.len;
+                    ctx.strokeStyle = `rgba(255,80,110,${0.25 + 0.55 * p})`;
+                    ctx.lineWidth = 6 + 30 * p;
+                    ctx.lineCap = "round";
+                    ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(ex, ey); ctx.stroke();
+                    ctx.lineCap = "butt";
+                    break;
+                }
+                case "shardRing":
+                    ctx.strokeStyle = `rgba(255,136,187,${0.3 + 0.5 * p})`;
+                    ctx.setLineDash([6, 8]);
+                    ctx.beginPath(); ctx.arc(this.x, this.y, this.radius * (1.3 + 0.6 * p), 0, Math.PI * 2); ctx.stroke();
+                    ctx.setLineDash([]);
+                    break;
+                case "slam":
+                    ctx.fillStyle = `rgba(255,70,40,${0.12 + 0.18 * p})`;
+                    ctx.beginPath(); ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = `rgba(255,120,80,${0.5 + 0.4 * pulse})`;
+                    ctx.beginPath(); ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2); ctx.stroke();
+                    ctx.fillStyle = `rgba(255,120,80,${0.35})`;
+                    ctx.beginPath(); ctx.arc(t.x, t.y, t.radius * p, 0, Math.PI * 2); ctx.fill();
+                    break;
+                case "volley": {
+                    const a = Math.atan2(game.player.y - this.y, game.player.x - this.x);
+                    ctx.strokeStyle = `rgba(255,80,80,${0.2 + 0.5 * p})`;
+                    for (let i = -1; i <= 1; i++) {
+                        ctx.beginPath(); ctx.moveTo(this.x, this.y);
+                        ctx.lineTo(this.x + Math.cos(a + i * 0.22) * 380, this.y + Math.sin(a + i * 0.22) * 380); ctx.stroke();
+                    }
+                    break;
+                }
+                case "sweep": {
+                    ctx.strokeStyle = `rgba(255,60,90,${0.3 + 0.5 * p})`;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x + Math.cos(t.angle) * t.len, this.y + Math.sin(t.angle) * t.len); ctx.stroke();
+                    ctx.setLineDash([4, 10]);
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.arc(this.x, this.y, t.len, t.angle, t.angle + t.rate * t.duration); ctx.stroke();
+                    ctx.setLineDash([]);
+                    break;
+                }
+                case "pull":
+                    ctx.strokeStyle = `rgba(195,139,255,${0.3 + 0.5 * p})`;
+                    ctx.setLineDash([8, 10]);
+                    ctx.beginPath(); ctx.arc(this.x, this.y, 420 - 300 * p, 0, Math.PI * 2); ctx.stroke();
+                    ctx.setLineDash([]);
+                    break;
+                case "mines":
+                    ctx.strokeStyle = `rgba(255,51,85,${0.3 + 0.5 * p})`;
+                    ctx.beginPath(); ctx.arc(this.x, this.y, t.ring, 0, Math.PI * 2); ctx.stroke();
+                    break;
+            }
+        } else if (this.bossState === "active" && t) {
+            if (t.kind === "sweep") {
+                const ex = this.x + Math.cos(t.angle) * t.len, ey = this.y + Math.sin(t.angle) * t.len;
+                ctx.lineCap = "round";
+                ctx.globalCompositeOperation = "lighter";
+                ctx.strokeStyle = "rgba(255,60,90,0.35)"; ctx.lineWidth = t.width + 18;
+                ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(ex, ey); ctx.stroke();
+                ctx.strokeStyle = "#ff3355"; ctx.lineWidth = t.width;
+                ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(ex, ey); ctx.stroke();
+                ctx.strokeStyle = "#ffffff"; ctx.lineWidth = t.width * 0.3;
+                ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(ex, ey); ctx.stroke();
+                ctx.globalCompositeOperation = "source-over";
+                ctx.lineCap = "butt";
+            } else if (t.kind === "pull") {
+                const pl = game.player;
+                ctx.strokeStyle = "rgba(195,139,255,0.6)";
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 6]);
+                ctx.lineDashOffset = -frameNow * 0.05;
+                ctx.beginPath(); ctx.moveTo(pl.x, pl.y); ctx.lineTo(this.x, this.y); ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        } else if (this.bossState === "stagger") {
+            // Cracks and a label: the window to hit hard
+            const r = this.radius;
+            ctx.strokeStyle = "rgba(255,215,0,0.85)";
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 4; i++) {
+                const a = i * 1.7 + 0.4;
+                ctx.beginPath();
+                ctx.moveTo(this.x + Math.cos(a) * r * 0.2, this.y + Math.sin(a) * r * 0.2);
+                ctx.lineTo(this.x + Math.cos(a + 0.3) * r * 0.6, this.y + Math.sin(a + 0.3) * r * 0.6);
+                ctx.lineTo(this.x + Math.cos(a - 0.1) * r * 1.05, this.y + Math.sin(a - 0.1) * r * 1.05);
+                ctx.stroke();
+            }
+            ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillStyle = "#ffd700";
+            ctx.fillText("EXPOSED", this.x, this.y - r - (this.type === "bigboss" ? 44 : 34));
+        }
+        ctx.restore();
     }
 
     /** Summoner modifier: periodically calls in two normal adds. */
@@ -5101,6 +5475,7 @@ class Enemy extends Entity {
     }
 
     draw() {
+        if (this.kit) this.drawBossTelegraph();
         const isSlow = this.slowTimer > 0;
         // A hit makes the enemy pop by a few percent while the flash lasts; the
         // rest of the time regular enemies breathe a little.
@@ -5114,6 +5489,7 @@ class Enemy extends Entity {
             ctx.translate(-this.x, -this.y);
         }
         const col = this.hitFlash > 0 ? "#ffffff"
+            : (this.staggerT > 0 && this.kit) ? (Math.floor(frameNow * 0.01) % 2 ? "#ffd700" : "#ffe680")
             : this.frozenT > 0 ? "#e8fbff"
             : this.burnT > 0 ? (Math.floor(frameNow * 0.012) % 2 ? "#ff8a2a" : "#ffb347")
             : (isSlow ? "#88ccff" : this.color);
@@ -5533,7 +5909,11 @@ class Enemy extends Entity {
         // arc. The player has to get around it. Direction is derived from where
         // the player is relative to the boss's facing (towards the player), so
         // the practical counter is strafing round the back.
-        if (this.modShieldWall) {
+        // Exposed after an attack: everything hits for double
+        if (this.staggerT > 0 && this.kit) {
+            finalAmount = Math.floor(finalAmount * BOSS_STAGGER_DMG_MULT);
+        }
+        if (this.modShieldWall && !(this.staggerT > 0)) {
             const c = CFG.bossModifiers.shieldWall;
             // The boss has a facing that lerps slowly towards the player, so
             // the player can genuinely flank around the shield by strafing.
@@ -5554,7 +5934,7 @@ class Enemy extends Entity {
         this.hitFlash = 0.1;
         // Damage number. Hits that land within 0.15 s of the last one add up
         // instead of piling new numbers on top of each other.
-        const color = (this.type === "endboss" && this.shieldActive) ? "#88ccff" : (isCrit ? "#ffcc44" : "#ffffff");
+        const color = (this.type === "endboss" && this.shieldActive) ? "#88ccff" : (this.staggerT > 0 && this.kit) ? "#ffd700" : (isCrit ? "#ffcc44" : "#ffffff");
         const last = this.lastDamageNumber;
         if (last && last.alive && last.maxLife - last.life < 0.15) {
             last.amount += finalAmount;
@@ -9302,7 +9682,8 @@ const game = {
             e.update(speedDt, this.player);
 
             // Contact damage
-            if (e.collidesWith(this.player) && e.contactTimer <= 0) {
+            // An exposed boss is harmless to the touch: the window is for going in.
+            if (e.collidesWith(this.player) && e.contactTimer <= 0 && !(e.kit && e.staggerT > 0)) {
                 this.player.takeDamage(e.contactDamage);
                 e.contactTimer = 0.5;
             }
@@ -9330,8 +9711,12 @@ const game = {
                 for (let i = 0; i < nearby.length; i++) {
                     const e = nearby[i];
                     if (!e.alive) continue;
+                    // A piercing bullet passes through an enemy once; it never hits
+                    // the same one again while still overlapping it.
+                    if (b.hitList && b.hitList.includes(e)) continue;
                     if (b.collidesWith(e)) {
                         this.runShotsHit++;
+                        if (b.piercing > 0) (b.hitList || (b.hitList = [])).push(e);
                         if (e.type !== "miniboss" && e.type !== "bigboss" && e.type !== "endboss" && e.type !== "warden") {
                             const push = (e.type === "tank" ? 0.1 : 0.28) * (b.isCrit ? 1.5 : 1);
                             e.kbx += b.vx * push;
@@ -10397,13 +10782,19 @@ const game = {
             ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
             ctx.fillStyle = isBig ? "#ff3333" : "#ff88bb";
             ctx.fillText(label, CANVAS_W / 2, by - 4);
+            const exposed = this.activeBoss.staggerT > 0 && this.activeBoss.kit;
             ctx.fillStyle = "#330000";
             ctx.fillRect(bx, by, bw, bh);
-            ctx.fillStyle = isBig ? "#cc0000" : "#dd2277";
+            ctx.fillStyle = exposed ? "#ffd700" : (isBig ? "#cc0000" : "#dd2277");
             ctx.fillRect(bx, by, bw * clamp(this.activeBoss.hp / this.activeBoss.maxHp, 0, 1), bh);
-            ctx.strokeStyle = isBig ? "#ff3333" : "#ff88bb";
+            ctx.strokeStyle = exposed ? "#ffd700" : (isBig ? "#ff3333" : "#ff88bb");
             ctx.lineWidth = 1.5;
             ctx.strokeRect(bx, by, bw, bh);
+            if (exposed) {
+                ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+                ctx.fillStyle = "#ffd700";
+                ctx.fillText(`EXPOSED  ×${BOSS_STAGGER_DMG_MULT} damage`, CANVAS_W / 2, by + bh + 13);
+            }
         } else if (this.activeBoss && !this.activeBoss.alive) {
             this.activeBoss = null;
         }
@@ -10507,16 +10898,17 @@ const game = {
                 this.maybeRequestMidroll();
                 return;
             }
-            // Continuously spawn enemies on a timer
+            // Continuously spawn enemies on a timer. Not while a boss is up: the
+            // fight is the boss and its own adds, nothing else.
+            const bossUp = this.activeBoss && this.activeBoss.alive;
             this.spawnTimer -= dt;
             if (this.spawnTimer <= 0) {
                 this.spawnTimer += this.spawnCooldown;
-                this.spawnWaveEnemy();
+                if (!bossUp) this.spawnWaveEnemy();
             }
             // Crowd pressure: top the arena up so it never feels empty. Not while a
             // boss is up, or the fight turns into an endless XP farm.
             this.refillTimer -= dt;
-            const bossUp = this.activeBoss && this.activeBoss.alive;
             if (this.refillTimer <= 0 && !bossUp && this.regularEnemiesAlive() < this.minAliveFor(this.wave)) {
                 this.refillTimer = WAVE_MIN_ALIVE.refillCd;
                 this.spawnWaveEnemy();
@@ -10617,7 +11009,9 @@ const game = {
         }
 
         // Every wave opens with a crowd instead of a trickle.
-        const burst = Math.min(WAVE_MIN_ALIVE.burst, this.minAliveFor(this.wave)) - this.regularEnemiesAlive();
+        // Boss waves open with the boss alone, no crowd burst.
+        const burst = this.isBossWave(this.wave) ? 0
+            : Math.min(WAVE_MIN_ALIVE.burst, this.minAliveFor(this.wave)) - this.regularEnemiesAlive();
         for (let i = 0; i < burst; i++) this.spawnWaveEnemy();
 
         // Switch music when biome changes
@@ -10651,10 +11045,17 @@ const game = {
             }
             // Hand-tuned boss HP (see bossHpForWave) - keeps milestone bosses
             // beatable instead of letting the wave curve run away with them.
-            const bossHp = Math.floor(this.bossHpForWave(this.wave) * mods.enemyHpMult);
+            // A build far ahead of the curve (meta upgrades, loot) would melt the
+            // boss in seconds, so the HP grows with the player's DPS, never shrinks.
+            const expected = (CFG.bosses.expectedDpsByWave || {})[String(this.wave)] || 0;
+            const gearMult = expected > 0 ? clamp(estimatePlayerDps(this.player) / expected, 1, CFG.bosses.maxGearHpMult || 4) : 1;
+            const bossHp = Math.floor(this.bossHpForWave(this.wave) * mods.enemyHpMult * gearMult);
             boss.maxHp = bossHp;
             boss.hp = bossHp;
+            boss.gearMult = gearMult;
             boss.contactDamage = Math.floor(boss.contactDamage * dmgMult * mods.enemyDmgMult);
+            boss.attackBase = Math.floor(bossAttackBase(this.wave) * mods.enemyDmgMult);
+            boss.initBossKit(bossType === "bigboss" ? (this.wave >= 20 ? "colossus" : "tyrant") : "warden", this.wave);
             this.enemies.push(boss);
             this.activeBoss = boss;
             this.rollBossModifiers(boss);

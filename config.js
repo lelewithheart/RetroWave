@@ -64,16 +64,64 @@ window.RogueConfig = {
             20: "Abyss Colossus",
         },
         endbossName: "The Null Sovereign",
-        // Absolute boss HP per boss wave, decoupled from the trash curve and
-        // calibrated against the player's expected DPS at that point (roughly
-        // 220 / 760 / 1890 / 3225 / 5700 dps with the new XP economy). Target
-        // fight lengths: ~12s, 16s, 18s, 25s, and ~55s for the final boss.
+        // Absolute boss HP per boss wave, decoupled from the trash curve. Set on
+        // 2026-11-17 with the bot in tools/weapon_sim.js (fresh account, about
+        // two stat cards a wave, Lightning 3 + Flame 3) for fights of roughly
+        // 12 s, 18 s, 25 s and 25 s; the final boss stays at ~55 s. The exposed
+        // windows after each attack are already part of those numbers, and the
+        // old table was tuned while piercing bullets still hit a boss several
+        // times per pass (fixed the same day).
         hpByWave: {
-            5:  2500,
-            10: 12000,
-            15: 34000,
-            20: 81000,
+            5:  3400,
+            10: 10000,
+            15: 15000,
+            20: 85000,
             25: 314000,
+        },
+        // The single-target DPS the HP table expects (the fresh bot's estimate,
+        // see estimatePlayerDps). A build above it (meta upgrades, loot) scales
+        // the boss HP up by the same factor, capped, so the fight length holds.
+        expectedDpsByWave: {
+            5: 175,
+            10: 372,
+            15: 774,
+            20: 1499,
+        },
+        maxGearHpMult: 4,
+    },
+    // Boss kits: attack patterns with a telegraph, then an exposed window.
+    // Windups and cooldowns shrink with the wave (bossKitSpeed in game.js).
+    // `stagger` is how long the boss stays exposed after each attack.
+    bossKits: {
+        staggerDamageMult: 2,
+        // Attack damage = (base + perWave * wave) * the attack's dmg fraction.
+        // Wave 5: 70, wave 10: 100, wave 15: 130, wave 20: 160.
+        attackDamageBase: 40,
+        attackDamagePerWave: 6,
+        // Shard Warden (wave 5 and 15)
+        warden: {
+            attacks: ["charge", "shardRing"],
+            cooldown: 2.4,
+            stagger: { charge: 2.0, shardRing: 1.2 },
+            charge:    { windup: 0.8, len: 400, speed: 1250 },
+            shardRing: { windup: 0.6, count: 6, extraTier2: 4, dmg: 0.3 },
+        },
+        // Iron Tyrant (wave 10)
+        tyrant: {
+            attacks: ["slam", "volley"],
+            cooldown: 2.8,
+            stagger: { slam: 2.0, volley: 1.0 },
+            slam:   { windup: 1.0, radius: 140, dmg: 0.55 },
+            volley: { windup: 0.5, bursts: 3, gap: 0.3, dmg: 0.22 },
+        },
+        // Abyss Colossus (wave 20)
+        colossus: {
+            attacks: ["sweep", "pull", "mines"],
+            cooldown: 2.8,
+            stagger: { sweep: 2.0, pull: 1.5, mines: 0.8 },
+            sweep: { windup: 0.8, duration: 2.0, arc: Math.PI, len: 520, width: 44, tick: 0.5, dmg: 0.3 },
+            pull:  { windup: 0.7, duration: 1.0, force: 320, ringCount: 8, dmg: 0.25 },
+            mines: { windup: 0.4, count: 5, ring: 110, life: 9, dmg: 0.45 },
         },
     },
     skinShop: { // Only Fallback 
