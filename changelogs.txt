@@ -6,6 +6,7 @@ beta 17.11:1
 - NEW: Weapon evolutions. At Lv 5 a weapon can evolve into a new form, if you took its key stat this run: Orbit Shield + Bullet Size = Singularity, Lightning Aura + Crit Chance = Storm Chain, Frost Nova + Range = Absolute Zero, Flame Trail + Move Speed = Inferno. The weapon card tells you what it needs
 - NEW: Synergies. Two weapons at Lv 3 work together: Superconductor (Frost + Lightning), Thermal Shock (Flame + Frost), Burning Orbit (Orbit + Flame). Shown in the build overview
 - NEW: Overdrive now speeds up your weapons too
+- NEW: Screen effects slider in the settings, 0 to 100%: scales screen shake, flashes and hit-stops, and it is remembered
 - An evolved weapon is complete: its +1 card stops showing up. Unevolved weapons stop at Lv 8
 - Enemies can be frozen solid and set ablaze, and fire spreads between enemies that touch
 - NEW: Boss fights. Shard Warden charges and throws shard rings, Iron Tyrant slams the ground and fires volleys, Abyss Colossus sweeps a laser, pulls you in and drops mines. Every attack is telegraphed, and after each one the boss is EXPOSED for a moment and takes double damage

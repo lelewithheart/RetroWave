@@ -3573,6 +3573,7 @@ const Input = {
 const Mouse = {
     x: 0, y: 0,
     clicked: false,
+    down: false,      // button or finger currently held (for sliders)
     wheelDelta: 0,
     touchScrollDelta: 0,
     touchDragId: -1,
@@ -3585,7 +3586,10 @@ const Mouse = {
             this.x = pos.x;
             this.y = pos.y;
         });
-        canvas.addEventListener("mousedown", () => { this.clicked = true; });
+        canvas.addEventListener("mousedown", () => { this.clicked = true; this.down = true; });
+        window.addEventListener("mouseup", () => { this.down = false; });
+        canvas.addEventListener("touchend", () => { this.down = false; }, { passive: true });
+        canvas.addEventListener("touchcancel", () => { this.down = false; }, { passive: true });
         canvas.addEventListener("wheel", (e) => {
             e.preventDefault();
             this.wheelDelta += e.deltaY;
@@ -3605,6 +3609,7 @@ const Mouse = {
                 this.x = cx;
                 this.y = cy;
                 this.clicked = true;
+                this.down = true;
 
                 if (game.state === STATE.SHOP && this.touchDragId === -1) {
                     this.touchDragId = t.identifier;
@@ -4003,8 +4008,8 @@ class Camera {
     }
 
     shake(intensity = SHAKE_INTENSITY, duration = SHAKE_DURATION) {
-        if (!Settings.shakeEnabled) return;
-        const added = (Number(intensity) || SHAKE_INTENSITY) * 0.09;
+        if (!Settings.shakeEnabled || Settings.effectsLevel <= 0) return;
+        const added = (Number(intensity) || SHAKE_INTENSITY) * 0.09 * Settings.effectsLevel;
         this.trauma = Math.min(1, this.trauma + added);
     }
 
@@ -6847,12 +6852,22 @@ const CrazyGamesSDK = (() => {
 // §15  SETTINGS STORE
 // ─────────────────────────────────────────────
 
+const EFFECTS_LEVEL_KEY = "roguewave_effects_level";
 const Settings = {
     soundEnabled:  true,
     musicEnabled:  true,
     shakeEnabled:  true,
+    // 0..1: how strong screen shake, flashes and hit-stops are. Kept locally.
+    effectsLevel:  (() => {
+        try { const v = parseFloat(localStorage.getItem(EFFECTS_LEVEL_KEY)); return Number.isFinite(v) ? clamp(v, 0, 1) : 1; } catch (e) { return 1; }
+    })(),
     gameMode:      "normal",    // "normal" | "easy" | "hard"
     challengeMode: "none",      // dynamic ids from CHALLENGE_MODES
+    setEffectsLevel(v) {
+        this.effectsLevel = clamp(Math.round(v * 20) / 20, 0, 1);
+        this.shakeEnabled = this.effectsLevel > 0;
+        try { localStorage.setItem(EFFECTS_LEVEL_KEY, String(this.effectsLevel)); } catch (e) { /* ignore */ }
+    },
 };
 
 // ─────────────────────────────────────────────
@@ -6883,6 +6898,54 @@ function drawPanel(x, y, w, h, r = 8, opts = {}) {
         ctx.lineWidth = opts.lineWidth || 1.2;
         ctx.stroke();
     }
+}
+
+/**
+ * A slider in the style of the buttons. Returns the new value (0..1) while the
+ * mouse or a finger drags it, otherwise the value passed in. `id` keeps a drag
+ * going once it started on this slider, even when the pointer leaves it.
+ */
+let activeSliderId = null;
+function drawSlider(label, x, y, w, h, value, id) {
+    let v = value;
+    const over = Mouse.inRect(x, y, w, h);
+    if (Mouse.down && (activeSliderId === id || (activeSliderId === null && over))) {
+        activeSliderId = id;
+        v = clamp((Mouse.x - (x + 14)) / (w - 28), 0, 1);
+    } else if (!Mouse.down && activeSliderId === id) {
+        activeSliderId = null;
+    }
+    const hovered = over || activeSliderId === id;
+    drawRoundRect(x, y, w, h, 8);
+    ctx.fillStyle = "rgba(12,22,34,0.9)";
+    ctx.fill();
+    ctx.strokeStyle = hovered ? "rgba(197,247,255,0.95)" : "rgba(132,220,246,0.65)";
+    ctx.lineWidth = hovered ? 1.8 : 1.2;
+    ctx.stroke();
+    // Track and fill
+    const tx = x + 14, tw = w - 28, ty = y + h - 11;
+    drawRoundRect(tx, ty, tw, 5, 2.5);
+    ctx.fillStyle = "rgba(255,255,255,0.14)";
+    ctx.fill();
+    drawRoundRect(tx, ty, Math.max(5, tw * v), 5, 2.5);
+    ctx.fillStyle = COLOR.accent;
+    ctx.fill();
+    // Knob
+    ctx.beginPath();
+    ctx.arc(tx + tw * v, ty + 2.5, hovered ? 8 : 7, 0, Math.PI * 2);
+    ctx.fillStyle = hovered ? "#7be6ff" : COLOR.accent;
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Label with the value
+    ctx.fillStyle = hovered ? "#ffffff" : COLOR.text;
+    ctx.font = uiFont(15, "bold");
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${label}: ${Math.round(v * 100)}%`, x + w / 2, y + 14);
+    ctx.textBaseline = "alphabetic";
+    return v;
 }
 
 /** Draw a stylised button, returns true if clicked */
@@ -10413,7 +10476,7 @@ const game = {
         // Event feedback (flash & toast) - skip on low-perf for reduced overhead
         if (!this.lowPerf) {
             if (this.eventFlashTimer > 0) {
-                const flashAlpha = clamp(this.eventFlashTimer / 0.26, 0, 0.24);
+                const flashAlpha = clamp(this.eventFlashTimer / 0.26, 0, 0.24) * Settings.effectsLevel;
                 ctx.globalAlpha = flashAlpha;
                 ctx.fillStyle = this.eventFlashColor || "#ffffff";
                 ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -11283,7 +11346,7 @@ const game = {
             // A short freeze, but not for every elite in a crowd.
             if (this.timePlayed - this.lastEliteFreeze > 2) {
                 this.lastEliteFreeze = this.timePlayed;
-                this.hitStop = Math.max(this.hitStop, 0.045);
+                this.hitStop = Math.max(this.hitStop, 0.045 * Settings.effectsLevel);
             }
         }
         if (enemy.type === "tank") {
@@ -11293,7 +11356,7 @@ const game = {
             this.spawnParticles(enemy.x, enemy.y, "#ffffff", isMobile ? 3 : 10);
             GameAudio.sfxBossDefeat(enemy.type);
             this.camera.shake(9);
-            this.hitStop = 0.14;
+            this.hitStop = 0.14 * Settings.effectsLevel;
             this.triggerEventFlash("#ffd166", 0.24);
             this.triggerEventToast(`${getBossDisplayName(enemy)} defeated!`, "#ffd166", 1.2);
         } else if (enemy.type === "endboss") {
@@ -11303,7 +11366,7 @@ const game = {
             this.spawnParticles(enemy.x, enemy.y, "#ffd700", isMobile ? 6 : 20);
             GameAudio.sfxBossDefeat(enemy.type);
             this.camera.shake(11);
-            this.hitStop = 0.24;
+            this.hitStop = 0.24 * Settings.effectsLevel;
             GameAudio.sfxExplosion();
             this.triggerEventFlash("#ff55cc", 0.32);
             this.triggerEventToast("FINAL BOSS SLAIN!", "#ff66dd", 1.5);
@@ -11833,7 +11896,7 @@ const game = {
         // Calculate total height of all elements
         let totalH = 40;   // title
         totalH += 12;      // gap after title
-        totalH += (bh + btnGap) * 3; // 3 toggle buttons
+        totalH += (bh + btnGap) * 3 + 14; // 2 toggle buttons + the effects slider
         if (hasCacheBtn) totalH += bh + btnGap + 20; // cache button + hint
         totalH += sectionGap; // gap before controls
         totalH += 20 + (lineGap + 4) * controlLines; // controls header + lines
@@ -11907,14 +11970,14 @@ const game = {
         }
         y += bh + btnGap;
 
-        const shakeHover = Mouse.inRect(bx, y, bw, bh);
-        if (drawButton(
-            `Screen Shake: ${Settings.shakeEnabled ? "ON" : "OFF"}`,
-            bx, y, bw, bh, shakeHover
-        )) {
-            Settings.shakeEnabled = !Settings.shakeEnabled;
-        }
-        y += bh + btnGap;
+        // Screen shake, flashes and hit-stops, 0 to 100 %
+        const effects = drawSlider("Screen effects", bx, y, bw, bh, Settings.effectsLevel, "effects");
+        if (effects !== Settings.effectsLevel) Settings.setEffectsLevel(effects);
+        ctx.fillStyle = COLOR.textDim;
+        ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Shake, flashes and hit-stops", CANVAS_W / 2, y + bh + 12);
+        y += bh + btnGap + 14;
 
         // Optional rewarded shard cache once per run
         if (hasCacheBtn) {
